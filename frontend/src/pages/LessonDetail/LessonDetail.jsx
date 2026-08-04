@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getLesson } from '../../api/lessons'
+import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
 import styles from './LessonDetail.module.css'
 
 function formatDuration(seconds) {
@@ -47,7 +48,11 @@ function LessonDetail() {
       </Link>
       <h1 className={styles.title}>{state.lesson.title}</h1>
       {duration && <span className={styles.duration}>{duration}</span>}
-      <div className={styles.video}>Video coming soon</div>
+      {state.lesson.video_key ? (
+        <VideoPlayer slug={state.lesson.slug} />
+      ) : (
+        <div className={styles.video}>Video coming soon</div>
+      )}
       <p className={styles.description}>{state.lesson.description}</p>
     </article>
   )

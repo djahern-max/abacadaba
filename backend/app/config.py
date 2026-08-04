@@ -6,6 +6,12 @@ class Settings(BaseSettings):
 
     database_url: str
     cors_origins: str
+    spaces_key: str
+    spaces_secret: str
+    spaces_region: str
+    spaces_bucket: str
+    spaces_endpoint: str
+    upload_secret: str
 
     @property
     def cors_origins_list(self) -> list[str]:

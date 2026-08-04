@@ -1,0 +1,104 @@
+import io
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
+from app.config import settings
+from app.db import SessionLocal
+from app.main import app
+from app.models.lesson import Lesson
+from app.services import storage
+
+client = TestClient(app)
+
+WITH_VIDEO_SLUG = "test-lesson-with-video"
+WITHOUT_VIDEO_SLUG = "test-lesson-without-video"
+
+
+@pytest.fixture(autouse=True)
+def seed_test_lessons():
+    db = SessionLocal()
+    db.add(
+        Lesson(
+            slug=WITH_VIDEO_SLUG,
+            title="Lesson With Video",
+            description="Used to test the video-url endpoint.",
+            duration_seconds=300,
+            is_published=True,
+            video_key="lessons/test-lesson-with-video.mp4",
+        )
+    )
+    db.add(
+        Lesson(
+            slug=WITHOUT_VIDEO_SLUG,
+            title="Lesson Without Video",
+            description="Used to test the no-video-yet case.",
+            duration_seconds=300,
+            is_published=True,
+            video_key=None,
+        )
+    )
+    db.commit()
+    db.close()
+
+    yield
+
+    db = SessionLocal()
+    db.execute(delete(Lesson).where(Lesson.slug.in_([WITH_VIDEO_SLUG, WITHOUT_VIDEO_SLUG])))
+    db.commit()
+    db.close()
+
+
+def test_video_url_404_when_no_video(monkeypatch):
+    response = client.get(f"/api/v1/lessons/{WITHOUT_VIDEO_SLUG}/video-url")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "This lesson has no video yet"
+
+
+def test_video_url_200_when_video_set(monkeypatch):
+    monkeypatch.setattr(
+        storage, "generate_presigned_get", lambda key, expires_in=3600: "https://example.com/signed"
+    )
+    response = client.get(f"/api/v1/lessons/{WITH_VIDEO_SLUG}/video-url")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["url"] == "https://example.com/signed"
+    assert body["expires_in"] == 3600
+
+
+def test_upload_without_header_returns_401():
+    response = client.post(
+        f"/api/v1/admin/lessons/{WITH_VIDEO_SLUG}/video",
+        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
+    )
+    assert response.status_code == 401
+
+
+def test_upload_with_wrong_secret_returns_401():
+    response = client.post(
+        f"/api/v1/admin/lessons/{WITH_VIDEO_SLUG}/video",
+        headers={"X-Upload-Secret": "wrong-secret"},
+        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
+    )
+    assert response.status_code == 401
+
+
+def test_upload_wrong_content_type_returns_400():
+    response = client.post(
+        f"/api/v1/admin/lessons/{WITH_VIDEO_SLUG}/video",
+        headers={"X-Upload-Secret": settings.upload_secret},
+        files={"file": ("notes.txt", io.BytesIO(b"data"), "text/plain")},
+    )
+    assert response.status_code == 400
+
+
+def test_upload_success(monkeypatch):
+    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+    response = client.post(
+        f"/api/v1/admin/lessons/{WITH_VIDEO_SLUG}/video",
+        headers={"X-Upload-Secret": settings.upload_secret},
+        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
+    )
+    assert response.status_code == 200
+    assert response.json()["video_key"] == f"lessons/{WITH_VIDEO_SLUG}.mp4"

@@ -19,3 +19,9 @@ class LessonDetail(BaseModel):
     title: str
     description: str
     duration_seconds: int | None
+    video_key: str | None
+
+
+class VideoUrlResponse(BaseModel):
+    url: str
+    expires_in: int

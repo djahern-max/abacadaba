@@ -1,92 +1,98 @@
 # Current Feature
 
-## Feature 002, Lessons: model, API, and browsing
+## Feature 003, Video storage and playback
 
 ## Goal
-A real domain object. Seeded lessons come out of Postgres, through the API, and
-render as a browsable list with a detail page.
+A lesson has a video living in DigitalOcean Spaces, and it plays in the browser
+via a short lived presigned URL. The Space stays private.
 
 ## In scope
-- lessons table with an Alembic migration
-- List and detail endpoints
-- A seed script with three sample lessons
-- Client side routing, list page, detail page
-- Backend tests for the new endpoints
+- video_key column on lessons, with a migration
+- Spaces client service using boto3
+- A presigned URL endpoint the player calls
+- A minimal upload endpoint guarded by a shared secret
+- A VideoPlayer component replacing the placeholder on the detail page
 
 ## Out of scope
-- Video upload, DigitalOcean Spaces, any video playback (feature 003)
 - Questions, quizzes, scoring, confetti, certificates
-- Auth, admin UI, creating or editing lessons through the API
-- Pagination, search, filtering
+- Real auth or user accounts, an admin UI, transcoding, thumbnails
+- Captions, playback progress tracking, resume where you left off
+
+## Setup expected before you start
+The Space exists and is private. backend/.env has real values for SPACES_KEY,
+SPACES_SECRET, SPACES_REGION, SPACES_BUCKET, SPACES_ENDPOINT. Add one new var,
+UPLOAD_SECRET, to both .env and .env.example, and to Settings in config.py.
 
 ## Data model
-Table lessons:
-- id: integer primary key
-- slug: string, unique, indexed, not null. URL safe, e.g. "intro-to-ratios"
-- title: string, not null
-- description: text, not null
-- duration_seconds: integer, nullable
-- is_published: boolean, not null, default false
-- created_at, updated_at: timezone aware UTC, server defaults
+Add to lessons:
+- video_key: string, nullable. The object key within the bucket, e.g.
+  "lessons/intro-to-ratios.mp4". Never a full URL, never a signed URL.
 
-Do not add a video column. That arrives in feature 003 with its own migration.
+Nullable on purpose: a lesson can exist before its video is uploaded.
 
 ## Backend tasks
-1. app/models/lesson.py: the Lesson model in SQLAlchemy 2.0 style.
-2. Make sure app/models/__init__.py imports Lesson, and that alembic/env.py
-   imports app.models so autogenerate actually sees the table. Verify the
-   generated migration is not empty before applying it.
-3. Generate and apply the migration:
-   alembic revision --autogenerate -m "create lessons"
+1. Add video_key to the Lesson model, then:
+   alembic revision --autogenerate -m "add video_key to lessons"
    alembic upgrade head
-4. app/schemas/lesson.py: LessonSummary (id, slug, title, description,
-   duration_seconds) and LessonDetail (same fields for now, kept separate so it
-   can grow in later features). model_config = ConfigDict(from_attributes=True).
-5. app/services/lessons.py: list_published(db) ordered by id, and
-   get_by_slug(db, slug) returning None when missing or unpublished.
-6. app/routers/lessons.py:
-   - GET /lessons returns list[LessonSummary], published only
-   - GET /lessons/{slug} returns LessonDetail, or 404 with a clear detail message
-   Register under the /api/v1 prefix in main.py.
-7. backend/scripts/seed.py: idempotent, safe to run twice. Upsert three
-   published lessons on slug with plausible titles and two or three sentence
-   descriptions, duration_seconds around 300. Print what it created or skipped.
-   Runnable as: python -m scripts.seed
-8. tests/test_lessons.py:
-   - GET /api/v1/lessons returns 200 and a list
-   - an unpublished lesson does not appear in the list
-   - GET /api/v1/lessons/{slug} returns the right lesson
-   - an unknown slug returns 404
+   Confirm downgrade -1 reverses it.
+2. app/services/storage.py:
+   - A module level boto3 S3 client built from settings, created once and reused.
+     Use endpoint_url, region_name, and signature_version s3v4.
+   - generate_presigned_get(key, expires_in=3600) returning a URL string.
+   - upload_fileobj(fileobj, key, content_type) uploading with private ACL.
+   - object_exists(key) returning a bool, catching ClientError rather than
+     letting a 404 from S3 escape as a 500.
+   Wrap credential and connection failures in a clear application error. A
+   missing or wrong key should surface as a readable message, not a stack trace.
+3. app/schemas/lesson.py: add video_key to LessonDetail. Add a VideoUrlResponse
+   schema with url and expires_in.
+4. app/routers/lessons.py: GET /lessons/{slug}/video-url
+   - 404 if the lesson does not exist or is unpublished
+   - 404 with detail "This lesson has no video yet" if video_key is null
+   - otherwise 200 with a presigned URL valid for one hour
+5. app/routers/admin.py: POST /admin/lessons/{slug}/video
+   - Requires header X-Upload-Secret matching settings.UPLOAD_SECRET, else 401.
+     Compare with secrets.compare_digest.
+   - Accepts a multipart file upload. Reject anything whose content type is not
+     video/mp4 or video/webm with a 400.
+   - Builds the key as "lessons/{slug}{ext}", uploads it, sets lesson.video_key,
+     commits, returns the lesson's video_key.
+   Register under /api/v1. Add a comment noting the shared secret is temporary
+   and replaced by real auth in feature 008.
+6. backend/scripts/upload_video.py: a small CLI taking a slug and a local file
+   path, POSTing to the admin endpoint with the secret from .env. Print the
+   resulting key. Runnable as: python -m scripts.upload_video <slug> <path>
+7. tests/test_video.py. Mock the storage service, do not hit the network:
+   - video-url returns 404 when video_key is null
+   - video-url returns 200 and a url when video_key is set
+   - upload without the header returns 401
+   - upload with a wrong secret returns 401
+   - upload of a non-video content type returns 400
 
 ## Frontend tasks
-1. npm install react-router-dom. This is the one new dependency; two routes need
-   real URLs so a lesson can be linked and refreshed.
-2. src/api/lessons.js: getLessons() and getLesson(slug) via the existing client.
-3. src/main.jsx: wrap App in BrowserRouter.
-4. src/App.jsx: an app shell with a header showing the abacadaba wordmark and the
-   existing health pill, plus Routes:
-   - "/" renders LessonList
-   - "/lessons/:slug" renders LessonDetail
-   - "*" renders a small not found message with a link home
-5. src/components/LessonCard/: title, description, and duration formatted as
-   "5 min". The whole card is a Link to /lessons/:slug. Hover state.
-6. src/pages/LessonList/: fetch on mount, render a responsive grid of
-   LessonCards. Handle three states explicitly: loading, error, empty.
-7. src/pages/LessonDetail/: fetch by slug from useParams. Render title,
-   duration, description, a back link to "/", and a placeholder box reading
-   "Video coming soon" sized at 16:9. Show a friendly message on 404 rather
-   than a blank screen.
-8. Every page and component gets its own CSS Module using the custom properties
-   already in global.css. Add new properties there rather than hardcoding values.
+1. src/api/lessons.js: add getVideoUrl(slug).
+2. src/components/VideoPlayer/: takes a slug. On mount, fetch the presigned URL,
+   then render a native HTML5 video element with controls and preload="metadata".
+   Handle four states: loading, no video yet, playback error, and playing. Do not
+   autoplay. The container is 16:9 and matches the placeholder's dimensions.
+3. src/pages/LessonDetail/: replace the placeholder with VideoPlayer when
+   lesson.video_key is set, and keep the existing placeholder when it is null.
+4. Presigned URLs expire. If the video element fires an error after the URL has
+   been held a while, show a "Reload video" button that refetches the URL rather
+   than leaving a dead player.
 
 ## Acceptance criteria
-- alembic upgrade head creates the lessons table, alembic downgrade -1 reverses it
-- python -m scripts.seed inserts three lessons, and running it twice is harmless
-- curl http://localhost:8000/api/v1/lessons returns the three seeded lessons
-- curl http://localhost:8000/api/v1/lessons/unknown-slug returns 404
-- localhost:5173 shows three lesson cards
-- clicking a card routes to /lessons/<slug> and the page survives a browser refresh
-- the 16:9 placeholder is visible on the detail page
+- alembic upgrade head adds video_key, downgrade -1 reverses it
+- python -m scripts.upload_video intro-to-ratios ./sample.mp4 succeeds and the
+  object is visible in the DigitalOcean console
+- curl on /api/v1/lessons/intro-to-ratios/video-url returns a signed URL, and
+  pasting that URL into a browser plays or downloads the file
+- the same object's plain unsigned URL returns AccessDenied, proving the Space
+  is private
+- a lesson without a video still returns 404 on video-url and still shows the
+  placeholder
+- the video plays inline on the lesson detail page
+- upload with a bad secret returns 401
 - pytest passes
 
 ## When done
