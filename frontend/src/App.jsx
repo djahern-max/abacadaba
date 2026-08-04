@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router-dom'
 import { getHealth } from './api/health'
 import LessonList from './pages/LessonList/LessonList'
 import LessonDetail from './pages/LessonDetail/LessonDetail'
+import Quiz from './pages/Quiz/Quiz'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -43,6 +44,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LessonList />} />
           <Route path="/lessons/:slug" element={<LessonDetail />} />
+          <Route path="/lessons/:slug/quiz" element={<Quiz />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

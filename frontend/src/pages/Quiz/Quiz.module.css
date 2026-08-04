@@ -1,4 +1,4 @@
-.detail {
+.quiz {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -22,41 +22,26 @@
   font-weight: 600;
 }
 
-.duration {
+.count {
   font-size: 13px;
   font-weight: 500;
   color: var(--color-accent);
 }
 
-.video {
-  aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.note {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   font-size: 14px;
 }
 
-.description {
-  color: var(--color-text);
-  line-height: 1.6;
-}
-
-.quizButton {
-  align-self: flex-start;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.quizButton:hover {
-  opacity: 0.9;
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
 .message {

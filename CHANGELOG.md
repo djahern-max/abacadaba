@@ -20,3 +20,11 @@ a shared-secret-guarded admin upload endpoint, and an upload_video CLI. The
 lesson detail page plays the video inline via a VideoPlayer component with a
 reload button for expired presigned URLs, falling back to the existing
 placeholder when no video has been uploaded yet.
+
+## 2026-08-04, Feature 004, Quiz data model and delivery
+Lessons now have real quiz content: questions and choices tables (cascading,
+position-ordered), a GET /lessons/{slug}/quiz endpoint served through
+schemas that never include is_correct, and a seeded five-question quiz for
+each of the three lessons. The frontend has a read-only quiz page listing
+every question with lettered choices, reachable via a "Take the quiz" button
+on the lesson detail page. Answering, grading, and scoring are feature 005.

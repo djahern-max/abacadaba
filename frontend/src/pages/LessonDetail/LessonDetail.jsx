@@ -54,6 +54,9 @@ function LessonDetail() {
         <div className={styles.video}>Video coming soon</div>
       )}
       <p className={styles.description}>{state.lesson.description}</p>
+      <Link to={`/lessons/${state.lesson.slug}/quiz`} className={styles.quizButton}>
+        Take the quiz
+      </Link>
     </article>
   )
 }

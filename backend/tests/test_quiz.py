@@ -1,0 +1,104 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
+from app.db import SessionLocal
+from app.main import app
+from app.models.choice import Choice
+from app.models.lesson import Lesson
+from app.models.question import Question
+
+client = TestClient(app)
+
+WITH_QUIZ_SLUG = "test-lesson-with-quiz"
+WITHOUT_QUIZ_SLUG = "test-lesson-without-quiz"
+
+
+@pytest.fixture(autouse=True)
+def seed_test_lessons():
+    db = SessionLocal()
+
+    lesson_with_quiz = Lesson(
+        slug=WITH_QUIZ_SLUG,
+        title="Lesson With Quiz",
+        description="Used to test the quiz endpoint.",
+        duration_seconds=300,
+        is_published=True,
+    )
+    db.add(lesson_with_quiz)
+    db.flush()
+
+    for position in range(1, 6):
+        question = Question(
+            lesson_id=lesson_with_quiz.id,
+            prompt=f"Question {position}?",
+            position=position,
+        )
+        question.choices = [
+            Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
+            for index, letter in enumerate(["A", "B", "C", "D"], start=1)
+        ]
+        db.add(question)
+
+    db.add(
+        Lesson(
+            slug=WITHOUT_QUIZ_SLUG,
+            title="Lesson Without Quiz",
+            description="Used to test the no-quiz-yet case.",
+            duration_seconds=300,
+            is_published=True,
+        )
+    )
+    db.commit()
+    db.close()
+
+    yield
+
+    db = SessionLocal()
+    db.execute(delete(Lesson).where(Lesson.slug.in_([WITH_QUIZ_SLUG, WITHOUT_QUIZ_SLUG])))
+    db.commit()
+    db.close()
+
+
+def test_quiz_returns_five_questions_with_four_choices_each():
+    response = client.get(f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["question_count"] == 5
+    assert len(body["questions"]) == 5
+    for question in body["questions"]:
+        assert len(question["choices"]) == 4
+
+
+# GUARD TEST: this must never be deleted or weakened. It is the only thing
+# standing between "quiz answers stripped out" and "quiz answers leaked to
+# every browser that loads this page." If this starts failing, the bug is in
+# the API response, not the test.
+def test_quiz_response_never_leaks_correct_answer():
+    response = client.get(f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz")
+    assert response.status_code == 200
+    raw = response.text
+    assert "is_correct" not in raw
+    assert "true" not in raw
+    assert "correct" not in raw.lower()
+
+
+def test_quiz_questions_and_choices_ordered_by_position():
+    response = client.get(f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz")
+    body = response.json()
+    positions = [q["position"] for q in body["questions"]]
+    assert positions == sorted(positions)
+    for question in body["questions"]:
+        choice_positions = [c["position"] for c in question["choices"]]
+        assert choice_positions == sorted(choice_positions)
+
+
+def test_lesson_with_no_questions_returns_404():
+    response = client.get(f"/api/v1/lessons/{WITHOUT_QUIZ_SLUG}/quiz")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "This lesson has no quiz yet"
+
+
+def test_unknown_slug_returns_404():
+    response = client.get("/api/v1/lessons/does-not-exist/quiz")
+    assert response.status_code == 404

@@ -1,99 +1,117 @@
 # Current Feature
 
-## Feature 003, Video storage and playback
+## Feature 004, Quiz data model and delivery
 
 ## Goal
-A lesson has a video living in DigitalOcean Spaces, and it plays in the browser
-via a short lived presigned URL. The Space stays private.
+A lesson has five multiple choice questions. The API serves them to the browser
+with the correct answers stripped out, and the quiz renders read only.
 
 ## In scope
-- video_key column on lessons, with a migration
-- Spaces client service using boto3
-- A presigned URL endpoint the player calls
-- A minimal upload endpoint guarded by a shared secret
-- A VideoPlayer component replacing the placeholder on the detail page
+- questions and choices tables, with a migration
+- A quiz endpoint that provably never leaks which choice is correct
+- Seeded questions for the three existing lessons
+- A quiz page that displays the questions, no answering yet
+- Tests, including an explicit leak test
 
 ## Out of scope
-- Questions, quizzes, scoring, confetti, certificates
-- Real auth or user accounts, an admin UI, transcoding, thumbnails
-- Captions, playback progress tracking, resume where you left off
-
-## Setup expected before you start
-The Space exists and is private. backend/.env has real values for SPACES_KEY,
-SPACES_SECRET, SPACES_REGION, SPACES_BUCKET, SPACES_ENDPOINT. Add one new var,
-UPLOAD_SECRET, to both .env and .env.example, and to Settings in config.py.
+- Selecting an answer, submitting, grading, scoring (feature 005)
+- Confetti, attempts, pass or fail, certificates
+- Auth, an admin UI for authoring questions
+- Question shuffling, choice shuffling, timers, question banks larger than five
 
 ## Data model
-Add to lessons:
-- video_key: string, nullable. The object key within the bucket, e.g.
-  "lessons/intro-to-ratios.mp4". Never a full URL, never a signed URL.
+Table questions:
+- id: integer primary key
+- lesson_id: integer, foreign key to lessons.id, not null, indexed,
+  ondelete CASCADE
+- prompt: text, not null
+- position: integer, not null. Display order within the lesson, starting at 1.
+- created_at, updated_at: timezone aware UTC, server defaults
+- Unique constraint on (lesson_id, position)
 
-Nullable on purpose: a lesson can exist before its video is uploaded.
+Table choices:
+- id: integer primary key
+- question_id: integer, foreign key to questions.id, not null, indexed,
+  ondelete CASCADE
+- text: text, not null
+- is_correct: boolean, not null, default false
+- position: integer, not null. Display order within the question, starting at 1.
+- created_at, updated_at: timezone aware UTC, server defaults
+- Unique constraint on (question_id, position)
+
+Relationships: Lesson has many Question, Question has many Choice, both ordered
+by position, both cascading on delete.
+
+Exactly one choice per question is correct. Enforce this in the seed script and
+in a service level validation helper, not in a database constraint.
 
 ## Backend tasks
-1. Add video_key to the Lesson model, then:
-   alembic revision --autogenerate -m "add video_key to lessons"
-   alembic upgrade head
-   Confirm downgrade -1 reverses it.
-2. app/services/storage.py:
-   - A module level boto3 S3 client built from settings, created once and reused.
-     Use endpoint_url, region_name, and signature_version s3v4.
-   - generate_presigned_get(key, expires_in=3600) returning a URL string.
-   - upload_fileobj(fileobj, key, content_type) uploading with private ACL.
-   - object_exists(key) returning a bool, catching ClientError rather than
-     letting a 404 from S3 escape as a 500.
-   Wrap credential and connection failures in a clear application error. A
-   missing or wrong key should surface as a readable message, not a stack trace.
-3. app/schemas/lesson.py: add video_key to LessonDetail. Add a VideoUrlResponse
-   schema with url and expires_in.
-4. app/routers/lessons.py: GET /lessons/{slug}/video-url
-   - 404 if the lesson does not exist or is unpublished
-   - 404 with detail "This lesson has no video yet" if video_key is null
-   - otherwise 200 with a presigned URL valid for one hour
-5. app/routers/admin.py: POST /admin/lessons/{slug}/video
-   - Requires header X-Upload-Secret matching settings.UPLOAD_SECRET, else 401.
-     Compare with secrets.compare_digest.
-   - Accepts a multipart file upload. Reject anything whose content type is not
-     video/mp4 or video/webm with a 400.
-   - Builds the key as "lessons/{slug}{ext}", uploads it, sets lesson.video_key,
-     commits, returns the lesson's video_key.
-   Register under /api/v1. Add a comment noting the shared secret is temporary
-   and replaced by real auth in feature 008.
-6. backend/scripts/upload_video.py: a small CLI taking a slug and a local file
-   path, POSTing to the admin endpoint with the secret from .env. Print the
-   resulting key. Runnable as: python -m scripts.upload_video <slug> <path>
-7. tests/test_video.py. Mock the storage service, do not hit the network:
-   - video-url returns 404 when video_key is null
-   - video-url returns 200 and a url when video_key is set
-   - upload without the header returns 401
-   - upload with a wrong secret returns 401
-   - upload of a non-video content type returns 400
+1. app/models/question.py and app/models/choice.py, SQLAlchemy 2.0 style.
+   Import both in app/models/__init__.py so autogenerate sees them.
+2. alembic revision --autogenerate -m "create questions and choices"
+   Inspect the generated file before applying. Confirm both foreign keys and
+   both unique constraints are present. Then alembic upgrade head, and verify
+   downgrade -1 reverses cleanly.
+3. app/schemas/quiz.py. This is the security surface, be deliberate:
+   - ChoicePublic: id, text, position. It must not define is_correct at all.
+     Do not rely on exclude or response_model_exclude to hide it. The field is
+     simply absent from the class.
+   - QuestionPublic: id, prompt, position, choices as list[ChoicePublic]
+   - QuizPublic: lesson_slug, lesson_title, question_count,
+     questions as list[QuestionPublic]
+   All with model_config = ConfigDict(from_attributes=True).
+4. app/services/quiz.py:
+   - get_quiz_for_lesson(db, slug) returning the lesson's questions with choices
+     eagerly loaded and ordered by position, or None if the lesson is missing,
+     unpublished, or has no questions.
+   - validate_question(question) raising a clear error unless exactly one of its
+     choices is correct. Used by the seed script.
+5. app/routers/quiz.py: GET /lessons/{slug}/quiz
+   - 404 with a clear detail when the lesson is missing or unpublished
+   - 404 with detail "This lesson has no quiz yet" when it has no questions
+   - otherwise 200 with QuizPublic
+   Register under /api/v1.
+6. Extend backend/scripts/seed.py: five questions per seeded lesson, four
+   choices each, exactly one correct. Write real questions that match each
+   lesson's subject rather than filler text. Keep it idempotent, matching on
+   (lesson_id, position), and print a summary. Run validate_question on every
+   question before committing.
+7. tests/test_quiz.py:
+   - the quiz endpoint returns 200 with five questions, each having four choices
+   - LEAK TEST: take response.text, the raw JSON string, and assert that
+     "is_correct" does not appear anywhere in it, and that neither "true" nor
+     "correct" appears as a value. Comment this test clearly as the guard that
+     must never be deleted.
+   - questions come back ordered by position, and so do choices
+   - a lesson with no questions returns 404
+   - an unknown slug returns 404
 
 ## Frontend tasks
-1. src/api/lessons.js: add getVideoUrl(slug).
-2. src/components/VideoPlayer/: takes a slug. On mount, fetch the presigned URL,
-   then render a native HTML5 video element with controls and preload="metadata".
-   Handle four states: loading, no video yet, playback error, and playing. Do not
-   autoplay. The container is 16:9 and matches the placeholder's dimensions.
-3. src/pages/LessonDetail/: replace the placeholder with VideoPlayer when
-   lesson.video_key is set, and keep the existing placeholder when it is null.
-4. Presigned URLs expire. If the video element fires an error after the URL has
-   been held a while, show a "Reload video" button that refetches the URL rather
-   than leaving a dead player.
+1. src/api/quiz.js: getQuiz(slug).
+2. src/pages/Quiz/: route "/lessons/:slug/quiz". Fetch on mount. Render the
+   lesson title, "5 questions", and every question in order with its choices as
+   plain unselectable rows labeled A, B, C, D. Handle loading, error, and the
+   no-quiz-yet 404 with a friendly message and a link back to the lesson.
+   Add a visible note that answering arrives next, so the page does not look
+   broken.
+3. Register the route in App.jsx.
+4. src/pages/LessonDetail/: add a "Take the quiz" button linking to the quiz
+   route. Show it only when the lesson has a quiz. Rather than add a field to
+   LessonDetail, simply always show the button and let the quiz page handle the
+   404 case gracefully.
+5. src/components/QuestionCard/ with its own CSS Module, used by the quiz page,
+   built so feature 005 can add selection state without a rewrite.
 
 ## Acceptance criteria
-- alembic upgrade head adds video_key, downgrade -1 reverses it
-- python -m scripts.upload_video intro-to-ratios ./sample.mp4 succeeds and the
-  object is visible in the DigitalOcean console
-- curl on /api/v1/lessons/intro-to-ratios/video-url returns a signed URL, and
-  pasting that URL into a browser plays or downloads the file
-- the same object's plain unsigned URL returns AccessDenied, proving the Space
-  is private
-- a lesson without a video still returns 404 on video-url and still shows the
-  placeholder
-- the video plays inline on the lesson detail page
-- upload with a bad secret returns 401
-- pytest passes
+- alembic upgrade head creates both tables, downgrade -1 reverses them
+- python -m scripts.seed adds five questions per lesson and is still idempotent
+  on a second run
+- curl on /api/v1/lessons/intro-to-ratios/quiz returns five questions with four
+  choices each
+- piping that response through grep -i correct finds nothing
+- the quiz page renders all five questions in order at
+  localhost:5173/lessons/intro-to-ratios/quiz
+- pytest passes, including the leak test
 
 ## When done
 Append an entry to CHANGELOG.md and stop.
