@@ -28,3 +28,14 @@ schemas that never include is_correct, and a seeded five-question quiz for
 each of the three lessons. The frontend has a read-only quiz page listing
 every question with lettered choices, reachable via a "Take the quiz" button
 on the lesson detail page. Answering, grading, and scoring are feature 005.
+
+## 2026-08-04, Feature 005, Taking the quiz with per answer confetti
+Added POST /lessons/{slug}/quiz/answers to grade one answer at a time
+(400 on a choice from a different question, 404 on an unknown or
+cross-lesson question). The quiz page now walks through one question at a
+time with a progress bar: pick a choice, Submit grades it, a correct
+answer fires a small canvas-confetti burst (skipped under
+prefers-reduced-motion), a wrong answer reveals the correct choice in
+green, and Next/Finish advances to a "Quiz complete" placeholder. Choices
+are real buttons with visible focus rings and an aria-live announcement
+of the result. Scoring, pass/fail, and the attempts table are feature 006.

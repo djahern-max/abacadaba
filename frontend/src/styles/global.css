@@ -10,6 +10,10 @@
   --color-success-bg: #dcfce7;
   --color-danger: #b91c1c;
   --color-danger-bg: #fee2e2;
+  --color-correct: #15803d;
+  --color-correct-bg: #dcfce7;
+  --color-incorrect: #b91c1c;
+  --color-incorrect-bg: #fee2e2;
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -43,6 +47,10 @@
     --color-success-bg: rgba(74, 222, 128, 0.15);
     --color-danger: #f87171;
     --color-danger-bg: rgba(248, 113, 113, 0.15);
+    --color-correct: #4ade80;
+    --color-correct-bg: rgba(74, 222, 128, 0.15);
+    --color-incorrect: #f87171;
+    --color-incorrect-bg: rgba(248, 113, 113, 0.15);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 6px rgba(0, 0, 0, 0.25);
   }
 }

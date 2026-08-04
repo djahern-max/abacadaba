@@ -22,12 +22,6 @@
   font-weight: 600;
 }
 
-.count {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-accent);
-}
-
 .note {
   margin: 0;
   padding: var(--space-sm) var(--space-md);
@@ -38,10 +32,15 @@
   font-size: 14px;
 }
 
-.questions {
+.complete {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .message {
