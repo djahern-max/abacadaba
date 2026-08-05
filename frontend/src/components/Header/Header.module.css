@@ -1,0 +1,77 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wordmark {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.connected {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.unreachable {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.checking {
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: 14px;
+}
+
+.nav a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.nav a:hover {
+  text-decoration: underline;
+}
+
+.displayName {
+  color: var(--color-text-muted);
+}
+
+.signOutButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: underline;
+}

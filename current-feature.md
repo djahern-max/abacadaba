@@ -1,135 +1,177 @@
 # Current Feature
 
-## Feature 007, Certificate generation and download
+## Feature 008, Accounts, real auth, and progress
 
 ## Goal
-A passed attempt earns a downloadable PDF certificate carrying the recipient's
-name, the lesson title, the score, the date, and a verification code that
-resolves on a public page.
+A user can register, sign in, and see their own history. Attempts made while
+signed in belong to that user, and the certificate carries their account name
+rather than a typed one. The admin upload secret is replaced by real
+authorization.
 
 ## In scope
-- recipient_name and certificate_code columns on attempts, with a migration
-- A name entry step on the results page for a passing attempt
-- Server side PDF generation
-- A download endpoint and a public verification page
+- users table and a user_id on attempts, with migrations
+- Registration, login, logout, and a current user endpoint using httpOnly
+  session cookies
+- Attempts linked to the signed in user when there is one
+- Certificates using the account name for signed in users
+- A progress page listing the user's attempts
+- Replacing the X-Upload-Secret guard with an is_admin check
 - Tests
 
 ## Out of scope
-- Auth and accounts (feature 008). The name is typed by the user.
-- Emailing the certificate, storing PDFs in Spaces, certificate templates or
-  themes, revocation, expiry
-- Certificates for failed attempts
+- Password reset, email verification, OAuth or social login
+- Roles beyond a single is_admin boolean, teams, organizations
+- An admin UI. The upload CLI stays a CLI, just authenticated differently.
+- Merging attempts made anonymously into an account after signing in
 
-## Honest framing of what the certificate proves
-With no accounts, the name is self reported. The certificate and the
-verification page therefore assert that an attempt with this code passed this
-lesson on this date with this score, and that the name was supplied by the
-person taking it. Word the verification page accordingly rather than implying
-verified identity. Add a short comment in the certificate service saying feature
-008 replaces the typed name with an authenticated user.
+## Deliberate decisions
+Sessions are httpOnly, SameSite=Lax, Secure in production cookies holding an
+opaque session id. Not a JWT in localStorage, which any injected script can
+read. Sessions are stored in a database table so logout genuinely revokes.
+
+Anonymous attempts keep working exactly as they do now. The quiz must not sit
+behind a signup wall. user_id on attempts is nullable and stays that way.
 
 ## Data model
-Add to attempts:
-- recipient_name: string, nullable. Set when the user claims the certificate.
-- certificate_code: string, unique, indexed, nullable. Generated when the
-  certificate is first claimed, not at attempt creation.
+Table users:
+- id: integer primary key
+- email: citext or a lowercased string, unique, indexed, not null
+- password_hash: string, not null
+- display_name: string, not null, 2 to 80 characters
+- is_admin: boolean, not null, default false
+- created_at, updated_at: timezone aware UTC, server defaults
 
-Generate the code with secrets.token_urlsafe trimmed to a readable length,
-uppercased, and hyphenated into groups, for example ABCD-EFGH-JKMN. Exclude
-characters that are easy to confuse: no O, 0, I, 1, or L. Put the alphabet in a
-module level constant.
+Table sessions:
+- id: string primary key, the opaque token, generated with
+  secrets.token_urlsafe(32)
+- user_id: integer, foreign key to users.id, not null, indexed,
+  ondelete CASCADE
+- expires_at: timezone aware UTC, not null
+- created_at: timezone aware UTC, server default
+
+Add to attempts:
+- user_id: integer, foreign key to users.id, nullable, indexed,
+  ondelete SET NULL
+
+Session lifetime is 30 days. Define it as a constant, not an inline number.
 
 ## Backend tasks
-1. Add reportlab to requirements.txt and install it. It is pure Python with no
-   system dependencies, which keeps deployment simple. No other new dependency.
-2. Add both columns to the Attempt model, then:
-   alembic revision --autogenerate -m "add certificate fields to attempts"
-   alembic upgrade head, and verify downgrade -1 reverses.
-3. app/schemas/certificate.py:
-   - CertificateClaim: recipient_name, a string of 2 to 80 characters after
-     stripping whitespace. Reject an empty or whitespace only name.
-   - CertificateInfo: certificate_code, recipient_name, lesson_title, score,
-     question_count, completed_at
-   - CertificateVerification: valid bool, plus the same fields when valid
-4. app/services/certificates.py:
-   - generate_code() using the confusion free alphabet, retrying on the
-     astronomically unlikely collision.
-   - claim_certificate(db, public_id, recipient_name) which loads the attempt,
-     refuses unless it is complete and passed, sets recipient_name, generates
-     certificate_code only if one is not already set, commits, and returns
-     CertificateInfo. Claiming twice with a different name updates the name but
-     keeps the original code.
-   - render_pdf(info) returning PDF bytes via reportlab, drawn on a landscape
-     A4 or letter page. Include: a heading reading Certificate of Completion,
-     the recipient name as the visual focus, the lesson title, the score written
-     as "Scored 4 out of 5", the completion date formatted readably, the
-     abacadaba wordmark, and the verification code in small text at the foot
-     alongside the verification URL. Center the layout and handle a long name or
-     lesson title by shrinking the font rather than overflowing the page.
-   - verify_code(db, code) returning verification data or a not found signal.
-     Match case insensitively and tolerate missing hyphens.
-5. app/routers/certificates.py:
-   - POST /attempts/{attempt_id}/certificate with CertificateClaim.
-     200 with CertificateInfo, 404 unknown attempt, 409 if the attempt is
-     incomplete or did not pass, 422 on an invalid name.
-   - GET /attempts/{attempt_id}/certificate.pdf returning a StreamingResponse
-     of application/pdf with a Content-Disposition attachment filename built
-     from the lesson slug, for example abacadaba-intro-to-ratios.pdf.
-     404 unknown attempt, 409 if not yet claimed or not passed.
-   - GET /certificates/{code} returning CertificateVerification. Return 200 with
-     valid false for an unknown code rather than a 404, so the public page can
-     render a clean "not found" state.
-   Register under /api/v1.
-6. tests/test_certificates.py:
-   - claiming on a passed attempt returns a code and the name
-   - claiming on a failed attempt returns 409
-   - claiming on an incomplete attempt returns 409
-   - claiming twice keeps the original code and updates the name
-   - an empty or whitespace only name returns 422
-   - the PDF endpoint returns 200, content type application/pdf, and bytes
-     starting with %PDF
-   - the PDF endpoint before claiming returns 409
-   - verifying a real code returns valid true with the right lesson and score
-   - verifying an unknown code returns 200 with valid false
-   - verifying is case insensitive and tolerates missing hyphens
+1. Add passlib[bcrypt] to requirements.txt. Hash with bcrypt. Never store or log
+   a plaintext password. No other new dependency.
+2. app/models/user.py and app/models/session.py, plus user_id on Attempt.
+   Import both in app/models/__init__.py.
+3. Two migrations, or one if autogenerate produces a clean single file:
+   alembic revision --autogenerate -m "create users and sessions"
+   Inspect before applying. Confirm the unique index on email and both foreign
+   keys. Then upgrade head and verify downgrade -1.
+4. app/schemas/auth.py:
+   - RegisterRequest: email as EmailStr, password of at least 10 characters,
+     display_name 2 to 80 characters
+   - LoginRequest: email, password
+   - UserPublic: id, email, display_name, is_admin. Never password_hash.
+5. app/services/auth.py:
+   - hash_password and verify_password wrapping passlib
+   - register(db, email, password, display_name), lowercasing the email and
+     signalling a conflict if it is taken
+   - authenticate(db, email, password) returning the user or None. Compare the
+     password even when no user matches, so response timing does not reveal
+     whether an email is registered.
+   - create_session(db, user), get_session_user(db, token) which returns None
+     for a missing or expired session, and delete_session(db, token)
+   - a purge helper deleting expired sessions, called opportunistically on login
+6. app/dependencies.py:
+   - get_current_user(request, db) reading the session cookie and returning the
+     user or None
+   - require_user raising 401 when there is no user
+   - require_admin raising 401 when there is no user and 403 when the user is
+     not an admin. The distinction matters.
+7. app/routers/auth.py:
+   - POST /auth/register, 201 with UserPublic, sets the session cookie,
+     409 if the email is taken
+   - POST /auth/login, 200 with UserPublic, sets the cookie, 401 on bad
+     credentials with a message that does not reveal which field was wrong
+   - POST /auth/logout, 204, deletes the session row and clears the cookie
+   - GET /auth/me, 200 with UserPublic or 401
+   Cookie settings come from config so production can set Secure and a domain.
+   Add SESSION_COOKIE_SECURE to .env.example, defaulting to false locally.
+8. Attempts: start_attempt takes an optional user and sets user_id. The route
+   uses get_current_user, not require_user, so anonymous attempts still work.
+9. Certificates: when the attempt has a user, use that user's display_name as
+   recipient_name automatically and do not require one in the request body. When
+   the attempt is anonymous, keep the current typed name behavior. Update the
+   comment written in feature 007 to say this is now done. Reword the
+   verification page copy so a certificate from a signed in user is described as
+   issued to an account holder rather than self reported, and keep the old
+   wording for anonymous ones. CertificateVerification gains a boolean saying
+   which it is.
+10. app/routers/attempts.py: GET /me/attempts behind require_user, returning the
+    signed in user's completed attempts newest first, each with lesson title and
+    slug, score, passed, completed_at, and certificate_code when present.
+11. Replace the X-Upload-Secret guard on the admin upload route with
+    require_admin. Remove UPLOAD_SECRET from config, .env, and .env.example.
+    Update scripts/upload_video.py to log in with an admin email and password
+    read from the environment and reuse the session cookie.
+12. backend/scripts/make_admin.py: a CLI taking an email and setting is_admin
+    true, so the first admin can exist. Runnable as
+    python -m scripts.make_admin <email>
+13. tests/test_auth.py:
+    - registering returns 201 and sets a cookie
+    - registering a duplicate email returns 409, and case insensitively so
+    - a short password returns 422
+    - login with correct credentials returns 200 and sets a cookie
+    - login with a wrong password returns 401
+    - /auth/me without a cookie returns 401
+    - /auth/me with a cookie returns the user, and never includes password_hash
+    - logout clears the session so /auth/me returns 401 afterward
+    - an expired session returns 401
+14. tests/test_admin_auth.py:
+    - upload with no session returns 401
+    - upload as a non admin user returns 403
+    - upload as an admin succeeds, with storage mocked
+15. Update existing tests for attempts and certificates where behavior changed.
+    Anonymous flows must still pass unchanged.
 
 ## Frontend tasks
-1. src/api/certificates.js: claimCertificate(attemptId, name),
-   certificatePdfUrl(attemptId) returning the URL string, and
-   verifyCertificate(code).
-2. src/pages/Result/: replace the disabled placeholder button. On a pass, show a
-   name input labeled "Name as it should appear on your certificate" and a
-   "Get my certificate" button. On submit, claim the certificate, then show the
-   code and a "Download PDF" link pointing at the PDF URL. Disable the button
-   while the request is in flight, and show inline validation for an empty name
-   rather than relying on the server 422 alone. If a certificate is already
-   claimed for this attempt, show the code and download link straight away
-   instead of the form.
-3. src/pages/Verify/: route "/verify/:code". Fetch on mount and render either
-   the certificate details with wording that reflects the self reported name, or
-   a clear not found state. This page must be readable by someone with no
-   context, so include the lesson title, score, and date plainly.
-4. Register the route in App.jsx. Make sure the verification URL printed on the
-   PDF matches this route. Read the site base URL from an env var,
-   VITE_SITE_URL on the frontend and SITE_URL on the backend, defaulting to
-   http://localhost:5173. Add both to the .env.example files.
-5. The download link should be a plain anchor with the download attribute
-   pointing at the API URL, not a fetch and blob dance.
+1. src/api/auth.js: register, login, logout, getMe. Every request in
+   src/api/client.js must send credentials: "include" so the cookie travels.
+   CORS on the backend needs allow_credentials true and an explicit origin,
+   not a wildcard, or the browser will silently drop the cookie.
+2. src/context/AuthContext.jsx: holds user and a loading flag, calls getMe once
+   on mount, exposes login, register, and logout. Wrap the app in main.jsx.
+3. src/components/Header/: extract the header out of App.jsx. Show Sign in and
+   Register links when signed out, and the display name, a My progress link, and
+   Sign out when signed in.
+4. src/pages/Login/ and src/pages/Register/ with their own CSS Modules. Inline
+   validation, a disabled button while submitting, and a clear error on failure.
+   On success, redirect to where the user came from, defaulting to "/".
+5. src/pages/Progress/: route "/me", listing the user's attempts with lesson
+   title, score, pass or fail, date, and a download link when a certificate
+   exists. Handle the empty case with a prompt to take a quiz. Redirect to login
+   when signed out.
+6. src/pages/Result/: when signed in, skip the name form entirely. Claim the
+   certificate with the account name and show the code and download link
+   directly. Remove the localStorage persistence added in feature 007 and drive
+   the claimed state from the API response instead, since the attempt now knows
+   whether it has been claimed.
+7. Register all new routes in App.jsx.
 
 ## Acceptance criteria
-- alembic upgrade head adds both columns, downgrade -1 reverses them
-- curl claiming a certificate on a passing attempt returns a code
-- curl claiming on a failing attempt returns 409
-- curl -o test.pdf on the PDF endpoint produces a file that opens in Preview and
-  shows the name, lesson, score, date, and code
-- a long name does not overflow the page
-- curl on /api/v1/certificates/{code} returns valid true, and lowercase and
-  unhyphenated variants of the code also work
-- an unknown code returns valid false, not a 500
-- passing a quiz in the browser, entering a name, and clicking through downloads
-  a real PDF
-- visiting /verify/{code} in the browser shows the certificate details
-- pytest passes, including the leak and replay tests
+- alembic upgrade head creates users and sessions and adds attempts.user_id,
+  downgrade -1 reverses
+- curl registering returns 201 with a Set-Cookie header
+- curl /auth/me with that cookie returns the user and no password_hash anywhere
+  in the response
+- curl /auth/me after logout returns 401
+- python -m scripts.make_admin you@example.com promotes an account
+- video upload with no session returns 401, as a normal user returns 403, and as
+  an admin succeeds
+- taking a quiz signed out still works and still produces a certificate with a
+  typed name
+- taking a quiz signed in shows no name form and produces a certificate carrying
+  the account display name
+- /me lists that attempt with its score and a working certificate download
+- signing out and revisiting /me redirects to login
+- pytest passes, including the leak, replay, and certificate tests
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

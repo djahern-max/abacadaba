@@ -47,8 +47,10 @@ function Verify() {
       <h1 className={styles.heading}>Certificate verified</h1>
       <p className={styles.explainer}>
         An attempt with code {data.certificate_code} passed this lesson on {formatDate(data.completed_at)} with a
-        score of {data.score} out of {data.question_count}. The name below was typed in by the person who took the
-        quiz and is not an authenticated identity.
+        score of {data.score} out of {data.question_count}.{' '}
+        {data.is_account_holder
+          ? 'The name below is the account holder who took the quiz.'
+          : 'The name below was typed in by the person who took the quiz and is not an authenticated identity.'}
       </p>
       <dl className={styles.details}>
         <dt>Name</dt>

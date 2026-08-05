@@ -10,10 +10,15 @@ from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.session import Session as SessionModel
+from app.models.user import User
 
 client = TestClient(app)
 
 QUIZ_SLUG = "test-lesson-certificates"
+SIGNED_IN_EMAIL = "certificates-user@example.com"
+SIGNED_IN_PASSWORD = "correct-horse-battery"
+SIGNED_IN_DISPLAY_NAME = "Grace Hopper Account"
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +56,15 @@ def seed_test_lesson():
     lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
     db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
     db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    db.commit()
+    db.close()
+
+    client.cookies.clear()
+
+    db = SessionLocal()
+    user_ids = select(User.id).where(User.email == SIGNED_IN_EMAIL)
+    db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
+    db.execute(delete(User).where(User.email == SIGNED_IN_EMAIL))
     db.commit()
     db.close()
 
@@ -202,3 +216,46 @@ def test_verifying_is_case_insensitive_and_tolerates_missing_hyphens():
     unhyphenated_response = client.get(f"/api/v1/certificates/{code.replace('-', '')}")
     assert unhyphenated_response.status_code == 200
     assert unhyphenated_response.json()["valid"] is True
+
+
+def test_verifying_an_anonymous_certificate_reports_not_an_account_holder():
+    attempt_id = start_and_pass_attempt()
+    code = claim(attempt_id, "Ada Lovelace").json()["certificate_code"]
+
+    response = client.get(f"/api/v1/certificates/{code}")
+    assert response.json()["is_account_holder"] is False
+
+
+def test_claiming_while_signed_in_uses_the_account_display_name_without_a_body_name():
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": SIGNED_IN_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": SIGNED_IN_DISPLAY_NAME,
+        },
+    )
+
+    attempt_id = start_and_pass_attempt()
+    response = client.post(f"/api/v1/attempts/{attempt_id}/certificate", json={})
+    assert response.status_code == 200
+    assert response.json()["recipient_name"] == SIGNED_IN_DISPLAY_NAME
+
+    verify_response = client.get(f"/api/v1/certificates/{response.json()['certificate_code']}")
+    assert verify_response.json()["is_account_holder"] is True
+
+
+def test_claiming_while_signed_in_ignores_any_name_sent_in_the_body():
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": SIGNED_IN_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": SIGNED_IN_DISPLAY_NAME,
+        },
+    )
+
+    attempt_id = start_and_pass_attempt()
+    response = claim(attempt_id, "Someone Else Entirely")
+    assert response.status_code == 200
+    assert response.json()["recipient_name"] == SIGNED_IN_DISPLAY_NAME

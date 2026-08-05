@@ -1,11 +1,9 @@
-import secrets
-
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db import get_db
+from app.dependencies import require_admin
 from app.models.lesson import Lesson
 from app.services import storage
 
@@ -16,18 +14,10 @@ ALLOWED_CONTENT_TYPES = {
     "video/webm": ".webm",
 }
 
-# The shared secret header is a stopgap so uploads aren't wide open. It is
-# replaced by real auth in feature 008.
-
-
-def require_upload_secret(x_upload_secret: str = Header(default="")):
-    if not secrets.compare_digest(x_upload_secret, settings.upload_secret):
-        raise HTTPException(status_code=401, detail="Invalid upload secret")
-
 
 @router.post(
     "/admin/lessons/{slug}/video",
-    dependencies=[Depends(require_upload_secret)],
+    dependencies=[Depends(require_admin)],
 )
 async def upload_lesson_video(
     slug: str,

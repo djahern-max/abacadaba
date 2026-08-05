@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import { getHealth } from './api/health'
+import Header from './components/Header/Header'
 import LessonList from './pages/LessonList/LessonList'
 import LessonDetail from './pages/LessonDetail/LessonDetail'
 import Quiz from './pages/Quiz/Quiz'
 import Result from './pages/Result/Result'
 import Verify from './pages/Verify/Verify'
+import Login from './pages/Login/Login'
+import Register from './pages/Register/Register'
+import Progress from './pages/Progress/Progress'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -28,20 +32,7 @@ function App() {
 
   return (
     <div className={styles.app}>
-      <header className={styles.header}>
-        <Link to="/" className={styles.wordmark}>
-          abacadaba
-        </Link>
-        {status === 'checking' && (
-          <span className={`${styles.pill} ${styles.checking}`}>Checking backend&hellip;</span>
-        )}
-        {status === 'connected' && (
-          <span className={`${styles.pill} ${styles.connected}`}>Backend connected</span>
-        )}
-        {status === 'unreachable' && (
-          <span className={`${styles.pill} ${styles.unreachable}`}>Backend unreachable</span>
-        )}
-      </header>
+      <Header status={status} />
       <main className={styles.main}>
         <Routes>
           <Route path="/" element={<LessonList />} />
@@ -49,6 +40,9 @@ function App() {
           <Route path="/lessons/:slug/quiz" element={<Quiz />} />
           <Route path="/attempts/:attemptId" element={<Result />} />
           <Route path="/verify/:code" element={<Verify />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/me" element={<Progress />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

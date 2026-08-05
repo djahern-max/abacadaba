@@ -69,3 +69,21 @@ not-found state, wording things as self-reported since there are no
 accounts yet. SITE_URL/VITE_SITE_URL back the verification URL printed
 on the certificate. Feature 008 will replace the typed name with an
 authenticated user.
+
+## 2026-08-04, Feature 008, Accounts, real auth, and progress
+Real accounts arrive: users and sessions tables (opaque bcrypt-backed
+sessions, 30-day httpOnly/SameSite=Lax cookies, no JWT), a user_id on
+attempts (nullable, ON DELETE SET NULL, anonymous quizzes still work),
+and /auth/register, /auth/login, /auth/logout, and /auth/me. The
+shared-secret upload guard from feature 003 is gone, replaced by a
+real is_admin check (require_admin: 401 signed out, 403 non-admin) and
+a make_admin CLI to promote the first account; upload_video.py now
+logs in instead of sending a header. Certificates claimed by a signed
+in user use the account's display_name automatically instead of a
+typed name, and the verify page and CertificateVerification say so.
+GET /me/attempts feeds a new /me progress page. On the frontend, an
+AuthContext wraps the app, the header shows sign in/out state, Login
+and Register pages handle the forms, and the result page skips the
+name form entirely and auto-claims when signed in, replacing the
+feature 007 localStorage persistence with the certificate_code the
+API now returns on the attempt result itself.

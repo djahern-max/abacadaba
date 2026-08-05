@@ -4,11 +4,13 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class CertificateClaim(BaseModel):
-    recipient_name: str
+    recipient_name: str | None = None
 
     @field_validator("recipient_name")
     @classmethod
-    def strip_and_check_length(cls, value: str) -> str:
+    def strip_and_check_length(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         stripped = value.strip()
         if not (2 <= len(stripped) <= 80):
             raise ValueError("recipient_name must be 2 to 80 characters after stripping whitespace")
@@ -36,3 +38,4 @@ class CertificateVerification(BaseModel):
     score: int | None = None
     question_count: int | None = None
     completed_at: datetime | None = None
+    is_account_holder: bool | None = None

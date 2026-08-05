@@ -10,6 +10,7 @@ from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.user import User
 
 PASS_THRESHOLD = 4
 
@@ -62,6 +63,18 @@ class AttemptResultData:
     question_count: int
     passed: bool
     completed_at: datetime
+    certificate_code: str | None
+
+
+@dataclass
+class UserAttemptData:
+    attempt_id: uuid.UUID
+    lesson_title: str
+    lesson_slug: str
+    score: int
+    passed: bool
+    completed_at: datetime
+    certificate_code: str | None
 
 
 def _question_count(db: Session, lesson_id: int) -> int:
@@ -69,7 +82,7 @@ def _question_count(db: Session, lesson_id: int) -> int:
     return db.execute(stmt).scalar_one()
 
 
-def start_attempt(db: Session, slug: str) -> AttemptStartResult | None:
+def start_attempt(db: Session, slug: str, user: User | None = None) -> AttemptStartResult | None:
     stmt = select(Lesson).where(Lesson.slug == slug, Lesson.is_published.is_(True))
     lesson = db.execute(stmt).scalar_one_or_none()
     if lesson is None:
@@ -79,7 +92,7 @@ def start_attempt(db: Session, slug: str) -> AttemptStartResult | None:
     if question_count == 0:
         return None
 
-    attempt = Attempt(lesson_id=lesson.id)
+    attempt = Attempt(lesson_id=lesson.id, user_id=user.id if user else None)
     db.add(attempt)
     db.commit()
     db.refresh(attempt)
@@ -167,4 +180,27 @@ def get_result(db: Session, public_id: uuid.UUID) -> AttemptResultData:
         question_count=_question_count(db, attempt.lesson_id),
         passed=attempt.passed,
         completed_at=attempt.completed_at,
+        certificate_code=attempt.certificate_code,
     )
+
+
+def list_user_attempts(db: Session, user: User) -> list[UserAttemptData]:
+    stmt = (
+        select(Attempt)
+        .where(Attempt.user_id == user.id, Attempt.completed_at.is_not(None))
+        .options(selectinload(Attempt.lesson))
+        .order_by(Attempt.completed_at.desc())
+    )
+    attempts = db.execute(stmt).scalars().all()
+    return [
+        UserAttemptData(
+            attempt_id=attempt.public_id,
+            lesson_title=attempt.lesson.title,
+            lesson_slug=attempt.lesson.slug,
+            score=attempt.score,
+            passed=attempt.passed,
+            completed_at=attempt.completed_at,
+            certificate_code=attempt.certificate_code,
+        )
+        for attempt in attempts
+    ]

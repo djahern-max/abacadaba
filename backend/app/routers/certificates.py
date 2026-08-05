@@ -31,6 +31,8 @@ def claim_certificate(attempt_id: uuid.UUID, claim: CertificateClaim, db: Sessio
         raise HTTPException(status_code=404, detail="Attempt not found") from exc
     except certificates_service.AttemptNotEligibleError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except certificates_service.RecipientNameRequiredError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return _to_info(data)
 
@@ -67,4 +69,5 @@ def verify_certificate(code: str, db: Session = Depends(get_db)):
         score=data.score,
         question_count=data.question_count,
         completed_at=data.completed_at,
+        is_account_holder=data.is_account_holder,
     )

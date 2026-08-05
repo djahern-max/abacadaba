@@ -4,15 +4,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.schemas.attempt import AttemptAnswerRequest, AttemptAnswerResponse, AttemptResult, AttemptStart
+from app.dependencies import get_current_user, require_user
+from app.models.user import User
+from app.schemas.attempt import (
+    AttemptAnswerRequest,
+    AttemptAnswerResponse,
+    AttemptResult,
+    AttemptStart,
+    UserAttempt,
+)
 from app.services import attempts as attempts_service
 
 router = APIRouter()
 
 
 @router.post("/lessons/{slug}/attempts", response_model=AttemptStart, status_code=201)
-def start_attempt(slug: str, db: Session = Depends(get_db)):
-    result = attempts_service.start_attempt(db, slug)
+def start_attempt(slug: str, db: Session = Depends(get_db), user: User | None = Depends(get_current_user)):
+    result = attempts_service.start_attempt(db, slug, user)
     if result is None:
         raise HTTPException(status_code=404, detail="This lesson has no quiz yet")
 
@@ -61,4 +69,22 @@ def get_attempt_result(attempt_id: uuid.UUID, db: Session = Depends(get_db)):
         question_count=result.question_count,
         passed=result.passed,
         completed_at=result.completed_at,
+        certificate_code=result.certificate_code,
     )
+
+
+@router.get("/me/attempts", response_model=list[UserAttempt])
+def get_my_attempts(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    results = attempts_service.list_user_attempts(db, user)
+    return [
+        UserAttempt(
+            attempt_id=r.attempt_id,
+            lesson_title=r.lesson_title,
+            lesson_slug=r.lesson_slug,
+            score=r.score,
+            passed=r.passed,
+            completed_at=r.completed_at,
+            certificate_code=r.certificate_code,
+        )
+        for r in results
+    ]

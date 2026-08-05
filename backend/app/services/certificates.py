@@ -13,8 +13,8 @@ from app.config import settings
 from app.models.attempt import Attempt
 from app.models.question import Question
 
-# Feature 008 replaces this typed, self-reported name with an authenticated
-# user's name.
+# Feature 008 is done: an attempt with a signed in user gets its certificate
+# name from the account automatically; anonymous attempts still type one in.
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no O, 0, I, 1, L
 _CODE_LENGTH = 12
@@ -35,6 +35,10 @@ class CertificateNotClaimedError(Exception):
     """Raised when a PDF is requested before a certificate has been claimed."""
 
 
+class RecipientNameRequiredError(Exception):
+    """Raised when an anonymous attempt's certificate is claimed without a name."""
+
+
 @dataclass
 class CertificateData:
     certificate_code: str
@@ -44,6 +48,7 @@ class CertificateData:
     score: int
     question_count: int
     completed_at: datetime
+    is_account_holder: bool
 
 
 def _question_count(db: Session, lesson_id: int) -> int:
@@ -75,18 +80,30 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         score=attempt.score,
         question_count=_question_count(db, attempt.lesson_id),
         completed_at=attempt.completed_at,
+        is_account_holder=attempt.user_id is not None,
     )
 
 
-def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str) -> CertificateData:
-    stmt = select(Attempt).where(Attempt.public_id == public_id).options(selectinload(Attempt.lesson))
+def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | None) -> CertificateData:
+    stmt = (
+        select(Attempt)
+        .where(Attempt.public_id == public_id)
+        .options(selectinload(Attempt.lesson), selectinload(Attempt.user))
+    )
     attempt = db.execute(stmt).scalar_one_or_none()
     if attempt is None:
         raise AttemptNotFoundError(f"Attempt {public_id} not found")
     if attempt.completed_at is None or not attempt.passed:
         raise AttemptNotEligibleError("This attempt has not passed yet")
 
-    attempt.recipient_name = recipient_name
+    if attempt.user is not None:
+        name = attempt.user.display_name
+    elif recipient_name:
+        name = recipient_name
+    else:
+        raise RecipientNameRequiredError("recipient_name is required for an anonymous attempt")
+
+    attempt.recipient_name = name
     if attempt.certificate_code is None:
         attempt.certificate_code = generate_code(db)
     db.commit()

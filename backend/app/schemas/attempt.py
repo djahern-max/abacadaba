@@ -34,3 +34,16 @@ class AttemptResult(BaseModel):
     question_count: int
     passed: bool
     completed_at: datetime
+    certificate_code: str | None = None
+
+
+class UserAttempt(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    attempt_id: UUID
+    lesson_title: str
+    lesson_slug: str
+    score: int
+    passed: bool
+    completed_at: datetime
+    certificate_code: str | None = None

@@ -5,7 +5,7 @@ const BASE_URL = import.meta.env.VITE_API_URL
 export function claimCertificate(attemptId, name) {
   return apiFetch(`/api/v1/attempts/${attemptId}/certificate`, {
     method: 'POST',
-    body: JSON.stringify({ recipient_name: name }),
+    body: JSON.stringify(name ? { recipient_name: name } : {}),
   })
 }
 

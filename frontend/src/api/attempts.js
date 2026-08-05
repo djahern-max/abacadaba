@@ -14,3 +14,7 @@ export function submitAttemptAnswer(attemptId, questionId, choiceId) {
 export function getAttemptResult(attemptId) {
   return apiFetch(`/api/v1/attempts/${attemptId}/result`)
 }
+
+export function getMyAttempts() {
+  return apiFetch('/api/v1/me/attempts')
+}

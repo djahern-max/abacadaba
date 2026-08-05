@@ -10,10 +10,14 @@ from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.session import Session as SessionModel
+from app.models.user import User
 
 client = TestClient(app)
 
 QUIZ_SLUG = "test-lesson-attempts"
+SIGNED_IN_EMAIL = "attempts-user@example.com"
+SIGNED_IN_PASSWORD = "correct-horse-battery"
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +58,15 @@ def seed_test_lesson():
     lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
     db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
     db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    db.commit()
+    db.close()
+
+    client.cookies.clear()
+
+    db = SessionLocal()
+    user_ids = select(User.id).where(User.email == SIGNED_IN_EMAIL)
+    db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
+    db.execute(delete(User).where(User.email == SIGNED_IN_EMAIL))
     db.commit()
     db.close()
 
@@ -204,3 +217,33 @@ def test_choice_from_another_question_returns_400():
 
     response = answer(attempt_id, questions[0]["question_id"], questions[1]["correct_choice_id"])
     assert response.status_code == 400
+
+
+def test_a_signed_in_users_completed_attempt_appears_in_me_attempts():
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": SIGNED_IN_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": "Attempts Tester",
+        },
+    )
+
+    attempt_id = start_attempt()
+    for q in get_questions():
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+
+    response = client.get("/api/v1/me/attempts")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["attempt_id"] == attempt_id
+    assert body[0]["lesson_slug"] == QUIZ_SLUG
+    assert body[0]["score"] == 5
+    assert body[0]["passed"] is True
+    assert body[0]["certificate_code"] is None
+
+
+def test_me_attempts_without_a_cookie_returns_401():
+    response = client.get("/api/v1/me/attempts")
+    assert response.status_code == 401

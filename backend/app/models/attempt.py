@@ -18,6 +18,9 @@ class Attempt(Base):
     lesson_id: Mapped[int] = mapped_column(
         ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -29,6 +32,7 @@ class Attempt(Base):
     )
 
     lesson: Mapped["Lesson"] = relationship()
+    user: Mapped["User | None"] = relationship()
     answers: Mapped[list["AttemptAnswer"]] = relationship(
         back_populates="attempt", cascade="all, delete-orphan"
     )
