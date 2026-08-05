@@ -25,13 +25,3 @@ class QuizPublic(BaseModel):
     lesson_title: str
     question_count: int
     questions: list[QuestionPublic]
-
-
-class AnswerRequest(BaseModel):
-    question_id: int
-    choice_id: int
-
-
-class AnswerResponse(BaseModel):
-    correct: bool
-    correct_choice_id: int

@@ -24,7 +24,17 @@ export function smallBurst(originElement) {
   })
 }
 
-// Big burst arrives with feature 006, once passing at 4/5 is a real outcome.
+const BIG_BURST_VOLLEYS = [
+  { delay: 0, particleCount: 120, spread: 100, startVelocity: 45, origin: { x: 0.3, y: 0.6 } },
+  { delay: 300, particleCount: 120, spread: 100, startVelocity: 45, origin: { x: 0.7, y: 0.6 } },
+  { delay: 650, particleCount: 140, spread: 130, startVelocity: 55, origin: { x: 0.5, y: 0.5 } },
+]
+
 export function bigBurst() {
   if (prefersReducedMotion()) return
+
+  for (const volley of BIG_BURST_VOLLEYS) {
+    const { delay, ...options } = volley
+    setTimeout(() => confetti(options), delay)
+  }
 }

@@ -4,6 +4,7 @@ import { getHealth } from './api/health'
 import LessonList from './pages/LessonList/LessonList'
 import LessonDetail from './pages/LessonDetail/LessonDetail'
 import Quiz from './pages/Quiz/Quiz'
+import Result from './pages/Result/Result'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -45,6 +46,7 @@ function App() {
           <Route path="/" element={<LessonList />} />
           <Route path="/lessons/:slug" element={<LessonDetail />} />
           <Route path="/lessons/:slug/quiz" element={<Quiz />} />
+          <Route path="/attempts/:attemptId" element={<Result />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

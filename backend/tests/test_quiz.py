@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.db import SessionLocal
 from app.main import app
@@ -12,9 +12,8 @@ client = TestClient(app)
 
 WITH_QUIZ_SLUG = "test-lesson-with-quiz"
 WITHOUT_QUIZ_SLUG = "test-lesson-without-quiz"
-OTHER_QUIZ_SLUG = "test-lesson-other-quiz"
 
-ALL_TEST_SLUGS = [WITH_QUIZ_SLUG, WITHOUT_QUIZ_SLUG, OTHER_QUIZ_SLUG]
+ALL_TEST_SLUGS = [WITH_QUIZ_SLUG, WITHOUT_QUIZ_SLUG]
 
 
 @pytest.fixture(autouse=True)
@@ -53,23 +52,6 @@ def seed_test_lessons():
         )
     )
 
-    other_lesson = Lesson(
-        slug=OTHER_QUIZ_SLUG,
-        title="Other Lesson With Quiz",
-        description="Used to test cross-lesson question access.",
-        duration_seconds=300,
-        is_published=True,
-    )
-    db.add(other_lesson)
-    db.flush()
-
-    other_question = Question(lesson_id=other_lesson.id, prompt="Other question?", position=1)
-    other_question.choices = [
-        Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
-        for index, letter in enumerate(["A", "B", "C", "D"], start=1)
-    ]
-    db.add(other_question)
-
     db.commit()
     db.close()
 
@@ -79,25 +61,6 @@ def seed_test_lessons():
     db.execute(delete(Lesson).where(Lesson.slug.in_(ALL_TEST_SLUGS)))
     db.commit()
     db.close()
-
-
-def get_question(slug, position=1):
-    db = SessionLocal()
-    stmt = (
-        select(Question)
-        .join(Lesson)
-        .where(Lesson.slug == slug, Question.position == position)
-    )
-    question = db.execute(stmt).scalar_one()
-    correct_choice = next(c for c in question.choices if c.is_correct)
-    wrong_choice = next(c for c in question.choices if not c.is_correct)
-    result = {
-        "question_id": question.id,
-        "correct_choice_id": correct_choice.id,
-        "wrong_choice_id": wrong_choice.id,
-    }
-    db.close()
-    return result
 
 
 def test_quiz_returns_five_questions_with_four_choices_each():
@@ -144,52 +107,9 @@ def test_unknown_slug_returns_404():
     assert response.status_code == 404
 
 
-def test_correct_answer_returns_correct_true():
-    q = get_question(WITH_QUIZ_SLUG, position=1)
+def test_old_answers_endpoint_is_gone():
     response = client.post(
         f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz/answers",
-        json={"question_id": q["question_id"], "choice_id": q["correct_choice_id"]},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["correct"] is True
-    assert body["correct_choice_id"] == q["correct_choice_id"]
-
-
-def test_incorrect_answer_returns_correct_false_and_reveals_answer():
-    q = get_question(WITH_QUIZ_SLUG, position=1)
-    response = client.post(
-        f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz/answers",
-        json={"question_id": q["question_id"], "choice_id": q["wrong_choice_id"]},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["correct"] is False
-    assert body["correct_choice_id"] == q["correct_choice_id"]
-
-
-def test_choice_from_different_question_returns_400():
-    q1 = get_question(WITH_QUIZ_SLUG, position=1)
-    q2 = get_question(WITH_QUIZ_SLUG, position=2)
-    response = client.post(
-        f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz/answers",
-        json={"question_id": q1["question_id"], "choice_id": q2["correct_choice_id"]},
-    )
-    assert response.status_code == 400
-
-
-def test_question_from_different_lesson_returns_404():
-    other = get_question(OTHER_QUIZ_SLUG, position=1)
-    response = client.post(
-        f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz/answers",
-        json={"question_id": other["question_id"], "choice_id": other["correct_choice_id"]},
-    )
-    assert response.status_code == 404
-
-
-def test_unknown_question_id_returns_404():
-    response = client.post(
-        f"/api/v1/lessons/{WITH_QUIZ_SLUG}/quiz/answers",
-        json={"question_id": 9999999, "choice_id": 1},
+        json={"question_id": 1, "choice_id": 1},
     )
     assert response.status_code == 404

@@ -39,3 +39,16 @@ prefers-reduced-motion), a wrong answer reveals the correct choice in
 green, and Next/Finish advances to a "Quiz complete" placeholder. Choices
 are real buttons with visible focus rings and an aria-live announcement
 of the result. Scoring, pass/fail, and the attempts table are feature 006.
+
+## 2026-08-04, Feature 006, Attempts, scoring, and passing at 4 of 5
+Added attempts and attempt_answers tables (the latter unique on
+attempt_id + question_id, the DB-level replay guard) plus
+POST /lessons/{slug}/attempts, POST /attempts/{id}/answers, and
+GET /attempts/{id}/result, replacing and removing the sessionless
+POST /lessons/{slug}/quiz/answers from feature 005. The server now owns
+scoring and pass/fail (PASS_THRESHOLD = 4) and rejects a question
+answered twice in the same attempt with a 409. The quiz page starts an
+attempt on load and redirects to /attempts/:attemptId on the final
+answer; the new results page shows the score and pass/fail state,
+fires a bigger, staggered confetti burst on a pass, and offers rewatch
+and retry links on a fail. Certificates land in feature 007.
