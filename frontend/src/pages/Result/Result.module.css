@@ -25,6 +25,7 @@
 }
 
 .certificateButton {
+  display: inline-block;
   padding: var(--space-sm) var(--space-md);
   border: none;
   border-radius: var(--radius-sm);
@@ -32,11 +33,53 @@
   color: var(--color-accent-contrast);
   font: inherit;
   font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.certificateButton:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.note {
+.certificateForm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.label {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.input {
+  width: 100%;
+  max-width: 320px;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 14px;
+}
+
+.certificate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.certificateCode {
   margin: 0;
   color: var(--color-text-muted);
   font-size: 14px;

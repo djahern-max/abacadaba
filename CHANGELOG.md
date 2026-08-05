@@ -52,3 +52,20 @@ attempt on load and redirects to /attempts/:attemptId on the final
 answer; the new results page shows the score and pass/fail state,
 fires a bigger, staggered confetti burst on a pass, and offers rewatch
 and retry links on a fail. Certificates land in feature 007.
+
+## 2026-08-04, Feature 007, Certificate generation and download
+Passed attempts can now earn a downloadable PDF certificate. Added
+recipient_name and certificate_code (confusion-free, hyphenated,
+unique) columns to attempts, POST /attempts/{id}/certificate to claim
+one (409 if not passed/complete), GET /attempts/{id}/certificate.pdf
+to stream a reportlab-rendered landscape PDF (font shrinks to fit long
+names or titles), and GET /certificates/{code} for case- and
+hyphen-insensitive public verification, returning valid: false rather
+than a 404 for unknown codes. The results page now offers a name entry
+form on a pass that reveals the code and a plain download link once
+claimed (persisted in localStorage so a reload skips the form), and a
+new /verify/:code page renders the certificate details or a clear
+not-found state, wording things as self-reported since there are no
+accounts yet. SITE_URL/VITE_SITE_URL back the verification URL printed
+on the certificate. Feature 008 will replace the typed name with an
+authenticated user.

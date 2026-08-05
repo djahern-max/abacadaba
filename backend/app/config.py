@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     spaces_bucket: str
     spaces_endpoint: str
     upload_secret: str
+    site_url: str = "http://localhost:5173"
 
     @property
     def cors_origins_list(self) -> list[str]:

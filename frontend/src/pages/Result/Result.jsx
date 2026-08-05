@@ -1,8 +1,100 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getAttemptResult } from '../../api/attempts'
+import { certificatePdfUrl, claimCertificate } from '../../api/certificates'
 import { bigBurst } from '../../lib/confetti'
 import styles from './Result.module.css'
+
+const SITE_URL = import.meta.env.VITE_SITE_URL || 'http://localhost:5173'
+
+function storageKey(attemptId) {
+  return `abacadaba:certificate:${attemptId}`
+}
+
+function loadStoredCertificate(attemptId) {
+  try {
+    const raw = localStorage.getItem(storageKey(attemptId))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function storeCertificate(attemptId, certificate) {
+  try {
+    localStorage.setItem(storageKey(attemptId), JSON.stringify(certificate))
+  } catch {
+    // localStorage may be unavailable; the download link still works this session
+  }
+}
+
+function Certificate({ attemptId }) {
+  const [certificate, setCertificate] = useState(() => loadStoredCertificate(attemptId))
+  const [name, setName] = useState('')
+  const [status, setStatus] = useState('idle')
+  const [validationError, setValidationError] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (trimmed.length < 2 || trimmed.length > 80) {
+      setValidationError('Enter a name between 2 and 80 characters.')
+      return
+    }
+    setValidationError('')
+    setStatus('submitting')
+    try {
+      const result = await claimCertificate(attemptId, trimmed)
+      const claimed = { code: result.certificate_code, name: result.recipient_name }
+      storeCertificate(attemptId, claimed)
+      setCertificate(claimed)
+      setStatus('idle')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  if (certificate) {
+    return (
+      <div className={styles.certificate}>
+        <p className={styles.certificateCode}>Certificate code: {certificate.code}</p>
+        <p className={styles.certificateCode}>
+          Verify at: {SITE_URL}/verify/{certificate.code}
+        </p>
+        <a
+          className={styles.certificateButton}
+          href={certificatePdfUrl(attemptId)}
+          download
+        >
+          Download PDF
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <form className={styles.certificateForm} onSubmit={handleSubmit}>
+      <label className={styles.label} htmlFor="recipient-name">
+        Name as it should appear on your certificate
+      </label>
+      <input
+        id="recipient-name"
+        className={styles.input}
+        type="text"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        disabled={status === 'submitting'}
+      />
+      {validationError && <p className={styles.fieldError}>{validationError}</p>}
+      {status === 'error' && (
+        <p className={styles.fieldError}>Couldn&apos;t claim your certificate. Please try again.</p>
+      )}
+      <button type="submit" className={styles.certificateButton} disabled={status === 'submitting'}>
+        {status === 'submitting' ? 'Getting your certificate…' : 'Get my certificate'}
+      </button>
+    </form>
+  )
+}
 
 function Result() {
   const { attemptId } = useParams()
@@ -73,10 +165,7 @@ function Result() {
         <p className={styles.score}>
           You scored {scoreText} on {result.lesson_title}.
         </p>
-        <button type="button" className={styles.certificateButton} disabled>
-          Download certificate
-        </button>
-        <p className={styles.note}>Certificates are arriving in a future update.</p>
+        <Certificate attemptId={result.attempt_id} />
         <Link to={`/lessons/${result.lesson_slug}`}>Back to lesson</Link>
       </div>
     )

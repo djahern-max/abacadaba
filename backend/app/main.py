@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import admin, attempts, health, lessons, quiz
+from app.routers import admin, attempts, certificates, health, lessons, quiz
 
 app = FastAPI(title="abacadaba API")
 
@@ -19,3 +19,4 @@ app.include_router(lessons.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(quiz.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
+app.include_router(certificates.router, prefix="/api/v1")

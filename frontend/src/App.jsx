@@ -5,6 +5,7 @@ import LessonList from './pages/LessonList/LessonList'
 import LessonDetail from './pages/LessonDetail/LessonDetail'
 import Quiz from './pages/Quiz/Quiz'
 import Result from './pages/Result/Result'
+import Verify from './pages/Verify/Verify'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -47,6 +48,7 @@ function App() {
           <Route path="/lessons/:slug" element={<LessonDetail />} />
           <Route path="/lessons/:slug/quiz" element={<Quiz />} />
           <Route path="/attempts/:attemptId" element={<Result />} />
+          <Route path="/verify/:code" element={<Verify />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
