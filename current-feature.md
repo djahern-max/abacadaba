@@ -1,177 +1,107 @@
 # Current Feature
 
-## Feature 008, Accounts, real auth, and progress
+## Feature 009, Deploy to production
 
 ## Goal
-A user can register, sign in, and see their own history. Attempts made while
-signed in belong to that user, and the certificate carries their account name
-rather than a typed one. The admin upload secret is replaced by real
-authorization.
+abacadaba runs on the public internet at a real domain with TLS, a managed
+Postgres, and automatic deploys from main. Everything that works locally works
+there, including session cookies and video playback.
 
 ## In scope
-- users table and a user_id on attempts, with migrations
-- Registration, login, logout, and a current user endpoint using httpOnly
-  session cookies
-- Attempts linked to the signed in user when there is one
-- Certificates using the account name for signed in users
-- A progress page listing the user's attempts
-- Replacing the X-Upload-Secret guard with an is_admin check
-- Tests
+- Backend containerized and deployed to DigitalOcean App Platform
+- Frontend built and served as a static site on the same App
+- Managed Postgres, with migrations run automatically on release
+- Production environment configuration, including secure cookies
+- Domain and TLS for abacadaba.com and api.abacadaba.com
+- A production seed run, and the first admin account
 
 ## Out of scope
-- Password reset, email verification, OAuth or social login
-- Roles beyond a single is_admin boolean, teams, organizations
-- An admin UI. The upload CLI stays a CLI, just authenticated differently.
-- Merging attempts made anonymously into an account after signing in
+- CDN tuning, video transcoding, adaptive streaming
+- Staging environments, blue green deploys, rollback automation
+- Monitoring and alerting beyond the platform's built in health check
+  (feature 013)
+- Backups configuration beyond confirming the managed default exists
 
-## Deliberate decisions
-Sessions are httpOnly, SameSite=Lax, Secure in production cookies holding an
-opaque session id. Not a JWT in localStorage, which any injected script can
-read. Sessions are stored in a database table so logout genuinely revokes.
+## The decision that prevents a day of cookie debugging
+Put the API on api.abacadaba.com and the frontend on abacadaba.com. These share
+a registrable domain, so the session cookie is same site and SameSite=Lax works
+unchanged. If the API lived on a different domain the cookie would need
+SameSite=None with Secure, and Safari's tracking prevention would make it
+unreliable. Do not put them on different domains.
 
-Anonymous attempts keep working exactly as they do now. The quiz must not sit
-behind a signup wall. user_id on attempts is nullable and stays that way.
-
-## Data model
-Table users:
-- id: integer primary key
-- email: citext or a lowercased string, unique, indexed, not null
-- password_hash: string, not null
-- display_name: string, not null, 2 to 80 characters
-- is_admin: boolean, not null, default false
-- created_at, updated_at: timezone aware UTC, server defaults
-
-Table sessions:
-- id: string primary key, the opaque token, generated with
-  secrets.token_urlsafe(32)
-- user_id: integer, foreign key to users.id, not null, indexed,
-  ondelete CASCADE
-- expires_at: timezone aware UTC, not null
-- created_at: timezone aware UTC, server default
-
-Add to attempts:
-- user_id: integer, foreign key to users.id, nullable, indexed,
-  ondelete SET NULL
-
-Session lifetime is 30 days. Define it as a constant, not an inline number.
+Set the cookie domain to .abacadaba.com in production so it is sent to both
+hosts. Locally it stays host only. This comes from config, not a hardcoded
+string.
 
 ## Backend tasks
-1. Add passlib[bcrypt] to requirements.txt. Hash with bcrypt. Never store or log
-   a plaintext password. No other new dependency.
-2. app/models/user.py and app/models/session.py, plus user_id on Attempt.
-   Import both in app/models/__init__.py.
-3. Two migrations, or one if autogenerate produces a clean single file:
-   alembic revision --autogenerate -m "create users and sessions"
-   Inspect before applying. Confirm the unique index on email and both foreign
-   keys. Then upgrade head and verify downgrade -1.
-4. app/schemas/auth.py:
-   - RegisterRequest: email as EmailStr, password of at least 10 characters,
-     display_name 2 to 80 characters
-   - LoginRequest: email, password
-   - UserPublic: id, email, display_name, is_admin. Never password_hash.
-5. app/services/auth.py:
-   - hash_password and verify_password wrapping passlib
-   - register(db, email, password, display_name), lowercasing the email and
-     signalling a conflict if it is taken
-   - authenticate(db, email, password) returning the user or None. Compare the
-     password even when no user matches, so response timing does not reveal
-     whether an email is registered.
-   - create_session(db, user), get_session_user(db, token) which returns None
-     for a missing or expired session, and delete_session(db, token)
-   - a purge helper deleting expired sessions, called opportunistically on login
-6. app/dependencies.py:
-   - get_current_user(request, db) reading the session cookie and returning the
-     user or None
-   - require_user raising 401 when there is no user
-   - require_admin raising 401 when there is no user and 403 when the user is
-     not an admin. The distinction matters.
-7. app/routers/auth.py:
-   - POST /auth/register, 201 with UserPublic, sets the session cookie,
-     409 if the email is taken
-   - POST /auth/login, 200 with UserPublic, sets the cookie, 401 on bad
-     credentials with a message that does not reveal which field was wrong
-   - POST /auth/logout, 204, deletes the session row and clears the cookie
-   - GET /auth/me, 200 with UserPublic or 401
-   Cookie settings come from config so production can set Secure and a domain.
-   Add SESSION_COOKIE_SECURE to .env.example, defaulting to false locally.
-8. Attempts: start_attempt takes an optional user and sets user_id. The route
-   uses get_current_user, not require_user, so anonymous attempts still work.
-9. Certificates: when the attempt has a user, use that user's display_name as
-   recipient_name automatically and do not require one in the request body. When
-   the attempt is anonymous, keep the current typed name behavior. Update the
-   comment written in feature 007 to say this is now done. Reword the
-   verification page copy so a certificate from a signed in user is described as
-   issued to an account holder rather than self reported, and keep the old
-   wording for anonymous ones. CertificateVerification gains a boolean saying
-   which it is.
-10. app/routers/attempts.py: GET /me/attempts behind require_user, returning the
-    signed in user's completed attempts newest first, each with lesson title and
-    slug, score, passed, completed_at, and certificate_code when present.
-11. Replace the X-Upload-Secret guard on the admin upload route with
-    require_admin. Remove UPLOAD_SECRET from config, .env, and .env.example.
-    Update scripts/upload_video.py to log in with an admin email and password
-    read from the environment and reuse the session cookie.
-12. backend/scripts/make_admin.py: a CLI taking an email and setting is_admin
-    true, so the first admin can exist. Runnable as
-    python -m scripts.make_admin <email>
-13. tests/test_auth.py:
-    - registering returns 201 and sets a cookie
-    - registering a duplicate email returns 409, and case insensitively so
-    - a short password returns 422
-    - login with correct credentials returns 200 and sets a cookie
-    - login with a wrong password returns 401
-    - /auth/me without a cookie returns 401
-    - /auth/me with a cookie returns the user, and never includes password_hash
-    - logout clears the session so /auth/me returns 401 afterward
-    - an expired session returns 401
-14. tests/test_admin_auth.py:
-    - upload with no session returns 401
-    - upload as a non admin user returns 403
-    - upload as an admin succeeds, with storage mocked
-15. Update existing tests for attempts and certificates where behavior changed.
-    Anonymous flows must still pass unchanged.
+1. backend/Dockerfile: python:3.12-slim base, non root user, install from
+   requirements.txt, copy the app, expose 8080, and run uvicorn bound to
+   0.0.0.0 on the port from the PORT env var defaulting to 8080. Multi stage is
+   unnecessary here, keep it one stage and readable.
+2. backend/.dockerignore excluding .venv, __pycache__, tests, .env, alembic
+   caches.
+3. app/config.py: add SESSION_COOKIE_DOMAIN (nullable), ENVIRONMENT defaulting
+   to "development", and confirm SESSION_COOKIE_SECURE, SITE_URL, and
+   CORS_ORIGINS are all present. Add every new var to .env.example.
+4. Cookie setting code reads domain and secure from settings rather than
+   literals. Verify SameSite is Lax.
+5. app/main.py: when ENVIRONMENT is production, disable the interactive docs by
+   passing docs_url=None and redoc_url=None. The API is public, the schema does
+   not need to be.
+6. A release command that runs alembic upgrade head before the new version takes
+   traffic. On App Platform this is the job or pre deploy command, not something
+   baked into the container start, so a crash loop cannot half apply a migration.
+7. Confirm the existing /api/v1/health endpoint is what the platform health
+   check points at.
+8. backend/scripts/seed.py must be safe to run against production. Re read it and
+   confirm it only ever upserts and never deletes.
 
 ## Frontend tasks
-1. src/api/auth.js: register, login, logout, getMe. Every request in
-   src/api/client.js must send credentials: "include" so the cookie travels.
-   CORS on the backend needs allow_credentials true and an explicit origin,
-   not a wildcard, or the browser will silently drop the cookie.
-2. src/context/AuthContext.jsx: holds user and a loading flag, calls getMe once
-   on mount, exposes login, register, and logout. Wrap the app in main.jsx.
-3. src/components/Header/: extract the header out of App.jsx. Show Sign in and
-   Register links when signed out, and the display name, a My progress link, and
-   Sign out when signed in.
-4. src/pages/Login/ and src/pages/Register/ with their own CSS Modules. Inline
-   validation, a disabled button while submitting, and a clear error on failure.
-   On success, redirect to where the user came from, defaulting to "/".
-5. src/pages/Progress/: route "/me", listing the user's attempts with lesson
-   title, score, pass or fail, date, and a download link when a certificate
-   exists. Handle the empty case with a prompt to take a quiz. Redirect to login
-   when signed out.
-6. src/pages/Result/: when signed in, skip the name form entirely. Claim the
-   certificate with the account name and show the code and download link
-   directly. Remove the localStorage persistence added in feature 007 and drive
-   the claimed state from the API response instead, since the attempt now knows
-   whether it has been claimed.
-7. Register all new routes in App.jsx.
+1. frontend/.env.production with VITE_API_URL=https://api.abacadaba.com and
+   VITE_SITE_URL=https://abacadaba.com. Confirm nothing reads a localhost value
+   at build time.
+2. Client side routing means a refresh on /lessons/foo must not 404. Configure
+   the static site to rewrite unknown paths to index.html. Note the exact
+   setting used in the deployment doc below.
+3. npm run build must succeed with no warnings about missing env vars.
+
+## Deployment tasks
+1. Create the App with two components pointed at this GitHub repo: a service
+   from backend/ using its Dockerfile, and a static site from frontend/ built
+   with npm run build and served from dist/.
+2. Attach a managed Postgres. Use the platform's connection string binding so
+   DATABASE_URL is injected rather than pasted. It must connect over the private
+   network.
+3. Set all secrets as encrypted env vars: SPACES_KEY, SPACES_SECRET, and the
+   rest. Nothing sensitive goes in a build arg, since those are visible.
+4. Point abacadaba.com at the static site and api.abacadaba.com at the service.
+   Let the platform issue certificates.
+5. Enable automatic deploys from main.
+6. After the first successful deploy, run the seed once and create the first
+   admin with scripts/make_admin.py through the platform console.
+7. Upload one real video to the production lesson so the deployed app has
+   working content.
+
+## Write it down
+Create DEPLOYMENT.md at the repo root recording: the App components and their
+source directories, every environment variable and where its value comes from,
+the SPA rewrite setting, how to run a one off command in production, how to get
+a shell on the database, and how to promote an admin. Future you will need this
+and will not remember.
 
 ## Acceptance criteria
-- alembic upgrade head creates users and sessions and adds attempts.user_id,
-  downgrade -1 reverses
-- curl registering returns 201 with a Set-Cookie header
-- curl /auth/me with that cookie returns the user and no password_hash anywhere
-  in the response
-- curl /auth/me after logout returns 401
-- python -m scripts.make_admin you@example.com promotes an account
-- video upload with no session returns 401, as a normal user returns 403, and as
-  an admin succeeds
-- taking a quiz signed out still works and still produces a certificate with a
-  typed name
-- taking a quiz signed in shows no name form and produces a certificate carrying
-  the account display name
-- /me lists that attempt with its score and a working certificate download
-- signing out and revisiting /me redirects to login
-- pytest passes, including the leak, replay, and certificate tests
+- https://abacadaba.com loads over TLS with a valid certificate
+- the lesson list renders from the production database
+- a video plays, proving Spaces credentials and presigned URLs work in production
+- refreshing on a deep link like /lessons/intro-to-ratios does not 404
+- registering an account on production works and the session cookie has Secure,
+  HttpOnly, SameSite=Lax, and the .abacadaba.com domain
+- signing out and back in works, proving the cookie survives across both hosts
+- completing a quiz produces a certificate whose verification URL points at the
+  real domain, not localhost
+- https://api.abacadaba.com/docs returns 404 in production
+- pushing a commit to main triggers a deploy that runs migrations first
+- DEPLOYMENT.md exists and is accurate
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

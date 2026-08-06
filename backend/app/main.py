@@ -4,7 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import admin, attempts, auth, certificates, health, lessons, quiz
 
-app = FastAPI(title="abacadaba API")
+docs_enabled = settings.environment != "production"
+app = FastAPI(
+    title="abacadaba API",
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+)
 
 app.add_middleware(
     CORSMiddleware,

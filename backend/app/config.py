@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     site_url: str = "http://localhost:5173"
     session_cookie_secure: bool = False
     session_cookie_domain: str | None = None
+    environment: str = "development"
 
     @property
     def cors_origins_list(self) -> list[str]:
