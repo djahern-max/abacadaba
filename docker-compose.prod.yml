@@ -1,0 +1,137 @@
+# abacadaba production stack.
+#
+# Lives on the Droplet at /srv/abacadaba/docker-compose.prod.yml alongside a
+# .env file (chmod 600, never committed).
+#
+# There is deliberately NO frontend service. The frontend is built off-box and
+# rsynced to /var/www/abacadaba as static files, so this machine never runs
+# `npm install` and never executes a package lifecycle script.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+name: abacadaba
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+
+    # NO `ports:` KEY. This is load-bearing.
+    #
+    # Publishing a port makes Docker write its own DNAT/FORWARD iptables rules,
+    # which bypass ufw's INPUT chain entirely. `ufw status` would report 5432 as
+    # denied while the database sat open to the internet. The api reaches
+    # Postgres as db:5432 over the compose network instead.
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Values come from .env in this directory, which Compose loads for
+      # variable interpolation. See .env.example.
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    networks:
+      # `backend` only. This network is internal:true, so the database
+      # container has no route to the internet at all -- it cannot fetch a
+      # miner payload or exfiltrate a dump even if something reaches it.
+      - backend
+
+    security_opt:
+      - no-new-privileges:true
+
+    # Capabilities are NOT dropped here. The postgres entrypoint starts as root
+    # to fix data-directory ownership before dropping to the postgres user, so
+    # it needs CHOWN/SETUID/SETGID/DAC_OVERRIDE/FOWNER. Dropping ALL breaks
+    # first boot. The api container below is a different story.
+
+    mem_limit: 512m
+    pids_limit: 200
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+
+    # Loopback bind. nginx proxies to 127.0.0.1:8080; the outside world cannot
+    # reach this port regardless of what Docker does to iptables, because the
+    # DNAT rule is scoped to the loopback interface. Never change this to
+    # "8080:8080".
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    env_file:
+      - .env
+
+    environment:
+      # uvicorn ignores X-Forwarded-* unless the peer is in forwarded-allow-ips,
+      # and nginx arrives via the Docker bridge gateway, not 127.0.0.1. Without
+      # this, every request looks like it came from 172.x.x.1 -- which would
+      # make feature 013's per-IP rate limiting useless.
+      #
+      # Safe here precisely because the only thing that can reach this port is
+      # nginx on loopback.
+      FORWARDED_ALLOW_IPS: "*"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - backend   # to reach db
+      - egress    # to reach DigitalOcean Spaces
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+    # Safe: the Dockerfile already runs as `appuser` and binds port 8080,
+    # which is above 1024, so no capability is required.
+
+    read_only: true
+    tmpfs:
+      # FastAPI's UploadFile spools large request bodies to a temp file during
+      # video upload, so /tmp must be writable. noexec means nothing dropped
+      # there can be run.
+      - /tmp:rw,noexec,nosuid,size=1g
+
+    # CPU cap. A miner's entire purpose is consuming CPU; capped, it cannot take
+    # the box down, and sustained 100% of one core becomes a signal you can
+    # alert on rather than something that just looks like load.
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 200
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  backend:
+    internal: true    # no egress for anything on this network
+  egress:
+    driver: bridge
+
+volumes:
+  pgdata:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 
-API_BASE_URL = "http://localhost:8000/api/v1"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000/api/v1")
 
 
 def upload_video(slug: str, path: str):
@@ -15,7 +15,9 @@ def upload_video(slug: str, path: str):
     file_path = Path(path)
     content_type = mimetypes.guess_type(file_path.name)[0]
 
-    with httpx.Client(timeout=120) as client:
+    print(f"Uploading {file_path.name} to {API_BASE_URL} as {admin_email}")
+
+    with httpx.Client(timeout=600) as client:
         login_response = client.post(
             f"{API_BASE_URL}/auth/login",
             json={"email": admin_email, "password": admin_password},
