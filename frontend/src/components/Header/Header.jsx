@@ -29,6 +29,7 @@ function Header({ status }) {
         {user ? (
           <nav className={styles.nav}>
             <Link to="/me">My progress</Link>
+            {user.is_admin && <Link to="/admin">Admin</Link>}
             <span className={styles.displayName}>{user.display_name}</span>
             <button type="button" className={styles.signOutButton} onClick={handleSignOut}>
               Sign out

@@ -1,6 +1,8 @@
 from pydantic import BaseModel, ConfigDict
 
 
+# Public twin of AdminChoice (app/schemas/admin.py). This one omits is_correct
+# on purpose — never merge them into one class.
 class ChoicePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

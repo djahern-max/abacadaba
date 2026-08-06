@@ -1,3 +1,6 @@
+# Content is now authored in the admin UI (feature 010). This script exists
+# only to bootstrap a fresh database with sample lessons, not for routine use.
+
 from sqlalchemy import select
 
 from app.db import SessionLocal

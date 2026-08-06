@@ -10,6 +10,9 @@ import Verify from './pages/Verify/Verify'
 import Login from './pages/Login/Login'
 import Register from './pages/Register/Register'
 import Progress from './pages/Progress/Progress'
+import AdminGuard from './pages/Admin/AdminGuard'
+import AdminLessonList from './pages/Admin/AdminLessonList/AdminLessonList'
+import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -43,6 +46,22 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/me" element={<Progress />} />
+          <Route
+            path="/admin"
+            element={
+              <AdminGuard>
+                <AdminLessonList />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/lessons/:id"
+            element={
+              <AdminGuard>
+                <AdminLessonEditor />
+              </AdminGuard>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

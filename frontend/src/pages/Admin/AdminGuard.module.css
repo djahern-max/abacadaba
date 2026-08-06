@@ -1,0 +1,7 @@
+.message {
+  max-width: var(--content-width);
+  margin: var(--space-xl) auto 0;
+  padding: 0 var(--space-lg);
+  color: var(--color-text-muted);
+  text-align: center;
+}
