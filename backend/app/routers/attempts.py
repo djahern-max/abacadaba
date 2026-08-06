@@ -29,6 +29,10 @@ def start_attempt(
         result = attempts_service.start_attempt(db, slug, user, viewer_id)
     except attempts_service.WatchRequirementNotMetError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except attempts_service.MaxAttemptsExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except attempts_service.RetakeCooldownError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="This lesson has no quiz yet")
 

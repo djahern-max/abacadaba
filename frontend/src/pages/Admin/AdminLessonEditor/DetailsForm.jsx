@@ -8,6 +8,8 @@ function DetailsForm({ lesson, onChange }) {
   const [description, setDescription] = useState(lesson.description)
   const [duration, setDuration] = useState(lesson.duration_seconds ?? '')
   const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
+  const [cooldownMinutes, setCooldownMinutes] = useState(lesson.retake_cooldown_minutes)
+  const [maxAttempts, setMaxAttempts] = useState(lesson.max_attempts ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -16,7 +18,9 @@ function DetailsForm({ lesson, onChange }) {
     slug !== lesson.slug ||
     description !== lesson.description ||
     String(duration) !== String(lesson.duration_seconds ?? '') ||
-    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
+    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100) ||
+    Number(cooldownMinutes) !== lesson.retake_cooldown_minutes ||
+    String(maxAttempts) !== String(lesson.max_attempts ?? '')
 
   async function handleSave(event) {
     event.preventDefault()
@@ -29,6 +33,8 @@ function DetailsForm({ lesson, onChange }) {
         description,
         duration_seconds: duration === '' ? null : Number(duration),
         required_watch_ratio: Number(watchPercent) / 100,
+        retake_cooldown_minutes: Number(cooldownMinutes),
+        max_attempts: maxAttempts === '' ? null : Number(maxAttempts),
       })
       await onChange()
     } catch (err) {
@@ -107,6 +113,32 @@ function DetailsForm({ lesson, onChange }) {
           value={watchPercent}
           onChange={(event) => setWatchPercent(event.target.value)}
         />
+
+        <label className={styles.label} htmlFor="cooldown-minutes">
+          Retake cooldown (minutes)
+        </label>
+        <input
+          id="cooldown-minutes"
+          className={styles.input}
+          type="number"
+          min="0"
+          value={cooldownMinutes}
+          onChange={(event) => setCooldownMinutes(event.target.value)}
+        />
+        <p className={styles.hint}>Blank or 0 means no cooldown between attempts.</p>
+
+        <label className={styles.label} htmlFor="max-attempts">
+          Max attempts
+        </label>
+        <input
+          id="max-attempts"
+          className={styles.input}
+          type="number"
+          min="1"
+          value={maxAttempts}
+          onChange={(event) => setMaxAttempts(event.target.value)}
+        />
+        <p className={styles.hint}>Blank means unlimited attempts.</p>
 
         {error && <p className={styles.fieldError}>{error}</p>}
         <button type="submit" className={styles.button} disabled={!dirty || saving}>

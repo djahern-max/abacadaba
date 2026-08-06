@@ -57,6 +57,9 @@ function AdminLessonEditor() {
         <span className={`${styles.badge} ${lesson.is_published ? styles.published : styles.draft}`}>
           {lesson.is_published ? 'Published' : 'Draft'}
         </span>
+        <Link to={`/admin/lessons/${lesson.id}/stats`} className={styles.statsLink}>
+          View stats
+        </Link>
       </div>
 
       <DetailsForm lesson={lesson} onChange={refresh} />

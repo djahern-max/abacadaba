@@ -1,141 +1,126 @@
 # Current Feature
 
-## Feature 011, Watch tracking and quiz gating
+## Feature 012, Question analytics and retake policy
 
 ## Goal
-The server knows how much of a video someone actually watched, and the quiz
-unlocks only after they have watched enough. Seeking to the end does not count.
+An admin can see which questions people get wrong and where they drop off, and
+retaking a quiz is no longer a memory test of the same five questions in the
+same order.
 
 ## In scope
-- A viewer identity that works for anonymous visitors
-- A watch progress model recording contiguous watched time
-- Heartbeats from the player, validated server side
-- A per lesson watch requirement, gating the quiz
-- Progress shown in the UI so the requirement is never a mystery
-- Tests, including the ones that prove skipping does not work
+- An admin analytics page built from data already being collected
+- Shuffled question and choice order, stable within an attempt
+- A retake cooldown and an attempt limit
+- Tests
 
 ## Out of scope
-- Resume where you left off. Worth doing, but keep this feature focused.
-- Per second heatmaps, drop off analytics (feature 012)
-- Anti automation beyond the plausibility checks below. A determined person
-  with the network tab open can still fake it, and that is acceptable.
-- Applying the gate retroactively to attempts already completed
+- Question banks larger than five with random selection. It is the obvious next
+  step and it deserves its own feature.
+- Per user analytics, cohort reporting, exports
+- Charts beyond simple bars. Numbers in a table are enough to learn from.
+- Changing the pass threshold
 
-## Why this exists
-Self study continuing education generally requires evidence of engagement, and
-that requirement is the hardest thing in this application to retrofit, because
-it touches the player, the data model, and the quiz flow at once. abacadaba is
-the cheap place to learn what it costs. Build it here even though a fun
-micro learning app would not strictly need it.
+## Read this before starting
+attempt_answers already holds everything the analytics need. Do not add tables
+for reporting. If a query is slow, add an index.
 
-## The identity problem, and its answer
-Watch progress needs to attach to someone, but the quiz must stay open to
-anonymous visitors. On any first request without one, set a viewer_id cookie
-holding a UUID: httpOnly, SameSite=Lax, Secure in production, one year. Every
-watch record keys off viewer_id. When a signed in user appears, records also
-carry user_id so progress follows the account across devices.
+## Shuffling, and why it needs a seed
+Order must be stable within an attempt, or refreshing the page would reshuffle
+mid quiz and the answered questions would move. Store a shuffle_seed on the
+attempt and derive the order deterministically from it, so the same attempt
+always renders the same order. A new attempt gets a new seed.
 
-Implement this as middleware so no route has to remember it.
-
-## Anti skip rules
-The player sends a heartbeat every 10 seconds carrying its current position.
-The server credits watched time only when all of these hold:
-- the elapsed wall clock time since that viewer's previous heartbeat is at
-  least 8 seconds, rejecting a flood of requests
-- the reported position has advanced by no more than 15 seconds since the
-  previous heartbeat, rejecting a seek forward
-- the reported position does not exceed the lesson's duration_seconds
-When the position moves backward, that is a legitimate rewind. Do not credit
-time, but do accept it and reset the comparison point.
-
-Credit the smaller of the position delta and the wall clock delta. Store the
-running total in watched_seconds. A rewatched section does not earn credit
-twice, because credit comes from forward movement only.
+Shuffle both question order and, within each question, choice order. The
+position columns stay authoritative for the admin, since an author needs a
+stable view. Shuffling is a presentation concern applied at serve time.
 
 ## Data model
-Table watch_progress:
-- id: integer primary key
-- lesson_id: integer, foreign key to lessons.id, not null, indexed, CASCADE
-- viewer_id: UUID, not null, indexed
-- user_id: integer, foreign key to users.id, nullable, indexed, SET NULL
-- watched_seconds: integer, not null, default 0
-- last_position: integer, not null, default 0
-- last_heartbeat_at: timezone aware UTC, nullable
-- completed_at: timezone aware UTC, nullable. Stamped when the requirement is met.
-- created_at, updated_at: timezone aware UTC, server defaults
-- Unique constraint on (lesson_id, viewer_id)
+Add to attempts:
+- shuffle_seed: integer, not null, default 0. Generated on attempt creation.
+
+No other schema changes for analytics.
 
 Add to lessons:
-- required_watch_ratio: numeric or float, not null, default 0.9. The fraction of
-  duration_seconds that must be watched. Editable per lesson in the admin.
-
-A lesson with a null duration_seconds cannot gate, since there is nothing to
-measure against. Treat it as ungated and surface that in the admin as a warning.
+- retake_cooldown_minutes: integer, not null, default 0
+- max_attempts: integer, nullable. Null means unlimited.
+Both editable per lesson in the admin.
 
 ## Backend tasks
-1. app/models/watch_progress.py, plus required_watch_ratio on Lesson. Migration,
-   inspected before applying, upgrade and downgrade verified.
-2. app/middleware/viewer.py: reads or sets the viewer_id cookie and attaches it
-   to request.state. Registered in main.py.
-3. app/services/watch.py:
-   - record_heartbeat(db, lesson, viewer_id, user_id, position) applying every
-     rule above and returning the updated progress
-   - get_progress(db, lesson, viewer_id) returning watched_seconds, the required
-     seconds, a ratio, and whether the requirement is met
-   - is_unlocked(db, lesson, viewer_id) as the single function the quiz gate
-     calls. Nothing else decides this.
-   Use a single upsert or a row level lock so two concurrent heartbeats cannot
-   both credit the same interval.
-4. app/routers/watch.py:
-   - POST /lessons/{slug}/watch with a position, returning current progress
-   - GET /lessons/{slug}/watch returning current progress
-   Both work anonymously. Rate limit the POST to roughly one per five seconds
-   per viewer and return 429 beyond that.
-5. Gate the quiz: POST /lessons/{slug}/attempts returns 403 with a clear detail
-   when is_unlocked is false, saying how much of the video remains. The quiz
-   delivery endpoint stays open so the questions can be previewed, or gate it
-   too if that feels wrong once you see it. Pick one and note the choice.
-   Admins bypass the gate, so authoring can be tested without watching.
-6. tests/test_watch.py:
-   - a heartbeat sequence at a realistic pace accumulates watched_seconds
-   - SKIP TEST: a heartbeat jumping from position 5 to position 300 credits
-     nothing. Comment this as the guard the feature exists for.
-   - FLOOD TEST: ten heartbeats within one second credit at most one interval
-   - rewinding does not credit time and does not corrupt the total
-   - starting an attempt below the threshold returns 403
-   - starting an attempt at or above the threshold succeeds
-   - an admin can start an attempt without watching
-   - a lesson with a null duration is ungated
-   - progress for a signed in user is visible from a different viewer cookie
+1. Migration for shuffle_seed and the two lesson columns. Inspect, upgrade,
+   verify downgrade.
+2. app/services/analytics.py, all read only:
+   - lesson_stats(db, lesson_id): attempts started, attempts completed, pass
+     rate, mean score, and completion rate
+   - question_stats(db, lesson_id): per question, the number answered and the
+     percentage correct, ordered by percentage correct ascending so the worst
+     question is first
+   - choice_distribution(db, question_id): how many times each choice was
+     picked, with the correct one flagged
+   - dropoff(db, lesson_id): for each question position, how many attempts
+     reached it, showing where people abandon
+   Write these as aggregate SQL, one query each. Do not load rows and count in
+   Python.
+3. app/routers/admin_analytics.py behind require_admin:
+   - GET /admin/lessons/{id}/stats returning all four in one response
+   Add indexes if any query is slow against a few thousand rows. Measure before
+   adding.
+4. app/services/quiz.py: apply the shuffle when serving the quiz for an attempt.
+   The quiz delivery endpoint needs to know the attempt, so add an optional
+   attempt_id query parameter. Without it, serve in authored order for preview.
+   The leak rule is unchanged and the leak test must still pass.
+5. app/services/attempts.py: on start_attempt, enforce the policy before
+   creating a row:
+   - if max_attempts is set and the viewer already has that many completed
+     attempts for the lesson, refuse with 429 and a clear message
+   - if a cooldown is set and their most recent completed attempt is more recent
+     than the cooldown, refuse with 429 including when they may retry
+   Count by user_id when signed in, and by viewer_id otherwise, reusing the
+   cookie from feature 011. Note plainly in a comment that an anonymous viewer
+   can clear a cookie to reset, and that this is accepted for now.
+   Admins bypass both limits.
+6. tests/test_analytics.py: seed a set of attempts with known answers, then
+   assert each statistic comes back with the expected value. Deterministic data,
+   no randomness in the test.
+7. tests/test_retake_policy.py:
+   - a second attempt inside the cooldown returns 429 with a retry time
+   - a second attempt after the cooldown succeeds
+   - exceeding max_attempts returns 429
+   - a null max_attempts allows many attempts
+   - an admin bypasses both
+8. tests/test_shuffle.py:
+   - two attempts on the same lesson produce different question orders, given
+     different seeds
+   - the same attempt requested twice produces identical order
+   - every question and choice appears exactly once, nothing dropped or duplicated
 
 ## Frontend tasks
-1. src/api/watch.js: sendHeartbeat(slug, position), getWatchProgress(slug).
-2. src/components/VideoPlayer/: on timeupdate, throttle to one heartbeat every
-   10 seconds and only while the video is actually playing. Stop on pause, and
-   flush a final heartbeat on ended and on page hide via visibilitychange, so
-   closing the tab does not lose the last stretch.
-3. Show progress under the player as a bar with plain text, for example
-   "3:10 of 4:41 watched". Do not make the requirement a guessing game.
-4. src/pages/LessonDetail/: the Take the quiz button is disabled until unlocked,
-   with text saying what is left. It enables live when the threshold is crossed,
-   without a refresh.
-5. Handle the 403 from attempt creation gracefully if someone reaches the quiz
-   URL directly: explain and link back to the lesson.
-6. Admin editor: expose required_watch_ratio as a percentage input, and show a
-   warning when duration_seconds is missing since gating will not apply.
+1. src/api/admin.js: getLessonStats(id).
+2. src/pages/Admin/Stats/: route /admin/lessons/:id/stats. Four sections:
+   - a summary row of attempts, completion rate, pass rate, mean score
+   - a question table sorted worst first, showing percent correct, with anything
+     under 40 percent visually flagged as likely a bad question
+   - choice distribution per question, expandable
+   - a drop off list by question position
+   Handle the no data case with a plain message, not an empty table.
+3. Link to it from the admin lesson list and the lesson editor.
+4. src/pages/Quiz/: pass the attempt id when fetching the quiz so the shuffled
+   order is used. Nothing else changes.
+5. Handle the 429 from attempt creation with a readable message, including when
+   a retry becomes possible, rather than a generic error.
+6. Admin editor: expose retake_cooldown_minutes and max_attempts with helper
+   text explaining that blank means unlimited.
 
 ## Acceptance criteria
-- [x] watching a video normally accumulates progress and the bar advances
-- [x] dragging the scrubber to the end does not unlock the quiz
-- [x] the quiz button is disabled with a clear explanation until the threshold is met
-- [x] crossing the threshold enables the button without a page refresh
-- [x] closing the tab mid video and returning shows the progress that was already
-      earned
-- [x] a signed in user's progress follows them to a different browser
-- [x] an anonymous viewer's progress survives a refresh via the cookie
-- [x] POSTing the attempt endpoint directly without watching returns 403
-- [x] an admin can bypass the gate
-- [x] pytest passes, including the skip and flood tests
+- the stats page shows real numbers after several test attempts, and they are
+  arithmetically correct against the database
+- a question everyone gets wrong appears first and is flagged
+- two attempts on the same lesson present the questions in different orders
+- refreshing mid attempt preserves the order and the answers already given
+- a retake inside the cooldown is refused with a readable message
+- exceeding max_attempts is refused
+- an admin can retake freely
+- the leak test still passes
+- pytest passes
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

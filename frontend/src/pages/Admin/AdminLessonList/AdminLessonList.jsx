@@ -62,6 +62,7 @@ function AdminLessonList() {
               <th>Status</th>
               <th>Questions</th>
               <th>Video</th>
+              <th>Stats</th>
             </tr>
           </thead>
           <tbody>
@@ -79,6 +80,9 @@ function AdminLessonList() {
                 </td>
                 <td>{lesson.question_count}</td>
                 <td>{lesson.has_video ? 'Yes' : 'No'}</td>
+                <td>
+                  <Link to={`/admin/lessons/${lesson.id}/stats`}>View stats</Link>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -25,8 +25,9 @@ function Quiz() {
     setCurrentIndex(0)
     setAnswerState(INITIAL_ANSWER_STATE)
 
-    Promise.all([getQuiz(slug), startAttempt(slug)])
-      .then(([quiz, attempt]) =>
+    startAttempt(slug)
+      .then((attempt) => getQuiz(slug, attempt.attempt_id).then((quiz) => ({ quiz, attempt })))
+      .then(({ quiz, attempt }) =>
         setState({ status: 'loaded', quiz, attemptId: attempt.attempt_id, lockedDetail: '' }),
       )
       .catch((error) => {
@@ -36,6 +37,15 @@ function Quiz() {
             quiz: null,
             attemptId: null,
             lockedDetail: error.body?.detail ?? 'Watch more of the video before taking the quiz.',
+          })
+          return
+        }
+        if (error.status === 429) {
+          setState({
+            status: 'limited',
+            quiz: null,
+            attemptId: null,
+            lockedDetail: error.body?.detail ?? "You've reached the retake limit for this quiz.",
           })
           return
         }
@@ -61,7 +71,7 @@ function Quiz() {
     )
   }
 
-  if (state.status === 'locked') {
+  if (state.status === 'locked' || state.status === 'limited') {
     return (
       <div className={styles.message}>
         <p>{state.lockedDetail}</p>

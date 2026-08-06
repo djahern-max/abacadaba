@@ -13,6 +13,7 @@ import Progress from './pages/Progress/Progress'
 import AdminGuard from './pages/Admin/AdminGuard'
 import AdminLessonList from './pages/Admin/AdminLessonList/AdminLessonList'
 import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
+import Stats from './pages/Admin/Stats/Stats'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -59,6 +60,14 @@ function App() {
             element={
               <AdminGuard>
                 <AdminLessonEditor />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/lessons/:id/stats"
+            element={
+              <AdminGuard>
+                <Stats />
               </AdminGuard>
             }
           />

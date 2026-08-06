@@ -56,6 +56,8 @@ class AdminLessonUpdate(BaseModel):
     description: str | None = None
     duration_seconds: int | None = None
     required_watch_ratio: float | None = Field(default=None, ge=0, le=1)
+    retake_cooldown_minutes: int | None = Field(default=None, ge=0)
+    max_attempts: int | None = Field(default=None, ge=1)
 
 
 class AdminLessonSummary(BaseModel):
@@ -79,6 +81,8 @@ class AdminLesson(BaseModel):
     duration_seconds: int | None
     video_key: str | None
     required_watch_ratio: float
+    retake_cooldown_minutes: int
+    max_attempts: int | None
     is_published: bool
     questions: list[AdminQuestion]
 

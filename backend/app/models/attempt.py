@@ -21,6 +21,10 @@ class Attempt(Base):
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Nullable because attempts created before feature 012 have none. Every new
+    # attempt gets one from the viewer_id cookie (feature 011), signed in or not.
+    viewer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    shuffle_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

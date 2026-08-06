@@ -10,6 +10,10 @@ export function getAdminLesson(id) {
   return apiFetch(`/api/v1/admin/lessons/${id}`)
 }
 
+export function getLessonStats(id) {
+  return apiFetch(`/api/v1/admin/lessons/${id}/stats`)
+}
+
 export function createAdminLesson(payload) {
   return apiFetch('/api/v1/admin/lessons', { method: 'POST', body: JSON.stringify(payload) })
 }

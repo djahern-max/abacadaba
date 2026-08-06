@@ -19,6 +19,12 @@
   gap: var(--space-sm);
 }
 
+.statsLink {
+  margin-left: auto;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
 .heading {
   margin: 0;
   font-size: 24px;

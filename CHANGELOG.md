@@ -179,3 +179,39 @@ admin editor when duration is missing. Feature 012's per-second
 heatmaps and resuming playback where you left off remain out of
 scope; so does retroactively applying the gate to attempts completed
 before this feature shipped.
+
+## 2026-08-06, Feature 012, Question analytics and retake policy
+An admin can now see which questions people get wrong and where they
+drop off, and retaking a quiz no longer replays the same five
+questions in the same order. Added shuffle_seed to attempts (a random
+int generated on attempt creation) plus retake_cooldown_minutes and
+max_attempts to lessons; also added viewer_id to attempts (not called
+out in the original data-model note, but required to count anonymous
+retakes by the feature 011 cookie the same way signed-in ones are
+counted by user_id). app/services/quiz.py derives question and choice
+order deterministically from the seed (a folded seed+salt int, since
+random.Random only accepts a single scalar) — GET .../quiz now takes
+an optional attempt_id and serves shuffled order for it, authored
+order without it; the leak test still passes since ChoicePublic is
+built the same way either way. app/services/attempts.py enforces the
+retake policy in start_attempt before creating a row: max_attempts
+compares completed-attempt counts, the cooldown compares against the
+most recent completed_at, both keyed by user_id when signed in and by
+viewer_id otherwise (a cleared cookie resets an anonymous viewer's
+count — noted in the code as accepted for now), and admins bypass
+both, both returning 429. app/services/analytics.py is four read-only
+aggregate queries (lesson_stats, question_stats, choice_distribution,
+dropoff) straight from attempt_answers, no new reporting tables,
+exposed as GET /admin/lessons/{id}/stats behind require_admin.
+Frontend: a new /admin/lessons/:id/stats page (linked from the lesson
+list and editor) with a summary row, a worst-first question table
+flagging anything under 40% correct, expandable per-question choice
+distributions, and a drop-off list, showing a plain message instead
+of an empty table when a lesson has no attempts yet; the Quiz page
+now starts the attempt before fetching the quiz so it can pass
+attempt_id along, and reads a 429's detail message on both the locked
+(watch gate) and limited (retake policy) paths; the lesson editor's
+Details form exposes retake cooldown and max attempts with helper
+text explaining that blank means unlimited. Question banks larger
+than five with random selection, per-user analytics and exports, and
+charts beyond a plain table remain out of scope.
