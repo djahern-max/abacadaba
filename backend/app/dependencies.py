@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
     if token is None:
         return None
     return get_session_user(db, token)
+
+
+def get_viewer_id(request: Request) -> uuid.UUID:
+    # Set by ViewerIdentityMiddleware on every request, cookie-backed.
+    return request.state.viewer_id
 
 
 def require_user(user: User | None = Depends(get_current_user)) -> User:

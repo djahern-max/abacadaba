@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.dependencies import get_current_user, require_user
+from app.dependencies import get_current_user, get_viewer_id, require_user
 from app.models.user import User
 from app.schemas.attempt import (
     AttemptAnswerRequest,
@@ -19,8 +19,16 @@ router = APIRouter()
 
 
 @router.post("/lessons/{slug}/attempts", response_model=AttemptStart, status_code=201)
-def start_attempt(slug: str, db: Session = Depends(get_db), user: User | None = Depends(get_current_user)):
-    result = attempts_service.start_attempt(db, slug, user)
+def start_attempt(
+    slug: str,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+    viewer_id: uuid.UUID = Depends(get_viewer_id),
+):
+    try:
+        result = attempts_service.start_attempt(db, slug, user, viewer_id)
+    except attempts_service.WatchRequirementNotMetError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="This lesson has no quiz yet")
 

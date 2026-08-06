@@ -30,6 +30,7 @@ def seed_test_lesson():
         description="Used to test the attempts endpoints.",
         duration_seconds=300,
         is_published=True,
+        required_watch_ratio=0,  # ungated: these tests cover scoring, not watch gating
     )
     db.add(lesson)
     db.flush()

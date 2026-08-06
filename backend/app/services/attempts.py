@@ -11,12 +11,21 @@ from app.models.attempt_answer import AttemptAnswer
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.user import User
+from app.services import watch as watch_service
 
 PASS_THRESHOLD = 4
 
 
 class AttemptNotFoundError(Exception):
     """Raised when a public_id does not match any attempt."""
+
+
+class WatchRequirementNotMetError(Exception):
+    """Raised when starting an attempt before the watch gate is satisfied."""
+
+    def __init__(self, remaining_seconds: int):
+        super().__init__(f"Watch {remaining_seconds} more second(s) of the video before starting the quiz")
+        self.remaining_seconds = remaining_seconds
 
 
 class AttemptCompleteError(Exception):
@@ -82,7 +91,9 @@ def _question_count(db: Session, lesson_id: int) -> int:
     return db.execute(stmt).scalar_one()
 
 
-def start_attempt(db: Session, slug: str, user: User | None = None) -> AttemptStartResult | None:
+def start_attempt(
+    db: Session, slug: str, user: User | None = None, viewer_id: uuid.UUID | None = None
+) -> AttemptStartResult | None:
     stmt = select(Lesson).where(Lesson.slug == slug, Lesson.is_published.is_(True))
     lesson = db.execute(stmt).scalar_one_or_none()
     if lesson is None:
@@ -91,6 +102,13 @@ def start_attempt(db: Session, slug: str, user: User | None = None) -> AttemptSt
     question_count = _question_count(db, lesson.id)
     if question_count == 0:
         return None
+
+    is_admin = bool(user and user.is_admin)
+    if viewer_id is not None and not is_admin:
+        progress = watch_service.get_progress(db, lesson, viewer_id, user.id if user else None)
+        if not progress.unlocked:
+            remaining = max((progress.required_seconds or 0) - progress.watched_seconds, 0)
+            raise WatchRequirementNotMetError(remaining)
 
     attempt = Attempt(lesson_id=lesson.id, user_id=user.id if user else None)
     db.add(attempt)

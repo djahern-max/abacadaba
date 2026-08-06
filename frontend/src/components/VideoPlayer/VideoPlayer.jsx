@@ -1,9 +1,22 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getVideoUrl } from '../../api/lessons'
+import { getWatchProgress, sendHeartbeat } from '../../api/watch'
 import styles from './VideoPlayer.module.css'
 
-function VideoPlayer({ slug }) {
+const HEARTBEAT_INTERVAL_SECONDS = 10
+
+function formatTime(seconds) {
+  const total = Math.max(0, Math.round(seconds))
+  const minutes = Math.floor(total / 60)
+  const secs = total % 60
+  return `${minutes}:${String(secs).padStart(2, '0')}`
+}
+
+function VideoPlayer({ slug, onProgressChange }) {
   const [state, setState] = useState({ status: 'loading', url: null })
+  const [progress, setProgress] = useState(null)
+  const videoRef = useRef(null)
+  const lastHeartbeatAtRef = useRef(0)
 
   const fetchUrl = useCallback(() => {
     setState({ status: 'loading', url: null })
@@ -17,6 +30,52 @@ function VideoPlayer({ slug }) {
   useEffect(() => {
     fetchUrl()
   }, [fetchUrl])
+
+  useEffect(() => {
+    getWatchProgress(slug)
+      .then((data) => {
+        setProgress(data)
+        onProgressChange?.(data)
+      })
+      .catch(() => {})
+  }, [slug, onProgressChange])
+
+  const flushHeartbeat = useCallback(
+    (position) => {
+      lastHeartbeatAtRef.current = Date.now()
+      sendHeartbeat(slug, Math.max(0, Math.floor(position)))
+        .then((data) => {
+          setProgress(data)
+          onProgressChange?.(data)
+        })
+        .catch(() => {})
+    },
+    [slug, onProgressChange],
+  )
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      const video = videoRef.current
+      if (document.visibilityState === 'hidden' && video && !video.paused && !video.ended) {
+        flushHeartbeat(video.currentTime)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [flushHeartbeat])
+
+  function handleTimeUpdate(event) {
+    const video = event.target
+    if (video.paused || video.seeking) return
+    const secondsSinceLastHeartbeat = (Date.now() - lastHeartbeatAtRef.current) / 1000
+    if (secondsSinceLastHeartbeat >= HEARTBEAT_INTERVAL_SECONDS) {
+      flushHeartbeat(video.currentTime)
+    }
+  }
+
+  function handleEnded(event) {
+    flushHeartbeat(event.target.currentTime)
+  }
 
   if (state.status === 'loading') {
     return <div className={styles.frame}>Loading video&hellip;</div>
@@ -40,14 +99,34 @@ function VideoPlayer({ slug }) {
   }
 
   return (
-    <div className={styles.frame}>
-      <video
-        className={styles.video}
-        src={state.url}
-        controls
-        preload="metadata"
-        onError={() => setState({ status: 'error', url: null })}
-      />
+    <div>
+      <div className={styles.frame}>
+        <video
+          ref={videoRef}
+          className={styles.video}
+          src={state.url}
+          controls
+          preload="metadata"
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleEnded}
+          onError={() => setState({ status: 'error', url: null })}
+        />
+      </div>
+      {progress && (
+        <div className={styles.progressWrap}>
+          <div className={styles.progressTrack}>
+            <div
+              className={styles.progressFill}
+              style={{ width: `${Math.round(progress.ratio * 100)}%` }}
+            />
+          </div>
+          <p className={styles.progressText}>
+            {progress.required_seconds
+              ? `${formatTime(progress.watched_seconds)} of ${formatTime(progress.required_seconds)} watched`
+              : 'Watching this video is not required for this lesson.'}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

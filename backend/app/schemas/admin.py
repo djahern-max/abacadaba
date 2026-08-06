@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdminChoiceIn(BaseModel):
@@ -55,6 +55,7 @@ class AdminLessonUpdate(BaseModel):
     slug: str | None = None
     description: str | None = None
     duration_seconds: int | None = None
+    required_watch_ratio: float | None = Field(default=None, ge=0, le=1)
 
 
 class AdminLessonSummary(BaseModel):
@@ -77,6 +78,7 @@ class AdminLesson(BaseModel):
     description: str
     duration_seconds: int | None
     video_key: str | None
+    required_watch_ratio: float
     is_published: bool
     questions: list[AdminQuestion]
 

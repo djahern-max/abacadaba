@@ -1,163 +1,141 @@
 # Current Feature
 
-## Feature 009, Deploy to production
+## Feature 011, Watch tracking and quiz gating
 
 ## Goal
-abacadaba runs on the public internet at a real domain with TLS, a Postgres
-database, and a repeatable deploy from main. Everything that works locally
-works there, including session cookies and video playback.
-
-## Architecture decision, revised
-This feature was originally specced for DigitalOcean App Platform. It was
-deployed instead to a **DigitalOcean Droplet** running Ubuntu 24.04, with
-Docker Compose, nginx as reverse proxy, and Postgres in a container.
-
-Reasons, recorded so the choice is legible later:
-- Prior experience with raw VMs; deliberately continuing to build those skills.
-- Cheaper: one $18/mo Droplet against roughly $25/mo of App Platform
-  components plus a managed database.
-- The tradeoff accepted in exchange: backups, deploys, TLS renewal, and OS
-  patching are all owned here rather than by a platform.
-
-The container image is unchanged, so this is reversible. `backend/Dockerfile`
-would run on App Platform, Fly, or Cloud Run without modification.
+The server knows how much of a video someone actually watched, and the quiz
+unlocks only after they have watched enough. Seeking to the end does not count.
 
 ## In scope
-- Backend containerized and running on the Droplet under Docker Compose
-- Frontend built off-box and served as static files by nginx
-- Postgres in a container, with migrations run as a discrete step before the
-  API restarts
-- Production environment configuration, including secure cookies
-- Domain and TLS for abacadaba.com and api.abacadaba.com
-- Host hardening: SSH, ufw, DigitalOcean Cloud Firewall, container containment
-- A production seed run, and the first admin account
+- A viewer identity that works for anonymous visitors
+- A watch progress model recording contiguous watched time
+- Heartbeats from the player, validated server side
+- A per lesson watch requirement, gating the quiz
+- Progress shown in the UI so the requirement is never a mystery
+- Tests, including the ones that prove skipping does not work
 
 ## Out of scope
-- CDN tuning, video transcoding, adaptive streaming
-- Staging environments, blue green deploys, rollback automation
-- Monitoring and alerting beyond the health endpoint (feature 013)
-- Automated backups and restore testing (feature 013)
-- Lesson thumbnails or images. Not specced in any feature yet; needs its own.
+- Resume where you left off. Worth doing, but keep this feature focused.
+- Per second heatmaps, drop off analytics (feature 012)
+- Anti automation beyond the plausibility checks below. A determined person
+  with the network tab open can still fake it, and that is acceptable.
+- Applying the gate retroactively to attempts already completed
 
-## The decision that prevents a day of cookie debugging
-Put the API on api.abacadaba.com and the frontend on abacadaba.com. These share
-a registrable domain, so the session cookie is same site and SameSite=Lax works
-unchanged. If the API lived on a different domain the cookie would need
-SameSite=None with Secure, and Safari's tracking prevention would make it
-unreliable. Do not put them on different domains.
+## Why this exists
+Self study continuing education generally requires evidence of engagement, and
+that requirement is the hardest thing in this application to retrofit, because
+it touches the player, the data model, and the quiz flow at once. abacadaba is
+the cheap place to learn what it costs. Build it here even though a fun
+micro learning app would not strictly need it.
 
-Set the cookie domain to .abacadaba.com in production so it is sent to both
-hosts. Locally it stays host only. This comes from config, not a hardcoded
-string.
+## The identity problem, and its answer
+Watch progress needs to attach to someone, but the quiz must stay open to
+anonymous visitors. On any first request without one, set a viewer_id cookie
+holding a UUID: httpOnly, SameSite=Lax, Secure in production, one year. Every
+watch record keys off viewer_id. When a signed in user appears, records also
+carry user_id so progress follows the account across devices.
 
-## The decision that prevents a repeat compromise
-An earlier project on a Droplet was most likely compromised through a corrupt
-npm package. A malicious postinstall script executes at install time, as
-whoever ran npm install, on whatever machine ran it. No firewall prevents this.
+Implement this as middleware so no route has to remember it.
 
-Therefore: **the Droplet never runs npm.** Node is not installed on it. The
-frontend is built on the developer's machine or in CI, and only the resulting
-`dist/` directory is shipped. Static HTML, CSS, and JS have no lifecycle hooks.
+## Anti skip rules
+The player sends a heartbeat every 10 seconds carrying its current position.
+The server credits watched time only when all of these hold:
+- the elapsed wall clock time since that viewer's previous heartbeat is at
+  least 8 seconds, rejecting a flood of requests
+- the reported position has advanced by no more than 15 seconds since the
+  previous heartbeat, rejecting a seek forward
+- the reported position does not exceed the lesson's duration_seconds
+When the position moves backward, that is a legitimate rewind. Do not credit
+time, but do accept it and reset the comparison point.
 
-Do not add a frontend build step to the server. Do not add a Node container.
+Credit the smaller of the position delta and the wall clock delta. Store the
+running total in watched_seconds. A rewatched section does not earn credit
+twice, because credit comes from forward movement only.
 
-## Backend tasks — complete
-1. `backend/Dockerfile`: python:3.12-slim, non-root `appuser`, `$PORT`-aware,
-   single stage.
-2. `backend/.dockerignore` excluding `.venv`, `__pycache__`, `tests`, `.env*`.
-3. `app/config.py`: `SESSION_COOKIE_DOMAIN`, `ENVIRONMENT` defaulting to
-   `development`, plus `SESSION_COOKIE_SECURE`, `SITE_URL`, `CORS_ORIGINS`.
-4. Cookie code reads domain and secure from settings. SameSite is Lax.
-5. `app/main.py`: `docs_url=None` and `redoc_url=None` when
-   `ENVIRONMENT=production`. Verified returning 404 in production.
-6. **`app/config.py` normalizes the DATABASE_URL scheme.** A bare
-   `postgresql://` resolves to psycopg2, which is not installed; a
-   `field_validator` rewrites it to `postgresql+psycopg://`. This lives in
-   config rather than `db.py` because `alembic/env.py` reads
-   `settings.database_url` directly and never imports the engine. Do not
-   remove it — it is a no-op locally, which makes it look deletable.
-7. `/api/v1/health` executes SELECT 1 and returns 503 when the database is
-   unreachable.
-8. `backend/scripts/seed.py` reconfirmed upsert-only, never deletes.
-9. **`backend/scripts/upload_video.py` reads `API_BASE_URL` from the
-   environment**, defaulting to localhost. It runs from the developer's
-   machine against the production API, not on the server — the video file is
-   local.
+## Data model
+Table watch_progress:
+- id: integer primary key
+- lesson_id: integer, foreign key to lessons.id, not null, indexed, CASCADE
+- viewer_id: UUID, not null, indexed
+- user_id: integer, foreign key to users.id, nullable, indexed, SET NULL
+- watched_seconds: integer, not null, default 0
+- last_position: integer, not null, default 0
+- last_heartbeat_at: timezone aware UTC, nullable
+- completed_at: timezone aware UTC, nullable. Stamped when the requirement is met.
+- created_at, updated_at: timezone aware UTC, server defaults
+- Unique constraint on (lesson_id, viewer_id)
 
-## Frontend tasks — complete
-1. `frontend/.env.production` with `VITE_API_URL=https://api.abacadaba.com`
-   and `VITE_SITE_URL=https://abacadaba.com`.
-2. Deep links are handled by nginx `try_files $uri $uri/ /index.html;` in the
-   apex server block. This replaces App Platform's Catchall Document setting.
-3. `npm run build` succeeds with no warnings. Built off-box; only `dist/` is
-   shipped.
+Add to lessons:
+- required_watch_ratio: numeric or float, not null, default 0.9. The fraction of
+  duration_seconds that must be watched. Editable per lesson in the admin.
 
-## Deployment tasks — complete
-1. Droplet: Ubuntu 24.04, 2 vCPU / 2 GB / 60 GB, 2 GB swap, `vm.swappiness=10`.
-2. SSH hardened via `/etc/ssh/sshd_config.d/10-hardening.conf`: key-only, no
-   root login, `AllowUsers deploy`. The drop-in takes precedence over
-   cloud-init's `50-` file and survives package upgrades.
-3. ufw: default deny inbound, `limit` on 22, allow 80 and 443. DigitalOcean
-   Cloud Firewall applied with the same three ports — it filters at the network
-   edge, which Docker cannot bypass.
-4. Docker CE and Compose V2 from Docker's own apt repository.
-5. `docker-compose.prod.yml` at the repo root:
-   - `db` publishes **no ports**; the api reaches it as `db:5432`
-   - `api` binds `127.0.0.1:8080` only
-   - two networks: `backend` is `internal: true`, so the database container has
-     no route to the internet; `api` also joins `egress` to reach Spaces
-   - containment: `no-new-privileges`, `cap_drop: ALL` on api, `read_only`
-     with a noexec `/tmp` tmpfs, cpu/memory/pids limits, log rotation
-   - `FORWARDED_ALLOW_IPS` set so uvicorn honours nginx's `X-Forwarded-For`;
-     without it every request appears to come from the Docker bridge gateway,
-     which would silently defeat feature 013's per-IP rate limiting
-6. nginx: apex serves `/var/www/abacadaba` with the SPA catchall, `www`
-   301s to apex, `api.` reverse proxies to `127.0.0.1:8080` with
-   `client_max_body_size 512M` for video uploads. Note nginx 1.24 needs
-   `listen 443 ssl http2;` — the `http2 on;` directive is 1.25.1+.
-7. TLS via certbot webroot for all three hostnames in one certificate, with a
-   `--deploy-hook` reloading nginx on renewal. Renewal timer verified with
-   `certbot renew --dry-run`.
-8. Deploy order, which the platform used to own: pull, build, run
-   `alembic upgrade head` in a one-off container, **then** restart the api. A
-   failed migration must stop the deploy rather than leave the api serving
-   against a schema it does not match.
-9. Seed run, first admin promoted with `scripts/make_admin.py`, one real video
-   uploaded to the production lesson.
+A lesson with a null duration_seconds cannot gate, since there is nothing to
+measure against. Treat it as ungated and surface that in the admin as a warning.
 
-## Remaining
-- [x] `deploy.sh` at the repo root encoding the ordering in task 8, so
-      redeploying is one command rather than remembered steps.
-- [x] Rewrite `DEPLOYMENT.md` for this architecture. It currently describes
-      App Platform components, env var bindings, and a Catchall Document
-      setting that no longer exist.
+## Backend tasks
+1. app/models/watch_progress.py, plus required_watch_ratio on Lesson. Migration,
+   inspected before applying, upgrade and downgrade verified.
+2. app/middleware/viewer.py: reads or sets the viewer_id cookie and attaches it
+   to request.state. Registered in main.py.
+3. app/services/watch.py:
+   - record_heartbeat(db, lesson, viewer_id, user_id, position) applying every
+     rule above and returning the updated progress
+   - get_progress(db, lesson, viewer_id) returning watched_seconds, the required
+     seconds, a ratio, and whether the requirement is met
+   - is_unlocked(db, lesson, viewer_id) as the single function the quiz gate
+     calls. Nothing else decides this.
+   Use a single upsert or a row level lock so two concurrent heartbeats cannot
+   both credit the same interval.
+4. app/routers/watch.py:
+   - POST /lessons/{slug}/watch with a position, returning current progress
+   - GET /lessons/{slug}/watch returning current progress
+   Both work anonymously. Rate limit the POST to roughly one per five seconds
+   per viewer and return 429 beyond that.
+5. Gate the quiz: POST /lessons/{slug}/attempts returns 403 with a clear detail
+   when is_unlocked is false, saying how much of the video remains. The quiz
+   delivery endpoint stays open so the questions can be previewed, or gate it
+   too if that feels wrong once you see it. Pick one and note the choice.
+   Admins bypass the gate, so authoring can be tested without watching.
+6. tests/test_watch.py:
+   - a heartbeat sequence at a realistic pace accumulates watched_seconds
+   - SKIP TEST: a heartbeat jumping from position 5 to position 300 credits
+     nothing. Comment this as the guard the feature exists for.
+   - FLOOD TEST: ten heartbeats within one second credit at most one interval
+   - rewinding does not credit time and does not corrupt the total
+   - starting an attempt below the threshold returns 403
+   - starting an attempt at or above the threshold succeeds
+   - an admin can start an attempt without watching
+   - a lesson with a null duration is ungated
+   - progress for a signed in user is visible from a different viewer cookie
 
-## Write it down
-`DEPLOYMENT.md` at the repo root records: the Droplet layout and where each
-piece lives, every environment variable and where its value comes from, the
-nginx SPA rewrite, how to run a one-off command in production, how to get a
-psql shell, how to promote an admin, and how to deploy a change.
-
-`HARDENING.md` records the security posture and the reasoning behind each
-control, ordered by how much risk each one actually removes.
+## Frontend tasks
+1. src/api/watch.js: sendHeartbeat(slug, position), getWatchProgress(slug).
+2. src/components/VideoPlayer/: on timeupdate, throttle to one heartbeat every
+   10 seconds and only while the video is actually playing. Stop on pause, and
+   flush a final heartbeat on ended and on page hide via visibilitychange, so
+   closing the tab does not lose the last stretch.
+3. Show progress under the player as a bar with plain text, for example
+   "3:10 of 4:41 watched". Do not make the requirement a guessing game.
+4. src/pages/LessonDetail/: the Take the quiz button is disabled until unlocked,
+   with text saying what is left. It enables live when the threshold is crossed,
+   without a refresh.
+5. Handle the 403 from attempt creation gracefully if someone reaches the quiz
+   URL directly: explain and link back to the lesson.
+6. Admin editor: expose required_watch_ratio as a percentage input, and show a
+   warning when duration_seconds is missing since gating will not apply.
 
 ## Acceptance criteria
-- [x] https://abacadaba.com loads over TLS with a valid certificate
-- [x] the lesson list renders from the production database
-- [x] a video plays, proving Spaces credentials and presigned URLs work
-- [x] the unsigned Spaces URL returns 403, proving the Space is still private
-- [x] refreshing on a deep link like /lessons/intro-to-ratios does not 404
-- [x] registering an account on production works
-- [x] the session cookie has Secure, HttpOnly, SameSite=Lax, and the
-      .abacadaba.com domain
-- [x] signing out and back in works, proving the cookie survives both hosts
-- [x] completing a quiz produces a certificate whose verification URL points at
-      the real domain, not localhost
-- [x] https://api.abacadaba.com/docs returns 404 in production
-- [x] only ports 22, 80, and 443 are reachable from the internet; 5432 and
-      8080 are not
-- [x] a deploy runs migrations before the api restarts
-- [x] DEPLOYMENT.md exists and is accurate
+- [x] watching a video normally accumulates progress and the bar advances
+- [x] dragging the scrubber to the end does not unlock the quiz
+- [x] the quiz button is disabled with a clear explanation until the threshold is met
+- [x] crossing the threshold enables the button without a page refresh
+- [x] closing the tab mid video and returning shows the progress that was already
+      earned
+- [x] a signed in user's progress follows them to a different browser
+- [x] an anonymous viewer's progress survives a refresh via the cookie
+- [x] POSTing the attempt endpoint directly without watching returns 403
+- [x] an admin can bypass the gate
+- [x] pytest passes, including the skip and flood tests
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

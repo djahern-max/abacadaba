@@ -7,6 +7,7 @@ function DetailsForm({ lesson, onChange }) {
   const [slug, setSlug] = useState(lesson.slug)
   const [description, setDescription] = useState(lesson.description)
   const [duration, setDuration] = useState(lesson.duration_seconds ?? '')
+  const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -14,7 +15,8 @@ function DetailsForm({ lesson, onChange }) {
     title !== lesson.title ||
     slug !== lesson.slug ||
     description !== lesson.description ||
-    String(duration) !== String(lesson.duration_seconds ?? '')
+    String(duration) !== String(lesson.duration_seconds ?? '') ||
+    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
 
   async function handleSave(event) {
     event.preventDefault()
@@ -26,6 +28,7 @@ function DetailsForm({ lesson, onChange }) {
         slug,
         description,
         duration_seconds: duration === '' ? null : Number(duration),
+        required_watch_ratio: Number(watchPercent) / 100,
       })
       await onChange()
     } catch (err) {
@@ -85,6 +88,24 @@ function DetailsForm({ lesson, onChange }) {
           min="0"
           value={duration}
           onChange={(event) => setDuration(event.target.value)}
+        />
+        {duration === '' && (
+          <p className={styles.warning}>
+            No duration set, so the watch requirement below cannot apply. The quiz will be ungated.
+          </p>
+        )}
+
+        <label className={styles.label} htmlFor="watch-percent">
+          Required watch percentage
+        </label>
+        <input
+          id="watch-percent"
+          className={styles.input}
+          type="number"
+          min="0"
+          max="100"
+          value={watchPercent}
+          onChange={(event) => setWatchPercent(event.target.value)}
         />
 
         {error && <p className={styles.fieldError}>{error}</p>}

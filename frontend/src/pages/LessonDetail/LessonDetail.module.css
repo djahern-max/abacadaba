@@ -59,6 +59,16 @@
   opacity: 0.9;
 }
 
+.quizButtonDisabled {
+  align-self: flex-start;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
 .message {
   display: flex;
   flex-direction: column;

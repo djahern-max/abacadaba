@@ -16,19 +16,35 @@ const INITIAL_ANSWER_STATE = {
 function Quiz() {
   const { slug } = useParams()
   const navigate = useNavigate()
-  const [state, setState] = useState({ status: 'loading', quiz: null, attemptId: null })
+  const [state, setState] = useState({ status: 'loading', quiz: null, attemptId: null, lockedDetail: '' })
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answerState, setAnswerState] = useState(INITIAL_ANSWER_STATE)
 
   useEffect(() => {
-    setState({ status: 'loading', quiz: null, attemptId: null })
+    setState({ status: 'loading', quiz: null, attemptId: null, lockedDetail: '' })
     setCurrentIndex(0)
     setAnswerState(INITIAL_ANSWER_STATE)
 
     Promise.all([getQuiz(slug), startAttempt(slug)])
-      .then(([quiz, attempt]) => setState({ status: 'loaded', quiz, attemptId: attempt.attempt_id }))
+      .then(([quiz, attempt]) =>
+        setState({ status: 'loaded', quiz, attemptId: attempt.attempt_id, lockedDetail: '' }),
+      )
       .catch((error) => {
-        setState({ status: error.status === 404 ? 'not-found' : 'error', quiz: null, attemptId: null })
+        if (error.status === 403) {
+          setState({
+            status: 'locked',
+            quiz: null,
+            attemptId: null,
+            lockedDetail: error.body?.detail ?? 'Watch more of the video before taking the quiz.',
+          })
+          return
+        }
+        setState({
+          status: error.status === 404 ? 'not-found' : 'error',
+          quiz: null,
+          attemptId: null,
+          lockedDetail: '',
+        })
       })
   }, [slug])
 
@@ -40,6 +56,15 @@ function Quiz() {
     return (
       <div className={styles.message}>
         <p>This lesson doesn&apos;t have a quiz yet.</p>
+        <Link to={`/lessons/${slug}`}>Back to lesson</Link>
+      </div>
+    )
+  }
+
+  if (state.status === 'locked') {
+    return (
+      <div className={styles.message}>
+        <p>{state.lockedDetail}</p>
         <Link to={`/lessons/${slug}`}>Back to lesson</Link>
       </div>
     )
