@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
-import { getHealth } from './api/health'
 import Header from './components/Header/Header'
 import LessonList from './pages/LessonList/LessonList'
 import LessonDetail from './pages/LessonDetail/LessonDetail'
@@ -26,17 +24,9 @@ function NotFound() {
 }
 
 function App() {
-  const [status, setStatus] = useState('checking')
-
-  useEffect(() => {
-    getHealth()
-      .then(() => setStatus('connected'))
-      .catch(() => setStatus('unreachable'))
-  }, [])
-
   return (
     <div className={styles.app}>
-      <Header status={status} />
+      <Header />
       <main className={styles.main}>
         <Routes>
           <Route path="/" element={<LessonList />} />

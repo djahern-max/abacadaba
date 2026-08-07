@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './Header.module.css'
 
-function Header({ status }) {
+function Header() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -17,15 +17,6 @@ function Header({ status }) {
         abacadaba
       </Link>
       <div className={styles.right}>
-        {status === 'checking' && (
-          <span className={`${styles.pill} ${styles.checking}`}>Checking backend&hellip;</span>
-        )}
-        {status === 'connected' && (
-          <span className={`${styles.pill} ${styles.connected}`}>Backend connected</span>
-        )}
-        {status === 'unreachable' && (
-          <span className={`${styles.pill} ${styles.unreachable}`}>Backend unreachable</span>
-        )}
         {user ? (
           <nav className={styles.nav}>
             <Link to="/me">My progress</Link>

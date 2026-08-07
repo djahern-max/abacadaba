@@ -251,3 +251,15 @@ callback redirects back. Apple/GitHub/Microsoft sign-in, unlinking Google,
 adding a password to a Google-only account, and refresh tokens/storing
 Google access tokens remain out of scope; the last two need a password
 reset flow that doesn't exist yet.
+
+## 2026-08-07, Feature 014, Header cleanup and password field polish
+The feature 001 backend status pill is gone from the header (and its
+App.jsx health-check polling and src/api/health.js with it), leaving just
+the wordmark and auth nav; GET /api/v1/health itself is untouched. A new
+shared PasswordInput component (inline SVG eye toggle, per-field
+visibility state, type="button" to avoid submitting the form it sits in)
+replaces the bare password inputs on Login and Register, and Register
+gained a Confirm password field validated on submit — after name length
+and password length — with "Passwords do not match." reusing the
+existing validate() rather than a second path. Password reset, strength
+meters, and a frontend test framework remain out of scope.

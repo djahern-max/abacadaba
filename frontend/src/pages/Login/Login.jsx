@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import GoogleButton from '../../components/GoogleButton/GoogleButton.jsx'
+import PasswordInput from '../../components/PasswordInput/PasswordInput.jsx'
 import styles from './Login.module.css'
 
 const OAUTH_ERROR_MESSAGES = {
@@ -55,17 +56,13 @@ function Login() {
           required
           disabled={status === 'submitting'}
         />
-        <label className={styles.label} htmlFor="password">
-          Password
-        </label>
-        <input
+        <PasswordInput
           id="password"
-          className={styles.input}
-          type="password"
+          label="Password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          required
           disabled={status === 'submitting'}
+          autoComplete="current-password"
         />
         {error && <p className={styles.fieldError}>{error}</p>}
         <button type="submit" className={styles.button} disabled={status === 'submitting'}>
