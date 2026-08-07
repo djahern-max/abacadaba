@@ -1,4 +1,7 @@
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -7,9 +10,13 @@ from app.dependencies import require_user
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, UserPublic
 from app.services import auth as auth_service
+from app.services import google_auth
 from app.services.auth import SESSION_COOKIE_NAME, SESSION_LIFETIME_DAYS
 
 router = APIRouter(prefix="/auth")
+
+GOOGLE_STATE_COOKIE_NAME = "google_oauth_state"
+GOOGLE_STATE_LIFETIME_SECONDS = 10 * 60
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -23,6 +30,22 @@ def _set_session_cookie(response: Response, token: str) -> None:
         domain=settings.session_cookie_domain,
         path="/",
     )
+
+
+def _set_state_cookie(response: Response, state: str) -> None:
+    response.set_cookie(
+        key=GOOGLE_STATE_COOKIE_NAME,
+        value=state,
+        max_age=GOOGLE_STATE_LIFETIME_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        path="/",
+    )
+
+
+def _google_configured() -> bool:
+    return bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
 
 
 @router.post("/register", response_model=UserPublic, status_code=201)
@@ -60,3 +83,46 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserPublic)
 def me(user: User = Depends(require_user)):
     return user
+
+
+@router.get("/google/start")
+def google_start():
+    if not _google_configured():
+        raise HTTPException(status_code=404)
+
+    state = secrets.token_urlsafe(32)
+    authorization_url = google_auth.build_authorization_url(state)
+    redirect = RedirectResponse(url=authorization_url, status_code=302)
+    _set_state_cookie(redirect, state)
+    return redirect
+
+
+@router.get("/google/callback")
+def google_callback(request: Request, db: Session = Depends(get_db)):
+    def failure(error_code: str) -> RedirectResponse:
+        redirect = RedirectResponse(url=f"{settings.site_url}/login?error={error_code}", status_code=302)
+        redirect.delete_cookie(key=GOOGLE_STATE_COOKIE_NAME, path="/")
+        return redirect
+
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    cookie_state = request.cookies.get(GOOGLE_STATE_COOKIE_NAME)
+
+    if not code or not state or not cookie_state or state != cookie_state:
+        return failure("state_mismatch")
+
+    try:
+        identity = google_auth.exchange_code(code)
+    except google_auth.GoogleAuthError:
+        return failure("google_auth_failed")
+
+    try:
+        user = google_auth.find_or_create_user(db, identity)
+    except google_auth.UnverifiedEmailError:
+        return failure("unverified_email")
+
+    session = auth_service.create_session(db, user)
+    redirect = RedirectResponse(url=settings.site_url, status_code=302)
+    _set_session_cookie(redirect, session.id)
+    redirect.delete_cookie(key=GOOGLE_STATE_COOKIE_NAME, path="/")
+    return redirect

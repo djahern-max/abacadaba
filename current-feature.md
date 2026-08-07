@@ -1,126 +1,197 @@
 # Current Feature
 
-## Feature 012, Question analytics and retake policy
+## Feature 013, Sign in with Google
 
 ## Goal
-An admin can see which questions people get wrong and where they drop off, and
-retaking a quiz is no longer a memory test of the same five questions in the
-same order.
+A visitor can create an account or sign in with their Google account and end up
+in exactly the same session as a password account, with the same cookie and the
+same permissions.
 
 ## In scope
-- An admin analytics page built from data already being collected
-- Shuffled question and choice order, stable within an attempt
-- A retake cooldown and an attempt limit
-- Tests
+- Server side OAuth 2.0 authorization code flow against Google
+- google_sub on users, and password_hash becoming nullable
+- Account linking, on a verified email only
+- A sign in with Google button on both Login and Register
+- Tests, with the token exchange mocked
 
 ## Out of scope
-- Question banks larger than five with random selection. It is the obvious next
-  step and it deserves its own feature.
-- Per user analytics, cohort reporting, exports
-- Charts beyond simple bars. Numbers in a table are enough to learn from.
-- Changing the pass threshold
+- Any other provider. Apple, GitHub, and Microsoft are the same shape and can
+  reuse this once it exists, but adding two providers at once means neither gets
+  its edge cases thought through.
+- Unlinking Google, or adding a password to an account created through Google.
+  Both need a password reset flow, which does not exist yet and deserves its own
+  feature.
+- Email verification for password accounts. Still missing, still worth doing,
+  still not this.
+- Refresh tokens, storing Google access tokens, or calling any Google API on the
+  user's behalf. Identity is read once, at sign in, and then discarded.
+- JWT. Sessions stay opaque and database backed exactly as feature 008 built
+  them.
 
 ## Read this before starting
-attempt_answers already holds everything the analytics need. Do not add tables
-for reporting. If a query is slow, add an index.
+Authentication does not change. Google replaces the identity check and nothing
+else. Once Google has confirmed who someone is, call the existing
+`auth_service.create_session(db, user)` and the existing `_set_session_cookie`.
+`require_user`, `require_admin`, `/auth/me`, certificate claiming, and feature
+011's user_id watch progress lookup all keep working untouched.
 
-## Shuffling, and why it needs a seed
-Order must be stable within an attempt, or refreshing the page would reshuffle
-mid quiz and the answered questions would move. Store a shuffle_seed on the
-attempt and derive the order deterministically from it, so the same attempt
-always renders the same order. A new attempt gets a new seed.
+If you find yourself adding a second session mechanism, stop. That is the
+mistake this feature exists to avoid.
 
-Shuffle both question order and, within each question, choice order. The
-position columns stay authoritative for the admin, since an author needs a
-stable view. Shuffling is a presentation concern applied at serve time.
+## The security decision, read this twice
+Resolve the identity in this order:
+
+1. Match on `google_sub`. Google's subject id is stable for the life of the
+   account. Email is not: people change theirs.
+2. If no match, fall back to matching the email against an existing account, and
+   link the two **only if the ID token's `email_verified` claim is true**. If it
+   is false, refuse and say so.
+3. If neither matches, create a new user with `password_hash` NULL.
+
+Step 2 without the `email_verified` check is an account takeover. Anyone able to
+create a Google account carrying someone else's email address would inherit that
+person's account, including its admin flag. Do not treat the claim as optional
+because it is almost always true.
 
 ## Data model
-Add to attempts:
-- shuffle_seed: integer, not null, default 0. Generated on attempt creation.
+Add to users:
+- google_sub: string, unique, indexed, nullable
 
-No other schema changes for analytics.
+Alter users:
+- password_hash: becomes nullable. A Google-created account has no password.
 
-Add to lessons:
-- retake_cooldown_minutes: integer, not null, default 0
-- max_attempts: integer, nullable. Null means unlimited.
-Both editable per lesson in the admin.
+No other schema changes. Sessions are unchanged.
+
+## A trap in authenticate()
+`auth_service.authenticate` currently calls `verify_password(password,
+user.password_hash)` unconditionally. Against a Google-only account that passes
+None into passlib and raises, turning a wrong-credentials 401 into a 500.
+
+Guard it: when `password_hash` is None, verify against `_DUMMY_HASH` and return
+None, exactly as the missing-user branch already does. That keeps the response
+timing uniform and returns the same "Incorrect email or password" as any other
+failure, so the endpoint does not become an oracle for which addresses are
+Google-only.
+
+## Dependency
+Add `authlib`, pinned, to requirements.txt. One new dependency.
+
+The justification: the callback has to verify the ID token's signature against
+Google's JWKS endpoint, whose keys rotate. Hand rolling JWT signature
+verification is the single easiest place in this feature to write something that
+looks correct and accepts forged tokens. Do not do it with httpx and a JSON
+parse.
+
+## Configuration
+Add to `app/config.py`, all optional:
+- google_client_id: str | None = None
+- google_client_secret: str | None = None
+- google_redirect_uri: str | None = None
+
+Optional so that a deploy without them configured still boots. When any is
+unset, `/auth/google/start` returns 404 and the frontend hides the button, so a
+half-configured environment fails visibly rather than at the callback.
+
+Add all three to `backend/.env.example` and to the production `.env.example`.
+
+## Google Cloud Console, do this first
+1. Create a project and configure the OAuth consent screen as External.
+2. Request `openid`, `email`, and `profile` scopes only. These are non-sensitive,
+   so the app does not enter Google's verification review.
+3. Create an OAuth 2.0 Client ID of type Web application.
+4. Register **both** redirect URIs on the same client:
+   - `http://localhost:8000/api/v1/auth/google/callback`
+   - `https://api.abacadaba.com/api/v1/auth/google/callback`
+   Google exempts localhost from its HTTPS requirement, which is why this can be
+   developed locally at all. Match the URIs exactly, trailing slash included:
+   a mismatch is the most common failure in this flow and its error message
+   names the URI it received, so read it rather than guessing.
+5. While the consent screen is unpublished, add your own Google account under
+   Test users or sign in will be refused.
+
+The client secret goes in `.env` only. Never in a build arg, never committed.
 
 ## Backend tasks
-1. Migration for shuffle_seed and the two lesson columns. Inspect, upgrade,
-   verify downgrade.
-2. app/services/analytics.py, all read only:
-   - lesson_stats(db, lesson_id): attempts started, attempts completed, pass
-     rate, mean score, and completion rate
-   - question_stats(db, lesson_id): per question, the number answered and the
-     percentage correct, ordered by percentage correct ascending so the worst
-     question is first
-   - choice_distribution(db, question_id): how many times each choice was
-     picked, with the correct one flagged
-   - dropoff(db, lesson_id): for each question position, how many attempts
-     reached it, showing where people abandon
-   Write these as aggregate SQL, one query each. Do not load rows and count in
-   Python.
-3. app/routers/admin_analytics.py behind require_admin:
-   - GET /admin/lessons/{id}/stats returning all four in one response
-   Add indexes if any query is slow against a few thousand rows. Measure before
-   adding.
-4. app/services/quiz.py: apply the shuffle when serving the quiz for an attempt.
-   The quiz delivery endpoint needs to know the attempt, so add an optional
-   attempt_id query parameter. Without it, serve in authored order for preview.
-   The leak rule is unchanged and the leak test must still pass.
-5. app/services/attempts.py: on start_attempt, enforce the policy before
-   creating a row:
-   - if max_attempts is set and the viewer already has that many completed
-     attempts for the lesson, refuse with 429 and a clear message
-   - if a cooldown is set and their most recent completed attempt is more recent
-     than the cooldown, refuse with 429 including when they may retry
-   Count by user_id when signed in, and by viewer_id otherwise, reusing the
-   cookie from feature 011. Note plainly in a comment that an anonymous viewer
-   can clear a cookie to reset, and that this is accepted for now.
-   Admins bypass both limits.
-6. tests/test_analytics.py: seed a set of attempts with known answers, then
-   assert each statistic comes back with the expected value. Deterministic data,
-   no randomness in the test.
-7. tests/test_retake_policy.py:
-   - a second attempt inside the cooldown returns 429 with a retry time
-   - a second attempt after the cooldown succeeds
-   - exceeding max_attempts returns 429
-   - a null max_attempts allows many attempts
-   - an admin bypasses both
-8. tests/test_shuffle.py:
-   - two attempts on the same lesson produce different question orders, given
-     different seeds
-   - the same attempt requested twice produces identical order
-   - every question and choice appears exactly once, nothing dropped or duplicated
+1. `requirements.txt`: add authlib, pinned.
+2. Add `google_sub` to the User model and make `password_hash` nullable, then:
+   `alembic revision --autogenerate -m "add google_sub to users"`
+   Inspect it before applying. Autogenerate is unreliable about nullability
+   changes, so confirm the `alter_column` for password_hash is actually present
+   and that downgrade -1 reverses both changes.
+3. `app/config.py`: the three settings above.
+4. `app/services/google_auth.py`:
+   - `build_authorization_url(state)` returning the URL to redirect to
+   - `exchange_code(code)` returning a small dataclass of sub, email,
+     email_verified, and name, raising on a bad or expired code
+   - `find_or_create_user(db, identity)` implementing the three step resolution
+     above, raising a distinct error for the unverified-email refusal
+   Keep the HTTP calls in this module. Nothing else imports authlib.
+5. `app/routers/auth.py`, two routes:
+   - `GET /auth/google/start`: generate a random state token, set it in a short
+     lived httpOnly cookie (10 minutes, SameSite=Lax, same secure flag as the
+     session cookie), 302 to Google.
+   - `GET /auth/google/callback`: compare the returned state against the cookie
+     and reject a mismatch. Exchange the code, resolve the user, create a
+     session, set the session cookie, clear the state cookie, then 302 to
+     `settings.site_url`.
+
+   Both return redirects, not JSON. The browser arrives here from Google, not
+   from `apiFetch`. On any failure redirect to `{site_url}/login?error=<code>`
+   rather than rendering a bare 400, so the user lands somewhere usable.
+6. `tests/test_google_auth.py`, with `exchange_code` monkeypatched so no test
+   touches the network:
+   - a new Google identity creates a user with password_hash None and sets a
+     session cookie
+   - signing in twice with the same sub reuses the account rather than
+     duplicating it
+   - a Google identity whose email matches an existing password account links to
+     it when email_verified is true
+   - the same case with email_verified false is refused and does not link
+   - a state mismatch is rejected
+   - `POST /auth/login` with a password against a Google-only account returns
+     401, not 500
+   - the existing leak test still passes
 
 ## Frontend tasks
-1. src/api/admin.js: getLessonStats(id).
-2. src/pages/Admin/Stats/: route /admin/lessons/:id/stats. Four sections:
-   - a summary row of attempts, completion rate, pass rate, mean score
-   - a question table sorted worst first, showing percent correct, with anything
-     under 40 percent visually flagged as likely a bad question
-   - choice distribution per question, expandable
-   - a drop off list by question position
-   Handle the no data case with a plain message, not an empty table.
-3. Link to it from the admin lesson list and the lesson editor.
-4. src/pages/Quiz/: pass the attempt id when fetching the quiz so the shuffled
-   order is used. Nothing else changes.
-5. Handle the 429 from attempt creation with a readable message, including when
-   a retry becomes possible, rather than a generic error.
-6. Admin editor: expose retake_cooldown_minutes and max_attempts with helper
-   text explaining that blank means unlimited.
+1. No addition to `src/api/auth.js`. This is a full page redirect, not a fetch,
+   so it must not go through `apiFetch`.
+2. `src/components/GoogleButton/` with its own CSS Module: a link to
+   `${import.meta.env.VITE_API_URL}/api/v1/auth/google/start`, styled to
+   Google's branding guidelines, with a divider reading "or" separating it from
+   the email form. Place it on both Login and Register.
+3. `AuthContext` already calls `getMe()` on mount, so the redirect back from the
+   callback picks up the new session with no change. Verify this rather than
+   assuming it.
+4. Login page: read `?error=` from the query string and render a readable
+   message. At minimum handle the unverified-email refusal, which needs to
+   explain that the account should be signed into with its password instead.
+
+## A cookie note that will look wrong and is not
+In production the callback runs on `api.abacadaba.com` and the frontend is
+`abacadaba.com`, which works because `SESSION_COOKIE_DOMAIN=.abacadaba.com`
+already covers both.
+
+Locally there is no shared parent domain, but cookies ignore port numbers. A
+cookie set by `localhost:8000` with no domain attribute is sent to
+`localhost:5173`. The local configuration needs no change. Do not "fix" this by
+setting a domain locally.
 
 ## Acceptance criteria
-- the stats page shows real numbers after several test attempts, and they are
-  arithmetically correct against the database
-- a question everyone gets wrong appears first and is flagged
-- two attempts on the same lesson present the questions in different orders
-- refreshing mid attempt preserves the order and the answers already given
-- a retake inside the cooldown is refused with a readable message
-- exceeding max_attempts is refused
-- an admin can retake freely
-- the leak test still passes
-- pytest passes
+- alembic upgrade head adds google_sub and makes password_hash nullable,
+  downgrade -1 reverses both
+- clicking the button at localhost:5173/login reaches Google's consent screen
+- consenting returns to the app already signed in, with the header showing the
+  Google account's name
+- that account appears in the database with password_hash NULL
+- signing out and back in through Google reuses the same account, and
+  `select count(*) from users` does not grow
+- an existing password account signing in through Google with the same verified
+  email links rather than erroring or duplicating
+- attempting to sign in with a password to a Google-only account returns 401
+- tampering with the state parameter is rejected
+- an existing password account can still register, sign in, and sign out exactly
+  as before
+- pytest passes, including the leak test
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

@@ -1,13 +1,23 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
+import GoogleButton from '../../components/GoogleButton/GoogleButton.jsx'
 import styles from './Login.module.css'
+
+const OAUTH_ERROR_MESSAGES = {
+  unverified_email:
+    "That Google account's email isn't verified by Google, so it can't be linked automatically. Sign in with your password instead.",
+  state_mismatch: 'Your Google sign-in attempt expired or was invalid. Please try again.',
+  google_auth_failed: 'Something went wrong signing in with Google. Please try again.',
+}
 
 function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = location.state?.from ?? '/'
+  const [searchParams] = useSearchParams()
+  const oauthError = OAUTH_ERROR_MESSAGES[searchParams.get('error')]
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,6 +40,8 @@ function Login() {
   return (
     <div className={styles.page}>
       <h1 className={styles.heading}>Sign in</h1>
+      {oauthError && <p className={styles.fieldError}>{oauthError}</p>}
+      <GoogleButton />
       <form className={styles.form} onSubmit={handleSubmit}>
         <label className={styles.label} htmlFor="email">
           Email

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
+import GoogleButton from '../../components/GoogleButton/GoogleButton.jsx'
 import styles from './Register.module.css'
 
 function validate(displayName, password) {
@@ -52,6 +53,7 @@ function Register() {
   return (
     <div className={styles.page}>
       <h1 className={styles.heading}>Create an account</h1>
+      <GoogleButton />
       <form className={styles.form} onSubmit={handleSubmit}>
         <label className={styles.label} htmlFor="display-name">
           Name

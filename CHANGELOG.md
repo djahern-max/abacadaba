@@ -215,3 +215,39 @@ Details form exposes retake cooldown and max attempts with helper
 text explaining that blank means unlimited. Question banks larger
 than five with random selection, per-user analytics and exports, and
 charts beyond a plain table remain out of scope.
+
+## 2026-08-07, Feature 013, Sign in with Google
+A visitor can now sign in or register with a Google account and land in the
+exact same session mechanism as a password account: Google only replaces the
+identity check, then the existing create_session/_set_session_cookie takes
+over untouched. Added google_sub (unique, nullable) to users and made
+password_hash nullable for Google-only accounts, plus three optional
+GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI settings that make /auth/google/start
+404 (and the frontend button disappear via the same failure mode) when
+unset, so a half-configured deploy fails visibly. app/services/google_auth.py
+keeps every authlib and HTTP call contained to that one module: it builds
+the authorization URL, exchanges the code and verifies the ID token's
+signature against Google's JWKS, and resolves identity in the required
+order — match google_sub, else match a verified email and link, else create
+a new user with password_hash NULL. An unverified email on an existing
+address is refused rather than linked, which is the account-takeover trap
+this feature is built around. GET /auth/google/start and
+/auth/google/callback are the only new routes, both redirects rather than
+JSON since the browser arrives from Google, not apiFetch; state is a random
+token round-tripped through a short-lived httpOnly cookie, and any failure
+(state mismatch, bad code, unverified email) redirects to
+/login?error=<code> instead of a bare 400. Fixed a latent bug this feature
+would otherwise have exposed: auth_service.authenticate() called
+verify_password(password, user.password_hash) unconditionally, which would
+have thrown on a Google-only account's None hash; it now falls through to
+the same dummy-hash comparison as a missing user, so a password attempt
+against a Google-only account is a uniform-timing 401, not a 500 or an
+oracle for which addresses are Google-only. On the frontend, a new
+GoogleButton component (full page redirect to /auth/google/start, not
+apiFetch) sits above the existing form on both Login and Register with a
+Google-brand-styled button and an "or" divider; AuthContext's existing
+getMe()-on-mount needed no changes to pick up the session after the
+callback redirects back. Apple/GitHub/Microsoft sign-in, unlinking Google,
+adding a password to a Google-only account, and refresh tokens/storing
+Google access tokens remain out of scope; the last two need a password
+reset flow that doesn't exist yet.

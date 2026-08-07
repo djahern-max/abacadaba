@@ -51,7 +51,7 @@ def authenticate(db: DbSession, email: str, password: str) -> User | None:
     normalized_email = email.strip().lower()
     user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
 
-    if user is None:
+    if user is None or user.password_hash is None:
         verify_password(password, _DUMMY_HASH)
         return None
 

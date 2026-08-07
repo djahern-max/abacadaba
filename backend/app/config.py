@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     session_cookie_domain: str | None = None
     environment: str = "development"
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:
