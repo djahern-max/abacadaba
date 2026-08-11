@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getQuiz } from '../../api/quiz'
 import { startAttempt, submitAttemptAnswer } from '../../api/attempts'
 import QuestionCard from '../../components/QuestionCard/QuestionCard'
 import ProgressBar from '../../components/ProgressBar/ProgressBar'
+import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './Quiz.module.css'
 
 const INITIAL_ANSWER_STATE = {
@@ -16,11 +17,14 @@ const INITIAL_ANSWER_STATE = {
 function Quiz() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const { user, loading: authLoading } = useAuth()
   const [state, setState] = useState({ status: 'loading', quiz: null, attemptId: null, lockedDetail: '' })
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answerState, setAnswerState] = useState(INITIAL_ANSWER_STATE)
 
   useEffect(() => {
+    if (authLoading || !user) return
+
     setState({ status: 'loading', quiz: null, attemptId: null, lockedDetail: '' })
     setCurrentIndex(0)
     setAnswerState(INITIAL_ANSWER_STATE)
@@ -56,7 +60,15 @@ function Quiz() {
           lockedDetail: '',
         })
       })
-  }, [slug])
+  }, [slug, authLoading, user])
+
+  if (authLoading) {
+    return <p className={styles.message}>Loading quiz&hellip;</p>
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: `/lessons/${slug}` }} replace />
+  }
 
   if (state.status === 'loading') {
     return <p className={styles.message}>Loading quiz&hellip;</p>

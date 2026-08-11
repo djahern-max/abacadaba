@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.dependencies import get_current_user, get_viewer_id, require_user
+from app.dependencies import get_viewer_id, require_user
 from app.models.user import User
 from app.schemas.attempt import (
     AttemptAnswerRequest,
@@ -22,7 +22,7 @@ router = APIRouter()
 def start_attempt(
     slug: str,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_current_user),
+    user: User = Depends(require_user),
     viewer_id: uuid.UUID = Depends(get_viewer_id),
 ):
     try:

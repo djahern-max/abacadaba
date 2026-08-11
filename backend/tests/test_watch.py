@@ -26,6 +26,9 @@ MEMBER_EMAIL = "watch-member@example.com"
 USER_A_EMAIL = "watch-user-a@example.com"
 USER_B_EMAIL = "watch-user-b@example.com"
 CLAIM_EMAIL = "watch-claim@example.com"
+THRESHOLD_BELOW_EMAIL = "watch-threshold-below@example.com"
+THRESHOLD_AT_EMAIL = "watch-threshold-at@example.com"
+NULL_DURATION_EMAIL = "watch-null-duration@example.com"
 PASSWORD = "correct-horse-battery"
 
 
@@ -69,7 +72,16 @@ def setup_and_cleanup():
 
     client.cookies.clear()
     db = SessionLocal()
-    emails = [ADMIN_EMAIL, MEMBER_EMAIL, USER_A_EMAIL, USER_B_EMAIL, CLAIM_EMAIL]
+    emails = [
+        ADMIN_EMAIL,
+        MEMBER_EMAIL,
+        USER_A_EMAIL,
+        USER_B_EMAIL,
+        CLAIM_EMAIL,
+        THRESHOLD_BELOW_EMAIL,
+        THRESHOLD_AT_EMAIL,
+        NULL_DURATION_EMAIL,
+    ]
     user_ids = select(User.id).where(User.email.in_(emails))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email.in_(emails)))
@@ -192,6 +204,7 @@ def test_starting_an_attempt_below_the_threshold_returns_403():
     db.commit()
     db.close()
 
+    register_and_login(THRESHOLD_BELOW_EMAIL)  # claims the anonymous progress by viewer_id
     response = client.post(f"/api/v1/lessons/{GATED_SLUG}/attempts")
     assert response.status_code == 403
 
@@ -209,8 +222,14 @@ def test_starting_an_attempt_at_the_threshold_succeeds():
     db.commit()
     db.close()
 
+    register_and_login(THRESHOLD_AT_EMAIL)  # claims the anonymous progress by viewer_id
     response = client.post(f"/api/v1/lessons/{GATED_SLUG}/attempts")
     assert response.status_code == 201
+
+
+def test_starting_an_attempt_while_signed_out_returns_401_before_the_watch_gate():
+    response = client.post(f"/api/v1/lessons/{GATED_SLUG}/attempts")
+    assert response.status_code == 401
 
 
 def test_admin_can_start_an_attempt_without_watching():
@@ -220,6 +239,7 @@ def test_admin_can_start_an_attempt_without_watching():
 
 
 def test_lesson_with_null_duration_is_ungated():
+    register_and_login(NULL_DURATION_EMAIL)
     response = client.post(f"/api/v1/lessons/{NULL_DURATION_SLUG}/attempts")
     assert response.status_code == 201
 

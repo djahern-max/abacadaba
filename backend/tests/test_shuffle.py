@@ -10,10 +10,14 @@ from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.session import Session as SessionModel
+from app.models.user import User
 
 client = TestClient(app)
 
 QUIZ_SLUG = "test-lesson-shuffle"
+SIGNED_IN_EMAIL = "shuffle-user@example.com"
+SIGNED_IN_PASSWORD = "correct-horse-battery"
 
 
 @pytest.fixture(autouse=True)
@@ -46,12 +50,26 @@ def seed_test_lesson():
     db.commit()
     db.close()
 
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": SIGNED_IN_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": "Shuffle Tester",
+        },
+    )
+
     yield
+
+    client.cookies.clear()
 
     db = SessionLocal()
     lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
     db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
     db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    user_ids = select(User.id).where(User.email == SIGNED_IN_EMAIL)
+    db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
+    db.execute(delete(User).where(User.email == SIGNED_IN_EMAIL))
     db.commit()
     db.close()
 

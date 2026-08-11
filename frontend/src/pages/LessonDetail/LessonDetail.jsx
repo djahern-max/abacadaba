@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getLesson } from '../../api/lessons'
 import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
+import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './LessonDetail.module.css'
 
 function formatDuration(seconds) {
@@ -19,6 +20,7 @@ function formatRemaining(seconds) {
 
 function LessonDetail() {
   const { slug } = useParams()
+  const { user, loading: authLoading } = useAuth()
   const [state, setState] = useState({ status: 'loading', lesson: null })
   const [watchProgress, setWatchProgress] = useState(null)
 
@@ -73,7 +75,17 @@ function LessonDetail() {
         <div className={styles.video}>Video coming soon</div>
       )}
       <p className={styles.description}>{state.lesson.description}</p>
-      {unlocked ? (
+      {authLoading ? (
+        <span className={styles.quizButtonDisabled}>Checking your watch progress&hellip;</span>
+      ) : !user ? (
+        <Link
+          to="/login"
+          state={{ from: `/lessons/${state.lesson.slug}` }}
+          className={styles.quizButton}
+        >
+          Sign in to take the quiz
+        </Link>
+      ) : unlocked ? (
         <Link to={`/lessons/${state.lesson.slug}/quiz`} className={styles.quizButton}>
           Take the quiz
         </Link>

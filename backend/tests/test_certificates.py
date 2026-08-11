@@ -19,6 +19,7 @@ QUIZ_SLUG = "test-lesson-certificates"
 SIGNED_IN_EMAIL = "certificates-user@example.com"
 SIGNED_IN_PASSWORD = "correct-horse-battery"
 SIGNED_IN_DISPLAY_NAME = "Grace Hopper Account"
+GENERIC_EMAIL = "certificates-flow-user@example.com"
 
 
 @pytest.fixture(autouse=True)
@@ -63,9 +64,10 @@ def seed_test_lesson():
     client.cookies.clear()
 
     db = SessionLocal()
-    user_ids = select(User.id).where(User.email == SIGNED_IN_EMAIL)
+    emails = [SIGNED_IN_EMAIL, GENERIC_EMAIL]
+    user_ids = select(User.id).where(User.email.in_(emails))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
-    db.execute(delete(User).where(User.email == SIGNED_IN_EMAIL))
+    db.execute(delete(User).where(User.email.in_(emails)))
     db.commit()
     db.close()
 
@@ -101,7 +103,21 @@ def answer(attempt_id, question_id, choice_id):
     )
 
 
+def ensure_signed_in():
+    if "session_id" in client.cookies:
+        return
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": GENERIC_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": "Certificates Flow User",
+        },
+    )
+
+
 def start_and_pass_attempt():
+    ensure_signed_in()
     response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     for q in get_questions():
@@ -110,6 +126,7 @@ def start_and_pass_attempt():
 
 
 def start_and_fail_attempt():
+    ensure_signed_in()
     response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     questions = get_questions()
@@ -121,10 +138,29 @@ def start_and_fail_attempt():
 
 
 def start_incomplete_attempt():
+    ensure_signed_in()
     response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     questions = get_questions()
     answer(attempt_id, questions[0]["question_id"], questions[0]["correct_choice_id"])
+    return attempt_id
+
+
+def start_and_pass_legacy_anonymous_attempt():
+    # Simulates an attempt created before this feature shipped, when
+    # POST /attempts didn't require a signed in user. Built directly against
+    # the DB rather than through the API, which no longer allows it.
+    db = SessionLocal()
+    lesson_id = db.execute(select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)).scalar_one()
+    attempt = Attempt(lesson_id=lesson_id, viewer_id=uuid.uuid4(), shuffle_seed=1)
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    attempt_id = str(attempt.public_id)
+    db.close()
+
+    for q in get_questions():
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
     return attempt_id
 
 
@@ -133,7 +169,7 @@ def claim(attempt_id, name="Ada Lovelace"):
 
 
 def test_claiming_on_a_passed_attempt_returns_a_code_and_the_name():
-    attempt_id = start_and_pass_attempt()
+    attempt_id = start_and_pass_legacy_anonymous_attempt()
     response = claim(attempt_id, "Ada Lovelace")
     assert response.status_code == 200
     body = response.json()
@@ -156,7 +192,7 @@ def test_claiming_on_an_incomplete_attempt_returns_409():
 
 
 def test_claiming_twice_keeps_the_original_code_and_updates_the_name():
-    attempt_id = start_and_pass_attempt()
+    attempt_id = start_and_pass_legacy_anonymous_attempt()
     first = claim(attempt_id, "Ada Lovelace")
     second = claim(attempt_id, "Grace Hopper")
 
@@ -220,7 +256,7 @@ def test_verifying_is_case_insensitive_and_tolerates_missing_hyphens():
 
 
 def test_verifying_an_anonymous_certificate_reports_not_an_account_holder():
-    attempt_id = start_and_pass_attempt()
+    attempt_id = start_and_pass_legacy_anonymous_attempt()
     code = claim(attempt_id, "Ada Lovelace").json()["certificate_code"]
 
     response = client.get(f"/api/v1/certificates/{code}")

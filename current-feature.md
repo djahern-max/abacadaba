@@ -1,143 +1,128 @@
 # Current Feature
 
-## Feature 015, Watch progress correctness
+## Feature 017, Authoring UX
 
 ## Goal
-Watch progress belongs to one person. Two users sharing a browser stop
-inheriting each other's history, and the progress readout stops showing numbers
-that cannot be true.
+Authoring a lesson stops tripping the author. Duration fills itself in, the form
+stops silently disagreeing with the server, and the publish requirements are
+visible before you press publish rather than after.
 
 ## In scope
-- Per-user watch progress, with a migration
-- Rotating viewer_id on sign out
-- A progress bar that moves with playback rather than in 10 second steps
-- Fixing the "5:09 of 4:41 watched" readout
-- Tests for the leak this feature exists to close
+- Reading video duration from the file instead of asking for it
+- Making unsaved changes visible, and making publish validation honest
+- Styling the file input
+- A non-blocking upload with a clear status
+- An always-visible publish checklist
 
 ## Out of scope
-- Requiring sign in to take a quiz. That is feature 016 and it overlaps, but the
-  leak must be fixed independently — anonymous viewers will still have watch
-  progress afterwards.
-- Resuming playback where you left off
-- Per second heatmaps, still deferred from feature 011
+- Real background/queued uploads with a job runner. See the note below.
+- Video transcoding, multiple resolutions, a CDN
+- Thumbnails. That is feature 018.
+- Changing what `validate_for_publish` requires. The rules are fine; only their
+  visibility is the problem.
 
-## The bug, stated precisely
-`app/services/watch.py` looks up progress by `viewer_id` OR `user_id`.
-`viewer_id` is a one year cookie set per browser by `ViewerIdentityMiddleware`,
-not per account. So:
+## Where these came from
+Every item here was hit while authoring the first real lesson. None of them are
+speculative.
 
-1. User A signs in, watches the lesson. A row is written carrying A's
-   `viewer_id` and A's `user_id`.
-2. A signs out. The session cookie clears; the `viewer_id` cookie does not.
-3. User B signs in on the same browser. The OR lookup matches A's row on
-   `viewer_id`, and B sees A's progress.
+## Part 1, duration reads itself
+`duration_seconds` predates video entirely — feature 002 added it so the lesson
+card could print "5 min". Feature 011 then quietly promoted it into the
+denominator of the watch gate, and nobody revisited the fact that a human still
+types it. A wrong value silently breaks the gate; a blank one disables it.
 
-The OR was written so a signed-in user's progress follows them to a new device.
-That is a good goal, and this feature keeps it — but the two halves of the OR
-must not both apply at once.
+Fix it in the browser, not the server. On file selection, create an object URL,
+read `video.duration` from the `loadedmetadata` event, revoke the URL, and fill
+the duration field with the value rounded **down**. Rounding up sets a target
+past the end of the file, which can never be satisfied.
 
-## The fix
-Resolve progress by identity, not by union:
+Leave the field editable and mark it as auto-filled. Do not add ffmpeg or
+ffprobe to the container — that is a system binary, a larger image, and more
+attack surface, against the posture HARDENING.md sets out. Client-reported
+duration is untrusted, but an admin can already type any number they like, so
+this weakens nothing.
 
-- Signed in: match on `user_id` only.
-- Anonymous: match on `viewer_id` only, and only for rows with a NULL `user_id`.
+## Part 2, the form disagreeing with the server
+This is the one that cost the most time. The Details form holds unsaved values,
+`validate_for_publish` reads the database, and publish reports a missing
+description while a description is visibly on screen. The author is looking at
+one state and the server is answering about another.
 
-A signed-in user still finds their progress on a new device, because `user_id`
-travels with the account. Another user on the same browser no longer matches,
-because the `viewer_id` half never applies to them.
+Fix, smallest version that is actually correct:
+- Track whether the Details form is dirty.
+- While dirty, disable Publish and say why: "Save your details first."
+- Warn on navigating away with unsaved changes.
 
-Additionally, rotate `viewer_id` on sign out. Defence in depth: even if some
-future query reintroduces a viewer-based match, the cookie no longer points at
-the previous person's row.
+Do not make Publish silently save first. Publishing and saving are different
+intentions, and merging them means a stray click publishes edits the author was
+still thinking about.
 
-## Claiming anonymous progress at sign in
-Someone who watches four minutes signed out and then signs in should keep that
-progress rather than starting over.
+## Part 3, the file input
+`<input type="file">` renders as an unstyled native control that ignores the
+rest of the design. Use the standard pattern: visually hide the input, wrap it
+in a `<label>` styled as a button, and show the selected filename beside it.
 
-On successful sign in (all three paths: register, login, Google callback), for
-each `watch_progress` row matching the current `viewer_id` with a NULL
-`user_id`, either set `user_id` to the new user, or merge into that user's
-existing row for the lesson by taking the larger `watched_seconds`. Do this in
-one transaction, before the redirect.
+Keep it a real `<label for=...>` bound to a real input. Do not rebuild it out of
+a div and a click handler — that loses keyboard access and the file dialog.
 
-Merge rather than overwrite. Taking the maximum is right; taking the anonymous
-value unconditionally would let someone lose progress.
+## Part 4, the upload
+The author currently watches a progress bar and can do nothing else.
 
-## Data model
-`watch_progress` currently has a unique constraint on `(lesson_id, viewer_id)`.
-That is now wrong: one user can legitimately have rows from several browsers,
-and one browser can carry rows for several users.
+Be honest about the ceiling here: a true "we'll process it, come back later"
+flow needs the bytes to land somewhere durable and a worker to pick them up.
+That is a job queue, and it is a bigger feature than this one.
 
-Replace it with two partial unique indexes:
-- unique on `(lesson_id, user_id)` where `user_id IS NOT NULL`
-- unique on `(lesson_id, viewer_id)` where `user_id IS NULL`
+What this feature does instead:
+- The upload no longer blocks the rest of the editor. Questions and details stay
+  editable while it runs.
+- The progress bar is replaced by a status line: uploading with a percentage,
+  then "Processing", then a confirmation once the server returns a `video_key`.
+- Navigating away mid-upload warns, since leaving does cancel it.
 
-Write these as explicit `op.create_index(..., postgresql_where=...)` in the
-migration. Autogenerate does not reliably produce partial indexes — inspect the
-generated file and expect to write them by hand.
+Say plainly in the UI that the upload is still running. Do not imply it will
+finish in the background when it will not.
 
-Before adding the new indexes, collapse any existing duplicate rows, or the
-index creation fails on live data. Your local database is freshly wiped so this
-will pass silently in development and bite in production.
+## Part 5, the publish checklist
+`validate_for_publish` already returns every failed rule at once — feature 010
+built it that way deliberately. The problem is it only speaks when you press
+publish.
 
-## The two display bugs
-**"5:09 of 4:41 watched."** The label compares watched seconds against the
-*required* seconds, so it reads as nonsense the moment the requirement is
-exceeded. Show progress against the lesson's full duration ("5:09 of 5:12"),
-and once the threshold is met replace the counter with a plain "Watched" state.
-The unlock threshold is a property of the gate, not a thing to measure against.
+Show the same checklist permanently in the editor, ticking items off as they are
+satisfied: five questions, one correct choice each, video uploaded, title, slug,
+description. Then "why can't I publish" is answered before it is asked, and the
+draft state stops feeling like a dead end.
 
-**The bar advances in 10 second jumps.** The heartbeat fires roughly every 10
-seconds and the bar is driven by the server's response. Keep the heartbeat
-interval — it exists to limit write volume and is rate limited at about one per
-5 seconds anyway — but drive the *bar* from the player's own `timeupdate`
-event, which fires several times a second. The server response remains the
-source of truth and corrects the bar whenever it arrives.
-
-Do not shorten the heartbeat interval to smooth the animation. That trades a
-display concern for real database load and would trip feature 011's own 429.
+Read it from the existing endpoint rather than reimplementing the rules in the
+frontend. Two copies of that logic will drift.
 
 ## Backend tasks
-1. Migration: drop the old unique constraint, add the two partial indexes.
-   Verify `downgrade -1` restores the original constraint.
-2. `app/services/watch.py`: replace the OR lookup with the identity-based
-   resolution above. This is the security change; keep it in one function so
-   there is a single place to read.
-3. `app/services/watch.py`: add `claim_anonymous_progress(db, viewer_id, user)`
-   implementing the merge, and call it from register, login, and the Google
-   callback.
-4. `app/routers/auth.py`: rotate the `viewer_id` cookie on logout.
-5. `tests/test_watch.py`, add:
-   - user A's progress is not visible to user B sharing a viewer_id
-   - a signed-in user's progress is found from a different viewer_id
-   - an anonymous viewer's progress is not visible to a signed-in user who has
-     not claimed it
-   - anonymous progress is claimed on sign in, taking the maximum
-   - claiming twice is idempotent
-   - the existing FLOOD and SKIP tests still pass
+None expected. If a task here appears to need a backend change, stop and check
+whether the existing validation endpoint can be read instead.
 
 ## Frontend tasks
-1. `VideoPlayer`: drive the progress bar from `timeupdate`, keeping the
-   heartbeat cadence unchanged. Reconcile to the server value on each response.
-2. Change the readout to measure against total duration, and render a "Watched"
-   state once unlocked.
-3. Confirm the "Take the quiz" button still flips live at the threshold without
-   a refresh, as feature 011 required.
+1. `AdminLessonEditor`: duration auto-fill on file selection.
+2. `AdminLessonEditor`: dirty tracking, disabled Publish with a reason, and an
+   unsaved-changes warning.
+3. A styled file input, reused by the video upload control.
+4. Non-blocking upload with a status line and a mid-upload navigation warning.
+5. A persistent publish checklist fed by the existing validation response.
 
 ## Acceptance criteria
-- alembic upgrade head swaps the constraint for the two partial indexes,
-  downgrade -1 reverses it
-- user A watches a lesson, signs out, user B signs in on the same browser: B
-  sees 0:00 watched
-- user A signs back in on that browser and sees their own progress again
-- user A signs in on a second browser and sees their progress there
-- watching signed out, then signing in, preserves the watched time
-- the progress bar advances smoothly during playback, not in visible steps
-- the readout never shows a watched time greater than the value it is measured
-  against
-- once the threshold is met the readout shows a watched state rather than a
-  counter
-- pytest passes, including the leak test and the FLOOD/SKIP tests
+- selecting a video file fills the duration field with the file's duration,
+  rounded down, and the field stays editable
+- with unsaved details, Publish is disabled and explains why
+- navigating away with unsaved changes warns
+- saving then publishing works, and publish never reports a field that is
+  visibly filled in
+- the file input matches the rest of the design and opens via keyboard
+- questions can be edited while an upload is in progress
+- leaving mid-upload warns first
+- the publish checklist is visible on a fresh draft and ticks items off as they
+  are completed
+- authoring a complete lesson start to finish requires no guessing about what is
+  outstanding
+- `npm run lint` passes
+- pytest passes, unchanged
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

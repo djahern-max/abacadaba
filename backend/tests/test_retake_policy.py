@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -18,6 +17,7 @@ client = TestClient(app)
 
 SLUG_PREFIX = "test-retake-policy"
 ADMIN_EMAIL = "retake-admin@example.com"
+USER_EMAIL = "retake-user@example.com"
 PASSWORD = "correct-horse-battery"
 
 
@@ -32,9 +32,10 @@ def cleanup():
     lesson_ids = select(Lesson.id).where(Lesson.slug.like(f"{SLUG_PREFIX}%"))
     db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
     db.execute(delete(Lesson).where(Lesson.slug.like(f"{SLUG_PREFIX}%")))
-    user_ids = select(User.id).where(User.email == ADMIN_EMAIL)
+    emails = [ADMIN_EMAIL, USER_EMAIL]
+    user_ids = select(User.id).where(User.email.in_(emails))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
-    db.execute(delete(User).where(User.email == ADMIN_EMAIL))
+    db.execute(delete(User).where(User.email.in_(emails)))
     db.commit()
     db.close()
 
@@ -84,12 +85,15 @@ def add_completed_attempt(lesson_id, completed_at, viewer_id=None, user_id=None)
     db.close()
 
 
-def get_viewer_id():
-    response = client.get("/api/v1/lessons")
-    assert response.status_code == 200
-    cookie = client.cookies.get("viewer_id")
-    assert cookie is not None
-    return uuid.UUID(cookie)
+def register_and_login(email):
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": PASSWORD, "display_name": "Retake Tester"},
+    )
+    db = SessionLocal()
+    user_id = db.execute(select(User.id).where(User.email == email)).scalar_one()
+    db.close()
+    return user_id
 
 
 def start_attempt(slug):
@@ -98,8 +102,8 @@ def start_attempt(slug):
 
 def test_retake_inside_cooldown_returns_429_with_retry_time():
     slug, lesson_id = create_lesson("cooldown", retake_cooldown_minutes=30)
-    viewer_id = get_viewer_id()
-    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=5), viewer_id=viewer_id)
+    user_id = register_and_login(USER_EMAIL)
+    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=5), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 429
@@ -108,8 +112,8 @@ def test_retake_inside_cooldown_returns_429_with_retry_time():
 
 def test_retake_after_cooldown_elapses_succeeds():
     slug, lesson_id = create_lesson("cooldown-elapsed", retake_cooldown_minutes=10)
-    viewer_id = get_viewer_id()
-    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=15), viewer_id=viewer_id)
+    user_id = register_and_login(USER_EMAIL)
+    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=15), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 201
@@ -117,10 +121,10 @@ def test_retake_after_cooldown_elapses_succeeds():
 
 def test_exceeding_max_attempts_returns_429():
     slug, lesson_id = create_lesson("max-attempts", max_attempts=2)
-    viewer_id = get_viewer_id()
+    user_id = register_and_login(USER_EMAIL)
     now = datetime.now(timezone.utc)
-    add_completed_attempt(lesson_id, now - timedelta(days=2), viewer_id=viewer_id)
-    add_completed_attempt(lesson_id, now - timedelta(days=1), viewer_id=viewer_id)
+    add_completed_attempt(lesson_id, now - timedelta(days=2), user_id=user_id)
+    add_completed_attempt(lesson_id, now - timedelta(days=1), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 429
@@ -129,10 +133,10 @@ def test_exceeding_max_attempts_returns_429():
 
 def test_null_max_attempts_allows_many_attempts():
     slug, lesson_id = create_lesson("unlimited")
-    viewer_id = get_viewer_id()
+    user_id = register_and_login(USER_EMAIL)
     now = datetime.now(timezone.utc)
     for i in range(10):
-        add_completed_attempt(lesson_id, now - timedelta(days=i + 1), viewer_id=viewer_id)
+        add_completed_attempt(lesson_id, now - timedelta(days=i + 1), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 201

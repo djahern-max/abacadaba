@@ -109,55 +109,39 @@ def _question_count(db: Session, lesson_id: int) -> int:
     return db.execute(stmt).scalar_one()
 
 
-def _identity_filter(user_id: int | None, viewer_id: uuid.UUID | None):
-    # A signed in user is identified by user_id regardless of which device or
-    # cookie they're on; an anonymous viewer only has the cookie. Note this
-    # means an anonymous viewer can clear their cookie to reset both the
-    # cooldown and the attempt count — accepted for now, revisited if abused.
-    if user_id is not None:
-        return Attempt.user_id == user_id
-    return Attempt.viewer_id == viewer_id
-
-
-def _completed_attempts_count(db: Session, lesson_id: int, user_id: int | None, viewer_id: uuid.UUID | None) -> int:
+def _completed_attempts_count(db: Session, lesson_id: int, user_id: int) -> int:
     stmt = select(func.count()).select_from(Attempt).where(
         Attempt.lesson_id == lesson_id,
         Attempt.completed_at.is_not(None),
-        _identity_filter(user_id, viewer_id),
+        Attempt.user_id == user_id,
     )
     return db.execute(stmt).scalar_one()
 
 
-def _most_recent_completed_at(
-    db: Session, lesson_id: int, user_id: int | None, viewer_id: uuid.UUID | None
-) -> datetime | None:
+def _most_recent_completed_at(db: Session, lesson_id: int, user_id: int) -> datetime | None:
     stmt = select(func.max(Attempt.completed_at)).where(
         Attempt.lesson_id == lesson_id,
         Attempt.completed_at.is_not(None),
-        _identity_filter(user_id, viewer_id),
+        Attempt.user_id == user_id,
     )
     return db.execute(stmt).scalar()
 
 
-def _enforce_retake_policy(
-    db: Session, lesson: Lesson, user_id: int | None, viewer_id: uuid.UUID | None
-) -> None:
+def _enforce_retake_policy(db: Session, lesson: Lesson, user_id: int) -> None:
     if lesson.max_attempts is not None:
-        completed = _completed_attempts_count(db, lesson.id, user_id, viewer_id)
+        completed = _completed_attempts_count(db, lesson.id, user_id)
         if completed >= lesson.max_attempts:
             raise MaxAttemptsExceededError(lesson.max_attempts)
 
     if lesson.retake_cooldown_minutes > 0:
-        last_completed_at = _most_recent_completed_at(db, lesson.id, user_id, viewer_id)
+        last_completed_at = _most_recent_completed_at(db, lesson.id, user_id)
         if last_completed_at is not None:
             retry_at = last_completed_at + timedelta(minutes=lesson.retake_cooldown_minutes)
             if datetime.now(timezone.utc) < retry_at:
                 raise RetakeCooldownError(retry_at)
 
 
-def start_attempt(
-    db: Session, slug: str, user: User | None = None, viewer_id: uuid.UUID | None = None
-) -> AttemptStartResult | None:
+def start_attempt(db: Session, slug: str, user: User, viewer_id: uuid.UUID) -> AttemptStartResult | None:
     stmt = select(Lesson).where(Lesson.slug == slug, Lesson.is_published.is_(True))
     lesson = db.execute(stmt).scalar_one_or_none()
     if lesson is None:
@@ -167,18 +151,16 @@ def start_attempt(
     if question_count == 0:
         return None
 
-    is_admin = bool(user and user.is_admin)
-    if not is_admin:
-        if viewer_id is not None:
-            progress = watch_service.get_progress(db, lesson, viewer_id, user.id if user else None)
-            if not progress.unlocked:
-                remaining = max((progress.required_seconds or 0) - progress.watched_seconds, 0)
-                raise WatchRequirementNotMetError(remaining)
-        _enforce_retake_policy(db, lesson, user.id if user else None, viewer_id)
+    if not user.is_admin:
+        progress = watch_service.get_progress(db, lesson, viewer_id, user.id)
+        if not progress.unlocked:
+            remaining = max((progress.required_seconds or 0) - progress.watched_seconds, 0)
+            raise WatchRequirementNotMetError(remaining)
+        _enforce_retake_policy(db, lesson, user.id)
 
     attempt = Attempt(
         lesson_id=lesson.id,
-        user_id=user.id if user else None,
+        user_id=user.id,
         viewer_id=viewer_id,
         shuffle_seed=random.randint(1, MAX_SHUFFLE_SEED),
     )

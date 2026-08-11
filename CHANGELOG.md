@@ -287,3 +287,23 @@ bar is driven by the video's own `timeupdate` event for smooth movement,
 reconciled to the server's value on every heartbeat response, while the
 heartbeat POST cadence itself is unchanged. Requiring sign-in to take a
 quiz and resuming playback where a viewer left off remain out of scope.
+
+## 2026-08-11, Feature 016, Require sign in to take a quiz
+
+`POST /lessons/{slug}/attempts` now requires a signed-in user — a
+signed-out request gets 401 before the watch gate or retake policy are
+even checked, so a visitor is told to sign in rather than how much
+video is left. The retake-policy keying dropped its `viewer_id`
+fallback since every new attempt now has a `user_id`; `attempts.user_id`
+itself stays nullable and every downstream endpoint (answering, reading
+a result, claiming a certificate) is still unguarded, so historical
+anonymous attempts and their certificates keep working exactly as
+before. On the frontend, `LessonDetail` swaps the quiz button for a
+"Sign in to take the quiz" link (to `/login`, carrying `state.from` back
+to the lesson) whenever there's no signed-in user, and renders a neutral
+state while `AuthContext` is still resolving so a signed-in visitor
+never sees the prompt flash. `Quiz` redirects straight to `/login` with
+the same `from` state if reached directly while signed out, instead of
+rendering an error. The anonymous name-entry form on `Result` is
+unreachable for new attempts but stays in place for old certificate
+links.

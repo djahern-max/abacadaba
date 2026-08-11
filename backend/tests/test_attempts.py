@@ -96,7 +96,21 @@ def get_questions():
     return result
 
 
+def ensure_signed_in():
+    if "session_id" in client.cookies:
+        return
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": SIGNED_IN_EMAIL,
+            "password": SIGNED_IN_PASSWORD,
+            "display_name": "Attempts Tester",
+        },
+    )
+
+
 def start_attempt():
+    ensure_signed_in()
     response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
     assert response.status_code == 201
     return response.json()["attempt_id"]
@@ -110,12 +124,18 @@ def answer(attempt_id, question_id, choice_id):
 
 
 def test_starting_an_attempt_returns_a_uuid_and_question_count():
+    ensure_signed_in()
     response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
     assert response.status_code == 201
     body = response.json()
     assert uuid.UUID(body["attempt_id"])
     assert body["lesson_slug"] == QUIZ_SLUG
     assert body["question_count"] == 5
+
+
+def test_starting_an_attempt_while_signed_out_returns_401():
+    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    assert response.status_code == 401
 
 
 def test_answering_all_five_correctly_gives_score_five_and_passed_true():
