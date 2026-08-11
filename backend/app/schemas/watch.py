@@ -8,5 +8,6 @@ class HeartbeatRequest(BaseModel):
 class WatchProgressResponse(BaseModel):
     watched_seconds: int
     required_seconds: int | None
+    duration_seconds: int | None
     ratio: float
     unlocked: bool

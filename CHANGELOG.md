@@ -263,3 +263,27 @@ gained a Confirm password field validated on submit — after name length
 and password length — with "Passwords do not match." reusing the
 existing validate() rather than a second path. Password reset, strength
 meters, and a frontend test framework remain out of scope.
+
+## 2026-08-11, Feature 015, Watch progress correctness
+Closed the leak where two people signing into the same browser inherited
+each other's watch history: app/services/watch.py resolved progress by
+`viewer_id OR user_id`, so a signed-out user's cookie still matched the
+next person's row. Progress is now resolved by identity, not union —
+signed in matches `user_id` alone, anonymous matches `viewer_id` alone
+among unclaimed (`user_id IS NULL`) rows — in one function,
+`_identity_filter`. Migration 6f58cd9b86ef swaps the old
+`(lesson_id, viewer_id)` unique constraint for two partial unique
+indexes, one per identity, after collapsing any pre-existing duplicate
+rows by `user_id`; `downgrade -1` restores the original constraint.
+`viewer_id` now rotates on sign out (defence in depth), and
+`claim_anonymous_progress()` folds a browser's anonymous progress into
+the account at sign in — register, login, and the Google callback all
+call it before responding, taking the larger `watched_seconds` when the
+user already has their own row so a returning viewer never loses
+progress. On the frontend, the watch readout now measures against the
+lesson's full duration instead of the unlock threshold (no more "5:09 of
+4:41"), swapping to a plain "Watched" state once unlocked; the progress
+bar is driven by the video's own `timeupdate` event for smooth movement,
+reconciled to the server's value on every heartbeat response, while the
+heartbeat POST cadence itself is unchanged. Requiring sign-in to take a
+quiz and resuming playback where a viewer left off remain out of scope.

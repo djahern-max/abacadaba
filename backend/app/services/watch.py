@@ -2,11 +2,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.lesson import Lesson
+from app.models.user import User
 from app.models.watch_progress import WatchProgress
 
 # A real heartbeat cadence is ~10s, comfortably clearing both thresholds below.
@@ -23,6 +24,7 @@ class RateLimitedError(Exception):
 class WatchProgressData:
     watched_seconds: int
     required_seconds: int | None
+    duration_seconds: int | None
     ratio: float
     unlocked: bool
 
@@ -38,58 +40,117 @@ def _progress_data(watched_seconds: int, lesson: Lesson) -> WatchProgressData:
     if not required:
         # Nothing to measure against, so the lesson is ungated.
         return WatchProgressData(
-            watched_seconds=watched_seconds, required_seconds=required, ratio=1.0, unlocked=True
+            watched_seconds=watched_seconds,
+            required_seconds=required,
+            duration_seconds=lesson.duration_seconds,
+            ratio=1.0,
+            unlocked=True,
         )
     ratio = min(watched_seconds / required, 1.0)
     return WatchProgressData(
         watched_seconds=watched_seconds,
         required_seconds=required,
+        duration_seconds=lesson.duration_seconds,
         ratio=ratio,
         unlocked=watched_seconds >= required,
     )
 
 
 def _identity_filter(viewer_id: uuid.UUID, user_id: int | None):
+    # Resolution is by identity, not union: a signed-in user's row is found by
+    # user_id alone, an anonymous viewer's row by viewer_id alone, and only
+    # among rows nobody has claimed. The two halves never both apply to the
+    # same row, which is what keeps one browser from leaking progress between
+    # the people who have signed in on it. This is the single place that
+    # reads watch_progress identity, matching the partial unique indexes in
+    # migration 6f58cd9b86ef.
     if user_id is not None:
-        return or_(WatchProgress.viewer_id == viewer_id, WatchProgress.user_id == user_id)
-    return WatchProgress.viewer_id == viewer_id
+        return WatchProgress.user_id == user_id
+    return and_(WatchProgress.viewer_id == viewer_id, WatchProgress.user_id.is_(None))
 
 
 def _best_watched_seconds(db: Session, lesson_id: int, viewer_id: uuid.UUID, user_id: int | None) -> int:
-    # A signed in user's progress follows them across devices/cookies, so the
-    # best (most-watched) row across every viewer_id tied to this identity wins.
-    stmt = select(func.max(WatchProgress.watched_seconds)).where(
+    stmt = select(WatchProgress.watched_seconds).where(
         WatchProgress.lesson_id == lesson_id, _identity_filter(viewer_id, user_id)
     )
     return db.execute(stmt).scalar() or 0
 
 
-def _get_or_create_locked(db: Session, lesson_id: int, viewer_id: uuid.UUID) -> WatchProgress:
+def _get_or_create_locked(
+    db: Session, lesson_id: int, viewer_id: uuid.UUID, user_id: int | None
+) -> WatchProgress:
+    identity_filter = _identity_filter(viewer_id, user_id)
     stmt = (
-        select(WatchProgress)
-        .where(WatchProgress.lesson_id == lesson_id, WatchProgress.viewer_id == viewer_id)
-        .with_for_update()
+        select(WatchProgress).where(WatchProgress.lesson_id == lesson_id, identity_filter).with_for_update()
     )
     progress = db.execute(stmt).scalar_one_or_none()
     if progress is not None:
         return progress
 
-    progress = WatchProgress(lesson_id=lesson_id, viewer_id=viewer_id)
+    progress = WatchProgress(lesson_id=lesson_id, viewer_id=viewer_id, user_id=user_id)
     db.add(progress)
     try:
         db.flush()
     except IntegrityError:
-        # Lost a race with a concurrent first heartbeat for the same viewer;
+        # Lost a race with a concurrent first heartbeat for the same identity;
         # the other transaction's row now exists, so re-fetch it locked.
         db.rollback()
         progress = db.execute(stmt).scalar_one()
     return progress
 
 
+def claim_anonymous_progress(db: Session, viewer_id: uuid.UUID, user: User) -> None:
+    """Fold this browser's anonymous progress into the signed-in user's rows.
+
+    Runs once at sign in (register, login, Google callback), before the
+    redirect. For each lesson where this viewer_id has unclaimed (NULL
+    user_id) progress, either hand the row to the user outright, or, if the
+    user already has their own row for that lesson, merge by taking the
+    larger watched_seconds and drop the anonymous row. Merging rather than
+    overwriting means a returning user never loses progress to a shorter
+    anonymous session on the same browser. Safe to call repeatedly: once a
+    row is claimed or merged away, a later call finds nothing left to do.
+    """
+    anonymous_rows = (
+        db.execute(
+            select(WatchProgress)
+            .where(WatchProgress.viewer_id == viewer_id, WatchProgress.user_id.is_(None))
+            .with_for_update()
+        )
+        .scalars()
+        .all()
+    )
+
+    for anon in anonymous_rows:
+        existing = db.execute(
+            select(WatchProgress)
+            .where(WatchProgress.lesson_id == anon.lesson_id, WatchProgress.user_id == user.id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+        if existing is None:
+            anon.user_id = user.id
+            continue
+
+        existing.watched_seconds = max(existing.watched_seconds, anon.watched_seconds)
+        existing.last_position = max(existing.last_position, anon.last_position)
+        if anon.last_heartbeat_at is not None and (
+            existing.last_heartbeat_at is None or anon.last_heartbeat_at > existing.last_heartbeat_at
+        ):
+            existing.last_heartbeat_at = anon.last_heartbeat_at
+        if anon.completed_at is not None and (
+            existing.completed_at is None or anon.completed_at < existing.completed_at
+        ):
+            existing.completed_at = anon.completed_at
+        db.delete(anon)
+
+    db.commit()
+
+
 def record_heartbeat(
     db: Session, lesson: Lesson, viewer_id: uuid.UUID, user_id: int | None, position: int
 ) -> WatchProgressData:
-    progress = _get_or_create_locked(db, lesson.id, viewer_id)
+    progress = _get_or_create_locked(db, lesson.id, viewer_id, user_id)
     now = datetime.now(timezone.utc)
 
     if progress.last_heartbeat_at is not None:
@@ -112,8 +173,6 @@ def record_heartbeat(
 
     progress.last_position = position
     progress.last_heartbeat_at = now
-    if user_id is not None:
-        progress.user_id = user_id
 
     required = _required_seconds(lesson)
     if progress.completed_at is None and required and progress.watched_seconds >= required:

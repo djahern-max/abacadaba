@@ -24,6 +24,7 @@ def _to_response(progress: watch_service.WatchProgressData) -> WatchProgressResp
     return WatchProgressResponse(
         watched_seconds=progress.watched_seconds,
         required_seconds=progress.required_seconds,
+        duration_seconds=progress.duration_seconds,
         ratio=progress.ratio,
         unlocked=progress.unlocked,
     )

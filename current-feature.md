@@ -1,123 +1,143 @@
 # Current Feature
 
-## Feature 014, Header cleanup and password field polish
+## Feature 015, Watch progress correctness
 
 ## Goal
-The header stops advertising a debugging aid to end users, and the password
-fields behave the way people expect: typed twice when creating an account, and
-readable on demand.
+Watch progress belongs to one person. Two users sharing a browser stop
+inheriting each other's history, and the progress readout stops showing numbers
+that cannot be true.
 
 ## In scope
-- Removing the backend status pill from the header
-- A confirm password field on Register
-- A show/hide toggle on every password field
-- Tests only where tests already exist
+- Per-user watch progress, with a migration
+- Rotating viewer_id on sign out
+- A progress bar that moves with playback rather than in 10 second steps
+- Fixing the "5:09 of 4:41 watched" readout
+- Tests for the leak this feature exists to close
 
 ## Out of scope
-- Password reset, email verification, password strength meters. All worth doing,
-  none of them this.
-- Changing the 10 character minimum or adding complexity rules
-- Any backend change at all. The API contract does not move.
-- Adding a frontend test framework. There isn't one, and deciding to introduce
-  Vitest is its own conversation, not a rider on a cleanup feature.
+- Requiring sign in to take a quiz. That is feature 016 and it overlaps, but the
+  leak must be fixed independently — anonymous viewers will still have watch
+  progress afterwards.
+- Resuming playback where you left off
+- Per second heatmaps, still deferred from feature 011
 
-## Read this before starting
-This is a small feature. If it grows a migration, a new endpoint, or a new
-dependency, something has gone wrong.
+## The bug, stated precisely
+`app/services/watch.py` looks up progress by `viewer_id` OR `user_id`.
+`viewer_id` is a one year cookie set per browser by `ViewerIdentityMiddleware`,
+not per account. So:
 
-## Part 1, remove the status pill
-The pill was feature 001's proof that the walking skeleton was wired up. It has
-done its job. It currently tells every visitor "Backend connected," which means
-nothing to them and looks like a leftover.
+1. User A signs in, watches the lesson. A row is written carrying A's
+   `viewer_id` and A's `user_id`.
+2. A signs out. The session cookie clears; the `viewer_id` cookie does not.
+3. User B signs in on the same browser. The OR lookup matches A's row on
+   `viewer_id`, and B sees A's progress.
 
-Remove:
-- The three pill branches in `components/Header/Header.jsx`
-- The `status` prop from Header, and the `useState`/`useEffect`/`getHealth`
-  block in `App.jsx` that feeds it
-- The `.pill`, `.connected`, `.unreachable`, and `.checking` rules in
-  `Header.module.css`
-- `src/api/health.js`, but only after grepping to confirm nothing else imports
-  `getHealth`
+The OR was written so a signed-in user's progress follows them to a new device.
+That is a good goal, and this feature keeps it — but the two halves of the OR
+must not both apply at once.
 
-Do **not** remove:
-- `GET /api/v1/health` or `app/routers/health.py`. Production health checking
-  points at it, and it is the DB-backed check DEPLOYMENT.md explains at length.
-  This feature deletes a UI element, not an endpoint.
-- The `--color-success-bg` / `--color-danger-bg` custom properties in
-  `global.css`. The pill classes used them, but so does the admin stats page.
+## The fix
+Resolve progress by identity, not by union:
 
-After this, the header is the wordmark on the left and the auth nav on the
-right. Check both signed-in and signed-out states for spacing that only looked
-right because the pill was filling the gap.
+- Signed in: match on `user_id` only.
+- Anonymous: match on `viewer_id` only, and only for rows with a NULL `user_id`.
 
-## Part 2, a PasswordInput component
-Both pages need the same toggle, so build it once:
-`src/components/PasswordInput/PasswordInput.jsx` plus its CSS Module.
+A signed-in user still finds their progress on a new device, because `user_id`
+travels with the account. Another user on the same browser no longer matches,
+because the `viewer_id` half never applies to them.
 
-Props: `id`, `label`, `value`, `onChange`, `disabled`, `autoComplete`, and an
-optional `hint` rendered under the field.
+Additionally, rotate `viewer_id` on sign out. Defence in depth: even if some
+future query reintroduces a viewer-based match, the cookie no longer points at
+the previous person's row.
 
-It renders the label, the input, and a toggle button positioned inside the
-field. Internal `useState` holds whether the text is visible; the input's `type`
-flips between `password` and `text`.
+## Claiming anonymous progress at sign in
+Someone who watches four minutes signed out and then signs in should keep that
+progress rather than starting over.
 
-Requirements that are easy to get wrong:
-- The toggle is `<button type="button">`. The default type inside a form is
-  `submit`, so omitting this makes the eye icon submit the registration form.
-  This is the single most likely bug in this feature.
-- Give it an `aria-label` that changes with state: "Show password" when hidden,
-  "Hide password" when visible. An unlabelled icon button is invisible to a
-  screen reader.
-- Inline SVG for the icon. No icon library — that would be a new dependency for
-  two glyphs.
-- Visible focus ring, consistent with the quiz choice buttons from feature 005.
-- Visibility state is per field and resets on navigation. Do not persist it.
+On successful sign in (all three paths: register, login, Google callback), for
+each `watch_progress` row matching the current `viewer_id` with a NULL
+`user_id`, either set `user_id` to the new user, or merge into that user's
+existing row for the lesson by taking the larger `watched_seconds`. Do this in
+one transaction, before the redirect.
 
-## Part 3, wire it into the forms
-`Login.jsx`: replace the password input with `PasswordInput`,
-`autoComplete="current-password"`. No confirm field here — re-typing a password
-to sign in serves no purpose and only adds friction.
+Merge rather than overwrite. Taking the maximum is right; taking the anonymous
+value unconditionally would let someone lose progress.
 
-`Register.jsx`: replace the password input with `PasswordInput`
-(`autoComplete="new-password"`), and add a second one below it labelled
-"Confirm password", also `autoComplete="new-password"`, backed by a new
-`confirmPassword` state variable.
+## Data model
+`watch_progress` currently has a unique constraint on `(lesson_id, viewer_id)`.
+That is now wrong: one user can legitimately have rows from several browsers,
+and one browser can carry rows for several users.
 
-Extend the existing `validate()` rather than adding a second validation path.
-Order the checks name, then length, then match, so someone who types a short
-password twice is told the useful thing first:
+Replace it with two partial unique indexes:
+- unique on `(lesson_id, user_id)` where `user_id IS NOT NULL`
+- unique on `(lesson_id, viewer_id)` where `user_id IS NULL`
 
-```js
-if (password !== confirmPassword) {
-  return 'Passwords do not match.'
-}
-```
+Write these as explicit `op.create_index(..., postgresql_where=...)` in the
+migration. Autogenerate does not reliably produce partial indexes — inspect the
+generated file and expect to write them by hand.
 
-Validate on submit, matching how the form already behaves. Do not validate on
-every keystroke — flashing "do not match" while someone is still typing the
-second field is worse than saying nothing.
+Before adding the new indexes, collapse any existing duplicate rows, or the
+index creation fails on live data. Your local database is freshly wiped so this
+will pass silently in development and bite in production.
 
-Leave the "At least 10 characters." hint under the first password field only.
+## The two display bugs
+**"5:09 of 4:41 watched."** The label compares watched seconds against the
+*required* seconds, so it reads as nonsense the moment the requirement is
+exceeded. Show progress against the lesson's full duration ("5:09 of 5:12"),
+and once the threshold is met replace the counter with a plain "Watched" state.
+The unlock threshold is a property of the gate, not a thing to measure against.
 
-## What must not regress
-The Google button and the `or` divider are new as of feature 013 and sit on both
-pages. Confirm the layout still holds with an extra field above them on Register,
-and that a browser password manager still autofills the sign-in form — the
-`autoComplete` values above are what make that work.
+**The bar advances in 10 second jumps.** The heartbeat fires roughly every 10
+seconds and the bar is driven by the server's response. Keep the heartbeat
+interval — it exists to limit write volume and is rate limited at about one per
+5 seconds anyway — but drive the *bar* from the player's own `timeupdate`
+event, which fires several times a second. The server response remains the
+source of truth and corrects the bar whenever it arrives.
+
+Do not shorten the heartbeat interval to smooth the animation. That trades a
+display concern for real database load and would trip feature 011's own 429.
+
+## Backend tasks
+1. Migration: drop the old unique constraint, add the two partial indexes.
+   Verify `downgrade -1` restores the original constraint.
+2. `app/services/watch.py`: replace the OR lookup with the identity-based
+   resolution above. This is the security change; keep it in one function so
+   there is a single place to read.
+3. `app/services/watch.py`: add `claim_anonymous_progress(db, viewer_id, user)`
+   implementing the merge, and call it from register, login, and the Google
+   callback.
+4. `app/routers/auth.py`: rotate the `viewer_id` cookie on logout.
+5. `tests/test_watch.py`, add:
+   - user A's progress is not visible to user B sharing a viewer_id
+   - a signed-in user's progress is found from a different viewer_id
+   - an anonymous viewer's progress is not visible to a signed-in user who has
+     not claimed it
+   - anonymous progress is claimed on sign in, taking the maximum
+   - claiming twice is idempotent
+   - the existing FLOOD and SKIP tests still pass
+
+## Frontend tasks
+1. `VideoPlayer`: drive the progress bar from `timeupdate`, keeping the
+   heartbeat cadence unchanged. Reconcile to the server value on each response.
+2. Change the readout to measure against total duration, and render a "Watched"
+   state once unlocked.
+3. Confirm the "Take the quiz" button still flips live at the threshold without
+   a refresh, as feature 011 required.
 
 ## Acceptance criteria
-- the header shows only the wordmark and the auth nav, signed in and signed out
-- `curl http://localhost:8000/api/v1/health` still returns 200 with the DB check
-- registering with mismatched passwords shows "Passwords do not match." and does
-  not call the API
-- registering with matching passwords still succeeds and signs the user in
-- the eye toggle reveals and hides on all three fields
-- clicking the eye on Register does not submit the form
-- every field and its toggle are reachable and operable by keyboard alone
-- a password manager still offers to fill the sign-in form
-- signing in with Google still works from both pages
-- `npm run lint` passes
-- pytest passes, unchanged, confirming nothing backend moved
+- alembic upgrade head swaps the constraint for the two partial indexes,
+  downgrade -1 reverses it
+- user A watches a lesson, signs out, user B signs in on the same browser: B
+  sees 0:00 watched
+- user A signs back in on that browser and sees their own progress again
+- user A signs in on a second browser and sees their progress there
+- watching signed out, then signing in, preserves the watched time
+- the progress bar advances smoothly during playback, not in visible steps
+- the readout never shows a watched time greater than the value it is measured
+  against
+- once the threshold is met the readout shows a watched state rather than a
+  counter
+- pytest passes, including the leak test and the FLOOD/SKIP tests
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

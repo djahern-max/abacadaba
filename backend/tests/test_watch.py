@@ -23,6 +23,9 @@ GATED_SLUG = f"{SLUG_PREFIX}-gated"
 NULL_DURATION_SLUG = f"{SLUG_PREFIX}-null-duration"
 ADMIN_EMAIL = "watch-admin@example.com"
 MEMBER_EMAIL = "watch-member@example.com"
+USER_A_EMAIL = "watch-user-a@example.com"
+USER_B_EMAIL = "watch-user-b@example.com"
+CLAIM_EMAIL = "watch-claim@example.com"
 PASSWORD = "correct-horse-battery"
 
 
@@ -66,7 +69,7 @@ def setup_and_cleanup():
 
     client.cookies.clear()
     db = SessionLocal()
-    emails = [ADMIN_EMAIL, MEMBER_EMAIL]
+    emails = [ADMIN_EMAIL, MEMBER_EMAIL, USER_A_EMAIL, USER_B_EMAIL, CLAIM_EMAIL]
     user_ids = select(User.id).where(User.email.in_(emails))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email.in_(emails)))
@@ -244,3 +247,110 @@ def test_signed_in_users_progress_is_visible_from_a_different_viewer_cookie():
     response = client.get(f"/api/v1/lessons/{GATED_SLUG}/watch")
     assert response.status_code == 200
     assert response.json()["watched_seconds"] == 50
+
+
+# LEAK TEST: the bug this feature exists to close. Two people sharing a
+# browser must never inherit each other's watch history.
+def test_user_bs_progress_does_not_leak_from_user_a_sharing_a_viewer_id():
+    user_a_id = register_and_login(USER_A_EMAIL)
+    shared_viewer_id = uuid.UUID(client.cookies["viewer_id"])
+
+    db = SessionLocal()
+    db.add(
+        WatchProgress(
+            lesson_id=lesson_id(GATED_SLUG),
+            viewer_id=shared_viewer_id,
+            user_id=user_a_id,
+            watched_seconds=50,
+        )
+    )
+    db.commit()
+    db.close()
+
+    # A signs out: the session cookie clears, but the viewer_id cookie is the
+    # one and only thing pre-fix left pointing at A's browser.
+    client.cookies.clear()
+    client.cookies.set("viewer_id", str(shared_viewer_id))
+    register_and_login(USER_B_EMAIL)
+
+    response = client.get(f"/api/v1/lessons/{GATED_SLUG}/watch")
+    assert response.status_code == 200
+    assert response.json()["watched_seconds"] == 0
+
+
+def test_anonymous_progress_is_not_visible_to_a_signed_in_user_who_has_not_claimed_it():
+    register_and_login(USER_A_EMAIL)
+
+    other_browsers_viewer_id = uuid.uuid4()
+    db = SessionLocal()
+    db.add(
+        WatchProgress(
+            lesson_id=lesson_id(GATED_SLUG),
+            viewer_id=other_browsers_viewer_id,
+            watched_seconds=50,
+        )
+    )
+    db.commit()
+    db.close()
+
+    # The signed-in session now carries a viewer_id cookie for a browser it
+    # has never claimed progress from (no register/login happens here, so
+    # no claim is triggered).
+    client.cookies.set("viewer_id", str(other_browsers_viewer_id))
+
+    response = client.get(f"/api/v1/lessons/{GATED_SLUG}/watch")
+    assert response.status_code == 200
+    assert response.json()["watched_seconds"] == 0
+
+
+def test_anonymous_progress_is_claimed_on_sign_in_taking_the_maximum():
+    user_id = register_and_login(CLAIM_EMAIL)
+    lid = lesson_id(GATED_SLUG)
+
+    db = SessionLocal()
+    db.add(WatchProgress(lesson_id=lid, viewer_id=uuid.uuid4(), user_id=user_id, watched_seconds=20))
+    db.commit()
+    db.close()
+
+    client.cookies.clear()
+    anon_viewer_id = uuid.uuid4()
+    client.cookies.set("viewer_id", str(anon_viewer_id))
+    db = SessionLocal()
+    db.add(WatchProgress(lesson_id=lid, viewer_id=anon_viewer_id, watched_seconds=40))
+    db.commit()
+    db.close()
+
+    response = client.post("/api/v1/auth/login", json={"email": CLAIM_EMAIL, "password": PASSWORD})
+    assert response.status_code == 200
+
+    db = SessionLocal()
+    rows = db.execute(select(WatchProgress).where(WatchProgress.lesson_id == lid)).scalars().all()
+    db.close()
+    assert len(rows) == 1
+    assert rows[0].user_id == user_id
+    assert rows[0].watched_seconds == 40
+
+
+def test_claiming_anonymous_progress_twice_is_idempotent():
+    user_id = register_and_login(CLAIM_EMAIL)
+    lid = lesson_id(GATED_SLUG)
+
+    anon_viewer_id = uuid.uuid4()
+    db = SessionLocal()
+    db.add(WatchProgress(lesson_id=lid, viewer_id=anon_viewer_id, watched_seconds=25))
+    db.commit()
+    db.close()
+
+    client.cookies.set("viewer_id", str(anon_viewer_id))
+
+    first = client.post("/api/v1/auth/login", json={"email": CLAIM_EMAIL, "password": PASSWORD})
+    second = client.post("/api/v1/auth/login", json={"email": CLAIM_EMAIL, "password": PASSWORD})
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    db = SessionLocal()
+    rows = db.execute(select(WatchProgress).where(WatchProgress.lesson_id == lid)).scalars().all()
+    db.close()
+    assert len(rows) == 1
+    assert rows[0].user_id == user_id
+    assert rows[0].watched_seconds == 25

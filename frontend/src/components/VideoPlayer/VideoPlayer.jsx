@@ -15,6 +15,7 @@ function formatTime(seconds) {
 function VideoPlayer({ slug, onProgressChange }) {
   const [state, setState] = useState({ status: 'loading', url: null })
   const [progress, setProgress] = useState(null)
+  const [barRatio, setBarRatio] = useState(0)
   const videoRef = useRef(null)
   const lastHeartbeatAtRef = useRef(0)
 
@@ -39,6 +40,14 @@ function VideoPlayer({ slug, onProgressChange }) {
       })
       .catch(() => {})
   }, [slug, onProgressChange])
+
+  // The server response is always the source of truth for the bar; it
+  // corrects any drift from the timeupdate-driven estimate below.
+  useEffect(() => {
+    if (progress) {
+      setBarRatio(progress.ratio)
+    }
+  }, [progress])
 
   const flushHeartbeat = useCallback(
     (position) => {
@@ -67,6 +76,13 @@ function VideoPlayer({ slug, onProgressChange }) {
   function handleTimeUpdate(event) {
     const video = event.target
     if (video.paused || video.seeking) return
+
+    // Keep the heartbeat cadence for writes, but let the bar itself move
+    // with every timeupdate tick so it doesn't visibly jump in 10s steps.
+    if (progress?.required_seconds) {
+      setBarRatio(Math.min(video.currentTime / progress.required_seconds, 1))
+    }
+
     const secondsSinceLastHeartbeat = (Date.now() - lastHeartbeatAtRef.current) / 1000
     if (secondsSinceLastHeartbeat >= HEARTBEAT_INTERVAL_SECONDS) {
       flushHeartbeat(video.currentTime)
@@ -115,15 +131,14 @@ function VideoPlayer({ slug, onProgressChange }) {
       {progress && (
         <div className={styles.progressWrap}>
           <div className={styles.progressTrack}>
-            <div
-              className={styles.progressFill}
-              style={{ width: `${Math.round(progress.ratio * 100)}%` }}
-            />
+            <div className={styles.progressFill} style={{ width: `${Math.round(barRatio * 100)}%` }} />
           </div>
           <p className={styles.progressText}>
-            {progress.required_seconds
-              ? `${formatTime(progress.watched_seconds)} of ${formatTime(progress.required_seconds)} watched`
-              : 'Watching this video is not required for this lesson.'}
+            {progress.duration_seconds == null
+              ? 'Watching this video is not required for this lesson.'
+              : progress.unlocked
+                ? 'Watched'
+                : `${formatTime(Math.min(progress.watched_seconds, progress.duration_seconds))} of ${formatTime(progress.duration_seconds)} watched`}
           </p>
         </div>
       )}

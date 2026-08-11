@@ -1,4 +1,5 @@
 import secrets
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -6,11 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.dependencies import require_user
+from app.dependencies import get_viewer_id, require_user
+from app.middleware.viewer import VIEWER_COOKIE_LIFETIME_DAYS, VIEWER_COOKIE_NAME
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, UserPublic
 from app.services import auth as auth_service
 from app.services import google_auth
+from app.services import watch as watch_service
 from app.services.auth import SESSION_COOKIE_NAME, SESSION_LIFETIME_DAYS
 
 router = APIRouter(prefix="/auth")
@@ -24,6 +27,22 @@ def _set_session_cookie(response: Response, token: str) -> None:
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=SESSION_LIFETIME_DAYS * 24 * 60 * 60,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        domain=settings.session_cookie_domain,
+        path="/",
+    )
+
+
+def _rotate_viewer_id_cookie(response: Response) -> None:
+    # Defence in depth: even if some future query reintroduces a
+    # viewer-based match, the cookie no longer points at the previous
+    # person's row once they sign out.
+    response.set_cookie(
+        key=VIEWER_COOKIE_NAME,
+        value=str(uuid.uuid4()),
+        max_age=VIEWER_COOKIE_LIFETIME_DAYS * 24 * 60 * 60,
         httponly=True,
         samesite="lax",
         secure=settings.session_cookie_secure,
@@ -49,11 +68,18 @@ def _google_configured() -> bool:
 
 
 @router.post("/register", response_model=UserPublic, status_code=201)
-def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+def register(
+    payload: RegisterRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    viewer_id: uuid.UUID = Depends(get_viewer_id),
+):
     try:
         user = auth_service.register(db, payload.email, payload.password, payload.display_name)
     except auth_service.EmailTakenError as exc:
         raise HTTPException(status_code=409, detail="That email is already registered") from exc
+
+    watch_service.claim_anonymous_progress(db, viewer_id, user)
 
     session = auth_service.create_session(db, user)
     _set_session_cookie(response, session.id)
@@ -61,11 +87,18 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 
 
 @router.post("/login", response_model=UserPublic)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    viewer_id: uuid.UUID = Depends(get_viewer_id),
+):
     auth_service.purge_expired_sessions(db)
     user = auth_service.authenticate(db, payload.email, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    watch_service.claim_anonymous_progress(db, viewer_id, user)
 
     session = auth_service.create_session(db, user)
     _set_session_cookie(response, session.id)
@@ -78,6 +111,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     if token is not None:
         auth_service.delete_session(db, token)
     response.delete_cookie(key=SESSION_COOKIE_NAME, domain=settings.session_cookie_domain, path="/")
+    _rotate_viewer_id_cookie(response)
 
 
 @router.get("/me", response_model=UserPublic)
@@ -120,6 +154,8 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
         user = google_auth.find_or_create_user(db, identity)
     except google_auth.UnverifiedEmailError:
         return failure("unverified_email")
+
+    watch_service.claim_anonymous_progress(db, get_viewer_id(request), user)
 
     session = auth_service.create_session(db, user)
     redirect = RedirectResponse(url=settings.site_url, status_code=302)
