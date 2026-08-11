@@ -80,6 +80,7 @@ class AdminLesson(BaseModel):
     description: str
     duration_seconds: int | None
     video_key: str | None
+    thumbnail_key: str | None
     required_watch_ratio: float
     retake_cooldown_minutes: int
     max_attempts: int | None

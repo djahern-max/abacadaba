@@ -15,6 +15,7 @@ class Lesson(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     video_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    thumbnail_key: Mapped[str | None] = mapped_column(String, nullable=True)
     required_watch_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.9, server_default="0.9")
     retake_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -29,3 +30,7 @@ class Lesson(Base):
         order_by="Question.position",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def has_thumbnail(self) -> bool:
+        return self.thumbnail_key is not None

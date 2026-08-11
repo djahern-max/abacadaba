@@ -117,3 +117,33 @@ export function uploadAdminVideo(slug, file, onProgress) {
     xhr.send(formData)
   })
 }
+
+export function uploadAdminThumbnail(id, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE_URL}/api/v1/admin/lessons/${id}/thumbnail`)
+    xhr.withCredentials = true
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText))
+      } else {
+        const error = new Error(`Upload failed: ${xhr.status}`)
+        error.status = xhr.status
+        error.body = JSON.parse(xhr.responseText || '{}')
+        reject(error)
+      }
+    }
+    xhr.onerror = () => reject(new Error('Upload failed'))
+    xhr.send(formData)
+  })
+}

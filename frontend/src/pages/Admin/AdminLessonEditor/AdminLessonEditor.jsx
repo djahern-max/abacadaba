@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { checkAdminLessonPublish, deleteAdminLesson, getAdminLesson } from '../../../api/admin'
 import DetailsForm from './DetailsForm'
 import VideoUploader from './VideoUploader'
+import ThumbnailUploader from './ThumbnailUploader'
 import QuestionsEditor from './QuestionsEditor'
 import PublishPanel from './PublishPanel'
 import styles from './AdminLessonEditor.module.css'
@@ -97,6 +98,7 @@ function AdminLessonEditor() {
         onUploadingChange={setUploading}
         onChange={refresh}
       />
+      <ThumbnailUploader lesson={lesson} onUploadingChange={setUploading} onChange={refresh} />
       <QuestionsEditor lesson={lesson} onChange={refresh} />
       <PublishPanel
         lesson={lesson}

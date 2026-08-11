@@ -11,3 +11,7 @@ export function getLesson(slug) {
 export function getVideoUrl(slug) {
   return apiFetch(`/api/v1/lessons/${slug}/video-url`)
 }
+
+export function getThumbnailUrl(slug) {
+  return apiFetch(`/api/v1/lessons/${slug}/thumbnail-url`)
+}

@@ -1,128 +1,112 @@
 # Current Feature
 
-## Feature 017, Authoring UX
+## Feature 018, Lesson thumbnails
 
 ## Goal
-Authoring a lesson stops tripping the author. Duration fills itself in, the form
-stops silently disagreeing with the server, and the publish requirements are
-visible before you press publish rather than after.
+A lesson has a thumbnail image. It fronts the lesson card and sits behind the
+video player before playback, so neither place is a wall of text or a black
+rectangle.
 
 ## In scope
-- Reading video duration from the file instead of asking for it
-- Making unsaved changes visible, and making publish validation honest
-- Styling the file input
-- A non-blocking upload with a clear status
-- An always-visible publish checklist
+- A thumbnail image per lesson, stored in Spaces alongside the video
+- Admin upload, with guidance on the expected size
+- The thumbnail on the lesson card and as the video poster
+- A sensible fallback when a lesson has no thumbnail
 
 ## Out of scope
-- Real background/queued uploads with a job runner. See the note below.
-- Video transcoding, multiple resolutions, a CDN
-- Thumbnails. That is feature 018.
-- Changing what `validate_for_publish` requires. The rules are fine; only their
-  visibility is the problem.
+- Generating a thumbnail from a video frame. Appealing, but it needs decoding on
+  the server or a canvas capture in the browser, and it deserves its own
+  feature.
+- Multiple sizes, responsive `srcset`, a CDN, or image optimisation
+- Replacing the title and description. The thumbnail joins them, it does not
+  displace them — a card with no text is worse for scanning and worse for
+  screen readers.
 
-## Where these came from
-Every item here was hit while authoring the first real lesson. None of them are
-speculative.
+## Size
+Target 1280x720, the same 16:9 shape as the video player and the same as
+YouTube uses. Accept anything 16:9 and reasonably large; show a warning, not an
+error, when an upload is a different aspect ratio, since the author may have a
+reason.
 
-## Part 1, duration reads itself
-`duration_seconds` predates video entirely — feature 002 added it so the lesson
-card could print "5 min". Feature 011 then quietly promoted it into the
-denominator of the watch gate, and nobody revisited the fact that a human still
-types it. A wrong value silently breaks the gate; a blank one disables it.
+Accept JPEG, PNG, and WebP. Cap the file at 2 MB — a still image has no business
+being larger, and the cap is a cheap guard on an authenticated upload endpoint.
 
-Fix it in the browser, not the server. On file selection, create an object URL,
-read `video.duration` from the `loadedmetadata` event, revoke the URL, and fill
-the duration field with the value rounded **down**. Rounding up sets a target
-past the end of the file, which can never be satisfied.
+## Data model
+Add to lessons:
+- thumbnail_key: string, nullable. Null means no thumbnail uploaded.
 
-Leave the field editable and mark it as auto-filled. Do not add ffmpeg or
-ffprobe to the container — that is a system binary, a larger image, and more
-attack surface, against the posture HARDENING.md sets out. Client-reported
-duration is untrusted, but an admin can already type any number they like, so
-this weakens nothing.
+Mirror the video pattern exactly: key derived from the slug, stored private,
+served through a presigned GET. Store as `lessons/<slug>-thumb.<ext>`, keeping
+the extension so the content type survives a round trip.
 
-## Part 2, the form disagreeing with the server
-This is the one that cost the most time. The Details form holds unsaved values,
-`validate_for_publish` reads the database, and publish reports a missing
-description while a description is visibly on screen. The author is looking at
-one state and the server is answering about another.
-
-Fix, smallest version that is actually correct:
-- Track whether the Details form is dirty.
-- While dirty, disable Publish and say why: "Save your details first."
-- Warn on navigating away with unsaved changes.
-
-Do not make Publish silently save first. Publishing and saving are different
-intentions, and merging them means a stray click publishes edits the author was
-still thinking about.
-
-## Part 3, the file input
-`<input type="file">` renders as an unstyled native control that ignores the
-rest of the design. Use the standard pattern: visually hide the input, wrap it
-in a `<label>` styled as a button, and show the selected filename beside it.
-
-Keep it a real `<label for=...>` bound to a real input. Do not rebuild it out of
-a div and a click handler — that loses keyboard access and the file dialog.
-
-## Part 4, the upload
-The author currently watches a progress bar and can do nothing else.
-
-Be honest about the ceiling here: a true "we'll process it, come back later"
-flow needs the bytes to land somewhere durable and a worker to pick them up.
-That is a job queue, and it is a bigger feature than this one.
-
-What this feature does instead:
-- The upload no longer blocks the rest of the editor. Questions and details stay
-  editable while it runs.
-- The progress bar is replaced by a status line: uploading with a percentage,
-  then "Processing", then a confirmation once the server returns a `video_key`.
-- Navigating away mid-upload warns, since leaving does cancel it.
-
-Say plainly in the UI that the upload is still running. Do not imply it will
-finish in the background when it will not.
-
-## Part 5, the publish checklist
-`validate_for_publish` already returns every failed rule at once — feature 010
-built it that way deliberately. The problem is it only speaks when you press
-publish.
-
-Show the same checklist permanently in the editor, ticking items off as they are
-satisfied: five questions, one correct choice each, video uploaded, title, slug,
-description. Then "why can't I publish" is answered before it is asked, and the
-draft state stops feeling like a dead end.
-
-Read it from the existing endpoint rather than reimplementing the rules in the
-frontend. Two copies of that logic will drift.
+Note the difference from `video_key`: because the extension varies, the key is
+not purely derivable from the slug. Persist the whole key rather than
+reconstructing it.
 
 ## Backend tasks
-None expected. If a task here appears to need a backend change, stop and check
-whether the existing validation endpoint can be read instead.
+1. Add `thumbnail_key` to the Lesson model, then
+   `alembic revision --autogenerate -m "add thumbnail_key to lessons"`.
+   Inspect, upgrade, verify `downgrade -1`.
+2. `app/routers/admin_content.py`: `POST /admin/lessons/{id}/thumbnail`, behind
+   the existing `require_admin` at router level. Validate content type and size
+   before touching storage. Replacing an existing thumbnail overwrites the old
+   object rather than accumulating.
+3. `GET /lessons/{slug}/thumbnail-url`, mirroring the existing video-url
+   endpoint, returning a presigned URL and its expiry. 404 when there is no
+   thumbnail, matching how the video endpoint behaves.
+4. `LessonSummary` gains a `has_thumbnail` boolean so the list page knows
+   whether to fetch a URL, without the list endpoint issuing a presign per
+   lesson. Do not put a presigned URL in the list response — they expire, and
+   generating one per card on every list request is wasteful.
+5. Tests:
+   - uploading a thumbnail as an admin sets thumbnail_key
+   - uploading as a non-admin returns 403, signed out returns 401
+   - an oversized file is rejected
+   - a non-image content type is rejected
+   - thumbnail-url returns 404 for a lesson without one
+   - the leak test still passes
 
 ## Frontend tasks
-1. `AdminLessonEditor`: duration auto-fill on file selection.
-2. `AdminLessonEditor`: dirty tracking, disabled Publish with a reason, and an
-   unsaved-changes warning.
-3. A styled file input, reused by the video upload control.
-4. Non-blocking upload with a status line and a mid-upload navigation warning.
-5. A persistent publish checklist fed by the existing validation response.
+1. `src/api/lessons.js`: `getThumbnailUrl(slug)`.
+2. `LessonCard`: render the thumbnail in a 16:9 box above the title, with the
+   title and description kept below it. When there is no thumbnail, render a
+   plain placeholder block in the same 16:9 box so the grid does not reflow —
+   cards jumping height as images load is the usual failure here. Reserve the
+   space with `aspect-ratio` rather than waiting for the image.
+3. `VideoPlayer`: set the `poster` attribute from the thumbnail URL. This is the
+   black-rectangle fix; `poster` is exactly the built-in mechanism for it, so do
+   not build an overlay.
+4. `AdminLessonEditor`: a thumbnail upload control beside the video one, reusing
+   the styled file input from feature 017, showing the current thumbnail when one
+   exists. State the recommended 1280x720 in helper text.
+5. `alt` text: use the lesson title. A thumbnail is decorative-adjacent but the
+   card is a link, and an unlabelled image inside a link is a real accessibility
+   problem.
+
+## A note on the presigned URL
+Thumbnails are fetched far more often than videos — every card on the list page,
+every visit. Presigned URLs expire, so a page left open will eventually show
+broken images. Use the same expiry as the video (3600s) for consistency, and
+accept that a very stale tab shows placeholders until reload. Do not build
+refresh logic for this; it is not worth the complexity here.
+
+If it becomes a problem, the right answer is a public-read prefix in the bucket
+for thumbnails only, which is a deliberate decision to make later rather than
+something to slip in now.
 
 ## Acceptance criteria
-- selecting a video file fills the duration field with the file's duration,
-  rounded down, and the field stays editable
-- with unsaved details, Publish is disabled and explains why
-- navigating away with unsaved changes warns
-- saving then publishing works, and publish never reports a field that is
-  visibly filled in
-- the file input matches the rest of the design and opens via keyboard
-- questions can be edited while an upload is in progress
-- leaving mid-upload warns first
-- the publish checklist is visible on a fresh draft and ticks items off as they
-  are completed
-- authoring a complete lesson start to finish requires no guessing about what is
-  outstanding
-- `npm run lint` passes
-- pytest passes, unchanged
+- alembic upgrade head adds thumbnail_key, downgrade -1 reverses it
+- an admin can upload a thumbnail and see it immediately in the editor
+- a non-admin gets 403 on the upload endpoint, a signed out visitor gets 401
+- a 3 MB file is rejected with a readable message
+- a PDF renamed to .jpg is rejected
+- the lesson card shows the thumbnail, with the title and description still
+  present
+- a lesson without a thumbnail shows a placeholder and the grid does not reflow
+  as images load
+- the video shows the thumbnail before playback instead of a black rectangle
+- replacing a thumbnail shows the new one without a hard refresh
+- pytest passes, including the leak test
 
 ## When done
 Append an entry to CHANGELOG.md and stop.

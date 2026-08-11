@@ -2,6 +2,7 @@ import io
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import delete, select
 
 from app.db import SessionLocal
@@ -17,6 +18,12 @@ LESSON_SLUG = "test-lesson-admin-auth"
 ADMIN_EMAIL = "admin@example.com"
 MEMBER_EMAIL = "member@example.com"
 PASSWORD = "correct-horse-battery"
+
+
+def make_jpeg_bytes(size=(1280, 720)):
+    buffer = io.BytesIO()
+    Image.new("RGB", size, color=(120, 60, 200)).save(buffer, format="JPEG")
+    return buffer.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -92,3 +99,64 @@ def test_upload_as_an_admin_succeeds(monkeypatch):
     response = upload()
     assert response.status_code == 200
     assert response.json()["video_key"] == f"lessons/{LESSON_SLUG}.mp4"
+
+
+def get_lesson_id():
+    db = SessionLocal()
+    lesson = db.execute(select(Lesson).where(Lesson.slug == LESSON_SLUG)).scalar_one()
+    lesson_id = lesson.id
+    db.close()
+    return lesson_id
+
+
+def upload_thumbnail(content=None, content_type="image/jpeg", filename="thumb.jpg", **kwargs):
+    if content is None:
+        content = make_jpeg_bytes()
+    return client.post(
+        f"/api/v1/admin/lessons/{get_lesson_id()}/thumbnail",
+        files={"file": (filename, io.BytesIO(content), content_type)},
+        **kwargs,
+    )
+
+
+def test_thumbnail_upload_with_no_session_returns_401():
+    response = upload_thumbnail()
+    assert response.status_code == 401
+
+
+def test_thumbnail_upload_as_a_non_admin_returns_403():
+    register_and_login(MEMBER_EMAIL, is_admin=False)
+
+    response = upload_thumbnail()
+    assert response.status_code == 403
+
+
+def test_thumbnail_upload_as_an_admin_succeeds(monkeypatch):
+    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+    register_and_login(ADMIN_EMAIL, is_admin=True)
+
+    response = upload_thumbnail()
+    assert response.status_code == 200
+    assert response.json()["thumbnail_key"] == f"lessons/{LESSON_SLUG}-thumb.jpg"
+
+
+def test_thumbnail_upload_oversized_file_is_rejected():
+    register_and_login(ADMIN_EMAIL, is_admin=True)
+
+    oversized = b"x" * (2 * 1024 * 1024 + 1)
+    response = upload_thumbnail(content=oversized)
+    assert response.status_code == 400
+
+
+def test_thumbnail_upload_wrong_content_type_is_rejected():
+    register_and_login(ADMIN_EMAIL, is_admin=True)
+
+    response = upload_thumbnail(content_type="application/pdf", filename="thumb.pdf")
+    assert response.status_code == 400
+
+
+def test_thumbnail_upload_pdf_renamed_to_jpg_is_rejected():
+    register_and_login(ADMIN_EMAIL, is_admin=True)
+
+    response = upload_thumbnail(content=b"%PDF-1.4 not actually an image", content_type="image/jpeg")
+    assert response.status_code == 400

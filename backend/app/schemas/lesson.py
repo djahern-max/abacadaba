@@ -9,6 +9,7 @@ class LessonSummary(BaseModel):
     title: str
     description: str
     duration_seconds: int | None
+    has_thumbnail: bool
 
 
 class LessonDetail(BaseModel):
@@ -23,5 +24,10 @@ class LessonDetail(BaseModel):
 
 
 class VideoUrlResponse(BaseModel):
+    url: str
+    expires_in: int
+
+
+class ThumbnailUrlResponse(BaseModel):
     url: str
     expires_in: int

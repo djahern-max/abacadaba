@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getVideoUrl } from '../../api/lessons'
+import { getThumbnailUrl, getVideoUrl } from '../../api/lessons'
 import { getWatchProgress, sendHeartbeat } from '../../api/watch'
 import styles from './VideoPlayer.module.css'
 
@@ -16,6 +16,7 @@ function VideoPlayer({ slug, onProgressChange }) {
   const [state, setState] = useState({ status: 'loading', url: null })
   const [progress, setProgress] = useState(null)
   const [barRatio, setBarRatio] = useState(0)
+  const [posterUrl, setPosterUrl] = useState(null)
   const videoRef = useRef(null)
   const lastHeartbeatAtRef = useRef(0)
 
@@ -31,6 +32,12 @@ function VideoPlayer({ slug, onProgressChange }) {
   useEffect(() => {
     fetchUrl()
   }, [fetchUrl])
+
+  useEffect(() => {
+    getThumbnailUrl(slug)
+      .then(({ url }) => setPosterUrl(url))
+      .catch(() => setPosterUrl(null))
+  }, [slug])
 
   useEffect(() => {
     getWatchProgress(slug)
@@ -121,6 +128,7 @@ function VideoPlayer({ slug, onProgressChange }) {
           ref={videoRef}
           className={styles.video}
           src={state.url}
+          poster={posterUrl || undefined}
           controls
           preload="metadata"
           onTimeUpdate={handleTimeUpdate}

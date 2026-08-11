@@ -334,3 +334,32 @@ video, five questions, one correct choice each) driven entirely by the
 dry-run error list, ticking items off as edits are saved rather than
 only speaking up after a failed publish click. Queued/background
 uploads, transcoding, and thumbnails (feature 018) remain out of scope.
+
+## 2026-08-11, Feature 018, Lesson thumbnails
+A lesson now carries a `thumbnail_key` (nullable, added via migration
+`af95594e5536`), mirroring `video_key`: private object in Spaces, served
+through a presigned GET, `lessons/<slug>-thumb.<ext>` since the
+extension varies with upload. `POST /admin/lessons/{id}/thumbnail`
+validates the declared content type, caps the file at 2 MB, then opens
+the bytes with Pillow (added as a direct dependency; it was already
+pulled in transitively by reportlab) to confirm they actually decode as
+the claimed JPEG/PNG/WebP — the declared content type alone is a
+browser guess off the filename, so a PDF renamed to `.jpg` would
+otherwise sail through. A non-16:9 upload is accepted with a `warning`
+in the response rather than rejected. Replacing a thumbnail overwrites
+the old object (`storage.delete_object`, new) when the extension
+changes rather than leaving it behind. `GET /lessons/{slug}/thumbnail-url`
+mirrors `video-url` (404 when unset, 3600s expiry); `LessonSummary`
+gained a `has_thumbnail` bool (a `Lesson.has_thumbnail` property) so the
+list page knows whether to fetch a URL without a presign per card.
+Frontend: `LessonCard` reserves a 16:9 box via `aspect-ratio` (plain
+placeholder when there's no thumbnail, so the grid never reflows) with
+`alt` set to the lesson title since the card is a link; `VideoPlayer`
+sets `poster` from the same endpoint, fixing the black rectangle before
+playback. `AdminLessonEditor` gained a `ThumbnailUploader` beside
+`VideoUploader`, reusing `FileInput` from feature 017; it previews the
+just-picked file immediately via `URL.createObjectURL` (so upload and
+replace both show without a hard refresh, independent of publish
+state) and surfaces the aspect-ratio warning inline. Thumbnail
+generation from a video frame, multiple sizes/`srcset`, and a CDN
+remain out of scope.

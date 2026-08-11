@@ -1,4 +1,7 @@
+import io
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +31,23 @@ ALLOWED_CONTENT_TYPES = {
     "video/mp4": ".mp4",
     "video/webm": ".webm",
 }
+
+ALLOWED_THUMBNAIL_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+
+THUMBNAIL_PIL_FORMATS = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WEBP",
+}
+
+MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
+
+TARGET_ASPECT_RATIO = 16 / 9
+ASPECT_RATIO_TOLERANCE = 0.02
 
 
 @router.get("/admin/lessons", response_model=list[AdminLessonSummary])
@@ -196,3 +216,60 @@ async def upload_lesson_video(
     db.commit()
 
     return {"video_key": lesson.video_key}
+
+
+@router.post("/admin/lessons/{lesson_id}/thumbnail")
+async def upload_lesson_thumbnail(
+    lesson_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ext = ALLOWED_THUMBNAIL_CONTENT_TYPES.get(file.content_type)
+    if ext is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Thumbnail must be JPEG, PNG, or WebP",
+        )
+
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    contents = await file.read()
+    if len(contents) > MAX_THUMBNAIL_BYTES:
+        raise HTTPException(status_code=400, detail="Thumbnail must be 2 MB or smaller")
+
+    # The declared content type comes from the browser's file-extension guess,
+    # not the actual bytes, so a renamed PDF would otherwise sail through.
+    try:
+        with Image.open(io.BytesIO(contents)) as image:
+            image.load()
+            actual_format = image.format
+            width, height = image.size
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="Thumbnail must be JPEG, PNG, or WebP") from None
+
+    if actual_format != THUMBNAIL_PIL_FORMATS[file.content_type]:
+        raise HTTPException(status_code=400, detail="Thumbnail must be JPEG, PNG, or WebP")
+
+    warning = None
+    if abs(width / height - TARGET_ASPECT_RATIO) > ASPECT_RATIO_TOLERANCE:
+        warning = "This image isn't 16:9, so it may not display cleanly."
+
+    old_key = lesson.thumbnail_key
+    key = f"lessons/{lesson.slug}-thumb{ext}"
+    try:
+        storage.upload_fileobj(io.BytesIO(contents), key, file.content_type)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if old_key and old_key != key:
+        try:
+            storage.delete_object(old_key)
+        except storage.StorageError:
+            pass
+
+    lesson.thumbnail_key = key
+    db.commit()
+
+    return {"thumbnail_key": lesson.thumbnail_key, "warning": warning}

@@ -42,6 +42,13 @@ def upload_fileobj(fileobj, key: str, content_type: str) -> None:
         raise StorageError(f"Could not upload video: {exc}") from exc
 
 
+def delete_object(key: str) -> None:
+    try:
+        _client.delete_object(Bucket=settings.spaces_bucket, Key=key)
+    except (ClientError, BotoCoreError) as exc:
+        raise StorageError(f"Could not delete object: {exc}") from exc
+
+
 def object_exists(key: str) -> bool:
     try:
         _client.head_object(Bucket=settings.spaces_bucket, Key=key)

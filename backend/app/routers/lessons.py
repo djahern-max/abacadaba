@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.schemas.lesson import LessonDetail, LessonSummary, VideoUrlResponse
+from app.schemas.lesson import LessonDetail, LessonSummary, ThumbnailUrlResponse, VideoUrlResponse
 from app.services import lessons as lessons_service
 from app.services import storage
 
 VIDEO_URL_EXPIRES_IN = 3600
+THUMBNAIL_URL_EXPIRES_IN = 3600
 
 router = APIRouter()
 
@@ -38,3 +39,19 @@ def get_video_url(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return VideoUrlResponse(url=url, expires_in=VIDEO_URL_EXPIRES_IN)
+
+
+@router.get("/lessons/{slug}/thumbnail-url", response_model=ThumbnailUrlResponse)
+def get_thumbnail_url(slug: str, db: Session = Depends(get_db)):
+    lesson = lessons_service.get_by_slug(db, slug)
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if lesson.thumbnail_key is None:
+        raise HTTPException(status_code=404, detail="This lesson has no thumbnail yet")
+
+    try:
+        url = storage.generate_presigned_get(lesson.thumbnail_key, expires_in=THUMBNAIL_URL_EXPIRES_IN)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return ThumbnailUrlResponse(url=url, expires_in=THUMBNAIL_URL_EXPIRES_IN)
