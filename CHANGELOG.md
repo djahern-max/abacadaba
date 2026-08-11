@@ -307,3 +307,30 @@ the same `from` state if reached directly while signed out, instead of
 rendering an error. The anonymous name-entry form on `Result` is
 unreachable for new attempts but stays in place for old certificate
 links.
+
+## 2026-08-11, Feature 017, Authoring UX
+Authoring a lesson stops tripping the author over gaps between what the
+form shows and what the server actually requires. Backend: `POST
+/admin/lessons/{id}/publish` gained a `dry_run` query flag that runs the
+same `validate_for_publish` and returns `{"errors": [...]}` without
+touching `is_published`, so the frontend has a side-effect-free way to
+read the same rules instead of a second copy of them. On the frontend,
+`VideoUploader` reads `video.duration` off an offscreen `<video>` element
+on file selection (object URL created and revoked, value rounded down)
+and hands it up to `DetailsForm`, which fills the still-editable duration
+field and marks it as auto-filled until the author types over it.
+`DetailsForm` also lifts its existing dirty check up to
+`AdminLessonEditor`, which now disables Publish with "Save your details
+first." while dirty, and warns via `beforeunload` (plus a confirm on the
+in-app "All lessons" link) whenever details are unsaved or a video
+upload is running — uploading no longer blocks editing questions or
+details, replaced a blocking progress bar with an "Uploading… N%" /
+"Processing…" status line, and says plainly that leaving cancels it. A
+new shared `FileInput` component (visually-hidden input behind a real
+`<label for>`, focus-visible on the styled button, selected filename
+shown beside it) replaces the bare `<input type="file">`. `PublishPanel`
+now renders a permanent six-item checklist (title, slug, description,
+video, five questions, one correct choice each) driven entirely by the
+dry-run error list, ticking items off as edits are saved rather than
+only speaking up after a failed publish click. Queued/background
+uploads, transcoding, and thumbnails (feature 018) remain out of scope.

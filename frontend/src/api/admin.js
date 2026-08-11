@@ -30,6 +30,10 @@ export function publishAdminLesson(id) {
   return apiFetch(`/api/v1/admin/lessons/${id}/publish`, { method: 'POST' })
 }
 
+export function checkAdminLessonPublish(id) {
+  return apiFetch(`/api/v1/admin/lessons/${id}/publish?dry_run=true`, { method: 'POST' })
+}
+
 export function unpublishAdminLesson(id) {
   return apiFetch(`/api/v1/admin/lessons/${id}/unpublish`, { method: 'POST' })
 }

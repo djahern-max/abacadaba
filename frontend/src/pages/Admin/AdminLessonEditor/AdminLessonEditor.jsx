@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteAdminLesson, getAdminLesson } from '../../../api/admin'
+import { checkAdminLessonPublish, deleteAdminLesson, getAdminLesson } from '../../../api/admin'
 import DetailsForm from './DetailsForm'
 import VideoUploader from './VideoUploader'
 import QuestionsEditor from './QuestionsEditor'
@@ -13,11 +13,18 @@ function AdminLessonEditor() {
   const [state, setState] = useState({ status: 'loading', lesson: null })
   const [publishErrors, setPublishErrors] = useState([])
   const [deleteError, setDeleteError] = useState('')
+  const [detailsDirty, setDetailsDirty] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [detectedDuration, setDetectedDuration] = useState(null)
+
+  const hasUnsavedWork = detailsDirty || uploading
 
   const refresh = useCallback(() => {
-    setPublishErrors([])
     return getAdminLesson(id)
-      .then((lesson) => setState({ status: 'loaded', lesson }))
+      .then((lesson) => {
+        setState({ status: 'loaded', lesson })
+        return checkAdminLessonPublish(id).then((result) => setPublishErrors(result.errors))
+      })
       .catch(() => setState({ status: 'error', lesson: null }))
   }, [id])
 
@@ -25,6 +32,22 @@ function AdminLessonEditor() {
     setState({ status: 'loading', lesson: null })
     refresh()
   }, [id, refresh])
+
+  useEffect(() => {
+    function handleBeforeUnload(event) {
+      if (!hasUnsavedWork) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedWork])
+
+  function handleBackClick(event) {
+    if (hasUnsavedWork && !window.confirm('You have unsaved changes. Leave this page?')) {
+      event.preventDefault()
+    }
+  }
 
   async function handleDelete() {
     if (!window.confirm(`Delete "${state.lesson.title}"? This cannot be undone.`)) return
@@ -49,7 +72,7 @@ function AdminLessonEditor() {
 
   return (
     <div className={styles.page}>
-      <Link to="/admin" className={styles.back}>
+      <Link to="/admin" className={styles.back} onClick={handleBackClick}>
         &larr; All lessons
       </Link>
       <div className={styles.headerRow}>
@@ -62,12 +85,23 @@ function AdminLessonEditor() {
         </Link>
       </div>
 
-      <DetailsForm lesson={lesson} onChange={refresh} />
-      <VideoUploader lesson={lesson} onChange={refresh} />
+      <DetailsForm
+        lesson={lesson}
+        detectedDuration={detectedDuration}
+        onDirtyChange={setDetailsDirty}
+        onChange={refresh}
+      />
+      <VideoUploader
+        lesson={lesson}
+        onDurationDetected={setDetectedDuration}
+        onUploadingChange={setUploading}
+        onChange={refresh}
+      />
       <QuestionsEditor lesson={lesson} onChange={refresh} />
       <PublishPanel
         lesson={lesson}
         publishErrors={publishErrors}
+        detailsDirty={detailsDirty}
         onPublishErrors={setPublishErrors}
         onChange={refresh}
       />

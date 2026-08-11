@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { updateAdminLesson } from '../../../api/admin'
 import styles from './DetailsForm.module.css'
 
-function DetailsForm({ lesson, onChange }) {
+function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
   const [title, setTitle] = useState(lesson.title)
   const [slug, setSlug] = useState(lesson.slug)
   const [description, setDescription] = useState(lesson.description)
   const [duration, setDuration] = useState(lesson.duration_seconds ?? '')
+  const [durationAutoFilled, setDurationAutoFilled] = useState(false)
   const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
   const [cooldownMinutes, setCooldownMinutes] = useState(lesson.retake_cooldown_minutes)
   const [maxAttempts, setMaxAttempts] = useState(lesson.max_attempts ?? '')
@@ -21,6 +22,16 @@ function DetailsForm({ lesson, onChange }) {
     Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100) ||
     Number(cooldownMinutes) !== lesson.retake_cooldown_minutes ||
     String(maxAttempts) !== String(lesson.max_attempts ?? '')
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+
+  useEffect(() => {
+    if (detectedDuration == null) return
+    setDuration(detectedDuration)
+    setDurationAutoFilled(true)
+  }, [detectedDuration])
 
   async function handleSave(event) {
     event.preventDefault()
@@ -93,8 +104,14 @@ function DetailsForm({ lesson, onChange }) {
           type="number"
           min="0"
           value={duration}
-          onChange={(event) => setDuration(event.target.value)}
+          onChange={(event) => {
+            setDuration(event.target.value)
+            setDurationAutoFilled(false)
+          }}
         />
+        {durationAutoFilled && (
+          <p className={styles.hint}>Filled in from the video you selected. Still editable.</p>
+        )}
         {duration === '' && (
           <p className={styles.warning}>
             No duration set, so the watch requirement below cannot apply. The quiz will be ungated.

@@ -154,6 +154,38 @@ def test_publish_with_missing_correct_choice_returns_422():
     assert any("must have exactly one correct choice" in error for error in errors)
 
 
+def test_dry_run_publish_reports_errors_without_publishing():
+    login_admin()
+    lesson = create_lesson("dry-run-incomplete")
+    add_complete_questions(lesson["id"], count=4)
+
+    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish?dry_run=true")
+    assert response.status_code == 200
+    errors = response.json()["errors"]
+    assert any("must have exactly 5 questions" in error for error in errors)
+
+    detail = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()
+    assert detail["is_published"] is False
+
+
+def test_dry_run_publish_reports_no_errors_for_complete_lesson(monkeypatch):
+    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+    login_admin()
+    lesson = create_lesson("dry-run-complete", description="A complete test lesson.")
+    add_complete_questions(lesson["id"], count=5)
+    client.post(
+        f"/api/v1/admin/lessons/{lesson['slug']}/video",
+        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
+    )
+
+    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish?dry_run=true")
+    assert response.status_code == 200
+    assert response.json()["errors"] == []
+
+    detail = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()
+    assert detail["is_published"] is False
+
+
 def test_publish_complete_lesson_succeeds_and_appears_in_public_list(monkeypatch):
     monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
     login_admin()

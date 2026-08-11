@@ -74,10 +74,13 @@ def delete_lesson(lesson_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/admin/lessons/{lesson_id}/publish", response_model=AdminLesson)
-def publish_lesson(lesson_id: int, db: Session = Depends(get_db)):
+@router.post("/admin/lessons/{lesson_id}/publish", response_model=None)
+def publish_lesson(lesson_id: int, dry_run: bool = False, db: Session = Depends(get_db)):
     try:
-        return admin_content.publish_lesson(db, lesson_id)
+        if dry_run:
+            return {"errors": admin_content.check_publish(db, lesson_id)}
+        lesson = admin_content.publish_lesson(db, lesson_id)
+        return AdminLesson.model_validate(lesson)
     except admin_content.LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lesson not found") from exc
     except admin_content.PublishValidationError as exc:

@@ -186,6 +186,11 @@ def publish_lesson(db: Session, lesson_id: int) -> Lesson:
     return _lesson_with_content_or_404(db, lesson_id)
 
 
+def check_publish(db: Session, lesson_id: int) -> list[str]:
+    lesson = _lesson_with_content_or_404(db, lesson_id)
+    return validate_for_publish(lesson)
+
+
 def unpublish_lesson(db: Session, lesson_id: int) -> Lesson:
     lesson = _lesson_or_404(db, lesson_id)
     lesson.is_published = False
