@@ -40,6 +40,30 @@ export function unpublishAdminCourse(id) {
   return apiFetch(`/api/v1/admin/courses/${id}/unpublish`, { method: 'POST' })
 }
 
+// --- learning objectives -------------------------------------------------------
+
+export function createAdminObjective(courseId, text) {
+  return apiFetch(`/api/v1/admin/courses/${courseId}/objectives`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
+export function updateAdminObjective(id, text) {
+  return apiFetch(`/api/v1/admin/objectives/${id}`, { method: 'PATCH', body: JSON.stringify({ text }) })
+}
+
+export function deleteAdminObjective(id) {
+  return apiFetch(`/api/v1/admin/objectives/${id}`, { method: 'DELETE' })
+}
+
+export function moveAdminObjective(id, direction) {
+  return apiFetch(`/api/v1/admin/objectives/${id}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ direction }),
+  })
+}
+
 // --- lessons -----------------------------------------------------------------
 
 export function getAdminLesson(id) {

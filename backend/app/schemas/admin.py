@@ -3,6 +3,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class AdminObjectiveIn(BaseModel):
+    text: str
+
+
+class AdminObjectiveUpdate(BaseModel):
+    text: str | None = None
+
+
+class AdminObjective(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    text: str
+    position: int
+
+
 class AdminChoiceIn(BaseModel):
     text: str
     is_correct: bool = False
@@ -92,6 +108,10 @@ class AdminCourseUpdate(BaseModel):
     description: str | None = None
     retake_cooldown_minutes: int | None = Field(default=None, ge=0)
     max_attempts: int | None = Field(default=None, ge=1)
+    program_level: str | None = None
+    field_of_study: str | None = None
+    prerequisites: str | None = None
+    advance_preparation: str | None = None
 
 
 class AdminCourseSummary(BaseModel):
@@ -114,8 +134,13 @@ class AdminCourse(BaseModel):
     thumbnail_key: str | None
     retake_cooldown_minutes: int
     max_attempts: int | None
+    program_level: str
+    field_of_study: str
+    prerequisites: str | None
+    advance_preparation: str | None
     is_published: bool
     lessons: list[AdminLesson]
+    learning_objectives: list[AdminObjective]
 
 
 class MoveRequest(BaseModel):

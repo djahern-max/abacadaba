@@ -1,193 +1,194 @@
 # Current Feature
 
-## Feature 019, Courses as the credit bearing unit
+## Feature 020, Program metadata and learning objectives
 
 ## Goal
-A course is a thing a person completes and earns a certificate for. A lesson
-becomes a segment inside a course rather than a standalone unit. Attempts,
-certificates, and analytics all move up a level.
+A course carries the descriptive information the Standards require a
+participant to be able to read before they decide to take it: what they will be
+able to do afterwards, who it is pitched at, what they need to know first, and
+what subject area it counts toward. All of it is visible on the public course
+page, not just in the admin editor.
 
 ## In scope
-- A `courses` table, with lessons as ordered members of a course
-- Attempts and certificates keyed to a course instead of a lesson
-- One assessment covering the whole course, drawn from its lessons' questions
-- The watch gate satisfied only when every segment has been watched
-- Admin authoring for courses, wrapping the existing lesson editor
-- Public routes and pages reorganised around courses
-- Migrations, and updating the tests that assume a lesson is the unit
+- Learning objectives as ordered rows on a course
+- Program knowledge level, prerequisites, advance preparation
+- Field of study, from NASBA's published list
+- Publish validation enforcing the conditional rules these fields carry
+- Disclosure of all of it on the public course page, before starting
 
 ## Out of scope
-- Learning objectives, program level, prerequisites, field of study. Feature 020.
-- The development and review chain. Feature 021.
-- Credit calculation. Feature 022.
-- Splitting review questions from assessment questions, and a per course pass
-  threshold column. Feature 023. This feature keeps a single question type and a
-  module level threshold, see "The pass threshold" below.
-- Anything to do with the LLM content pipeline.
+- The development and review chain, and the "most recent publication, revision,
+  or review date" that 4.01 requires. Feature 021 produces that date; adding a
+  column for it here would mean adding a column nothing writes to.
+- Refund, cancellation, and complaint resolution policies. 8.01.1 requires these
+  published too, but they are site-wide static pages rather than course fields.
+  Feature 026.
+- Credit calculation and field-of-study credit splits. Feature 022.
+- Objectives on individual lessons. See "Objectives belong to the course" below.
 
-## Read this before starting
-This is the largest structural change since feature 001 and it invalidates an
-assumption that seven earlier features were built on: that a lesson is the unit
-a person completes. It is being done now, ahead of the compliance features that
-depend on it, for one reason — both the local and production databases were
-emptied on 2026-08-12 and contain no rows worth preserving. Every month this
-waits, it gets harder.
+## The locators this feature is built against
+Read these in docs/2026-Statement-on-Standards-for-CPE-Programs.pdf before
+starting. Quote them into COMPLIANCE.md; do not work from this summary.
 
-Because of that, the migration does not need to backfill. Do not write data
-migration logic for existing lessons, attempts, or certificates; there are none.
-Instead, put a comment at the top of the migration saying exactly that, with the
-date, so a future reader understands why a schema change this invasive has no
-backfill and does not conclude that one was forgotten.
+- 3.01 — activities based on learning objectives that articulate the
+  professional competence participants should achieve
+- 3.01.1 — knowledge level, content, and objectives specified so a potential
+  participant can judge fit. Levels: Basic, Intermediate, Advanced, Update,
+  Overview
+- 3.02.1 — Intermediate, Advanced, and Update programs must clearly identify
+  prerequisite education, experience, and advance preparation in precise
+  language. Basic and Overview note them if applicable, otherwise state "none"
+- 8.01.1 — significant features disclosed in advance
+- 8.01.2 — prerequisites and advance preparation identified in the descriptive
+  materials
 
-Before running anything: confirm both databases are actually empty. If
-`select count(*) from attempts` returns anything but zero, stop and say so
-rather than proceeding.
+This is the first feature where COMPLIANCE.md has real rows to write. Take the
+Requirement column from the PDF's own words.
 
-## Naming
-A **course** is the credit bearing program. A **lesson** stays a lesson — a
-video segment inside a course. Do not rename lessons to segments, modules, or
-units; the churn is large and buys nothing. Under the Standards a course is a
-"program" and a lesson is roughly a "segment", but the code should use the words
-the product uses.
+## Objectives belong to the course
+Objectives attach to the program a person completes, which is the course. A
+lesson is a segment inside it.
+
+There is a real argument for per-lesson objectives as an instructional design
+practice, and superCPE may want them later. Do not build it now. Two levels of
+objectives means deciding how they roll up, which of them publish validation
+checks, and which appear on a certificate — questions with no forced answer yet.
 
 ## Data model
-New `courses` table:
-- id, slug (unique, indexed), title, description
-- is_published: bool, default false
-- thumbnail_key: string, nullable, same pattern as `lessons.thumbnail_key`
-- retake_cooldown_minutes and max_attempts: moved up from lessons. These are
-  program level policies; a person retakes a course, not a segment.
-- created_at, updated_at
+New `learning_objectives` table:
+- id, course_id (FK, ondelete CASCADE, indexed), position (int, unique per
+  course), text (string, not null)
 
-Changes to `lessons`:
-- course_id: FK to courses, ondelete CASCADE, indexed, **not nullable**
-- position: int, not null, unique per course, the same pattern already used for
-  `questions.position` within a lesson
-- drop retake_cooldown_minutes and max_attempts, now on courses
-- everything else stays: duration_seconds, required_watch_ratio, video_key,
-  thumbnail_key, is_published
+Ordered rows rather than a text blob. They are validated individually, counted,
+and will be reused in feature 022's course documentation; a newline-delimited
+textarea would have to be parsed back apart every time.
 
-Changes to `attempts`:
-- course_id replaces lesson_id, ondelete CASCADE, indexed, not nullable
+Add to `courses`:
+- program_level: string, not null. One of basic, intermediate, advanced,
+  update, overview.
+- field_of_study: string, not null.
+- prerequisites: text, nullable
+- advance_preparation: text, nullable
 
-Unchanged, deliberately:
-- `watch_progress` stays keyed to a lesson. A person watches segments, and the
-  correctness work in feature 015 is per segment. The course level gate is
-  computed from these rows, not stored.
-- `questions` and `choices` stay attached to lessons.
-- `attempt_answers` still points at a question, which still belongs to a lesson.
-  No change is needed there and none should be made.
+On the column type for the two enumerated fields: use a plain string with a
+CHECK constraint and a Python constant holding the allowed values, not a native
+Postgres enum. The lists come from documents NASBA revises on its own schedule,
+and altering a native enum in a migration is far more friction than editing a
+constant and a constraint.
 
-A lesson must belong to a course. Do not make `course_id` nullable "for
-flexibility" — a nullable owner here means an orphan lesson is representable,
-and every query downstream then has to handle a case that should not exist.
+## Field of study values
+Enumerate them once, in `app/constants/fields_of_study.py`, from the January
+2024 Fields of Study document in docs/. Do not type them from memory and do not
+invent a shortened list. Technical: Accounting, Accounting (Governmental),
+Auditing, Auditing (Governmental), Business Law, Economics, Finance,
+Information Technology, Management Services, Regulatory Ethics, Specialized
+Knowledge, Statistics, Taxes. Non-technical: Behavioral Ethics, Business
+Management & Organization, Communications and Marketing, Computer Software &
+Applications, Personal Development, Personnel/Human Resources, Production.
 
-## The pass threshold
-`PASS_THRESHOLD = 4` is a count, and it stops making sense the moment a course
-has more than five questions. A three lesson course has fifteen.
+Verify that list against the PDF rather than trusting this file.
 
-Replace it with `PASS_RATIO = 0.8`, applied to the course's total question
-count and rounded up, which preserves today's behaviour exactly for a five
-question course (4/5) while generalising. Keep it a module level constant. It
-becomes a per course column in feature 023 — do not add the column here.
+Carry the technical/non-technical distinction alongside each value — state
+boards limit non-technical credit, so superCPE will need it, and recording it
+now costs one column in a constant.
+
+Add one more value, `non_cpe`, labelled "Not CPE eligible", and make it the
+default for new courses. abacadaba's content is deliberately non-financial and
+none of it belongs in a real field of study. The sentinel keeps the column
+honest and non-nullable instead of leaving it blank and meaningless.
+
+## Validation rules
+These go in `validate_for_publish` on the course, alongside feature 019's
+rules, and must keep returning every failure at once so feature 017's checklist
+still works.
+
+1. At least one learning objective, each with non-whitespace text.
+2. `program_level` set to one of the five values.
+3. `field_of_study` set.
+4. If `program_level` is intermediate, advanced, or update: `prerequisites` and
+   `advance_preparation` must both be non-empty. This is 3.02.1 stated
+   directly, and it is the interesting rule in this feature — a conditional
+   requirement driven by another field's value.
+5. If `program_level` is basic or overview: both may be empty, and the public
+   page renders "None" rather than hiding the row. Stating "none" explicitly is
+   what 3.02.1 asks for; an absent row is not the same as a stated none.
+
+Do not validate objective text against a verb list. Measurable-verb phrasing is
+a quality expectation, not something to enforce with a regex, and a bad list
+would block legitimate wording. It belongs in the reviewer's judgment in
+feature 021.
 
 ## Backend tasks
-1. `app/models/course.py`, plus the changes to `Lesson` and `Attempt` above.
-   Then `alembic revision --autogenerate -m "add courses, move attempts to
-   course"`. Inspect the generated migration closely; autogenerate handles
-   added tables well and moved columns badly. Verify `downgrade -1` reverses.
-2. `app/services/courses.py`: `get_by_slug`, `list_published`, and
-   `get_with_lessons`. A course lists publicly only when it is published; its
-   lesson list includes only published lessons, ordered by position.
-3. `app/services/quiz.py`: the quiz for a course is every question from its
-   published lessons, ordered by lesson position then question position. The
-   existing shuffle logic applies across the whole set. The leak test must
-   still pass unchanged — `is_correct` never appears in a public payload.
-4. `app/services/watch.py`: `course_watch_status(db, course, identity)`
-   returning per lesson progress plus a single `gate_met` boolean, true only
-   when every published lesson with a duration meets its `required_watch_ratio`.
-   Keep feature 015's rule intact: signed in matches on user_id only, anonymous
-   on viewer_id with a null user_id.
-5. `app/services/attempts.py`: `start_attempt` takes a course. The retake
-   policy reads the course's cooldown and max attempts. The watch gate calls the
-   new course level status. Scoring uses `PASS_RATIO`.
-6. `app/services/certificates.py`: the certificate names the course, not the
-   lesson. `_question_count` counts across the course.
-7. `app/services/analytics.py`: the four aggregates key on course_id. Question
-   level rows should carry their lesson title, so a drop off list says which
-   segment a question came from.
-8. `app/routers/`: public routes become
-   - `GET /courses`, `GET /courses/{slug}`
-   - `GET /courses/{slug}/quiz`
-   - `POST /courses/{slug}/attempts`
-   - `GET /courses/{slug}/lessons/{lesson_slug}` for a single segment
-   and admin routes gain `/admin/courses` CRUD with lesson create/reorder inside
-   a course. `GET /admin/courses/{id}/stats` replaces the lesson stats route.
-   Attempt scoped routes (`/attempts/{id}/answers`, `/attempts/{id}/result`,
-   `/attempts/{id}/certificate`) are unchanged — they key on the attempt.
-9. `admin_content.validate_for_publish` moves to the course and gains: at least
-   one lesson, every lesson has a video, every lesson has at least one question,
-   and the existing per question rules. Keep returning every failure at once —
-   feature 017's checklist depends on that shape.
-10. Tests: this is most of the work. Every test that creates a lesson now needs
-    a course around it. Add:
-    - a course's quiz returns questions from all of its lessons, in order
-    - the gate stays closed when one of three segments is unwatched
-    - the gate opens when all three are watched
-    - passing is 80% of the course's questions, verified on a course with more
-      than five
-    - a certificate names the course
-    - deleting a course with completed attempts returns 409, as lessons did
-    - the feature 015 leak test, moved to courses: two users, one browser, no
-      cross contamination
+1. `app/models/learning_objective.py` plus the four columns on `Course`. Then
+   `alembic revision --autogenerate -m "add program metadata and learning
+   objectives"`. Autogenerate will not write the CHECK constraints — add them by
+   hand. Verify `downgrade -1`.
+2. `app/constants/fields_of_study.py` and `app/constants/program_levels.py`.
+3. `app/services/admin_content.py`: objective CRUD with the same move-up and
+   move-down reordering pattern already used for questions, including the
+   two-pass renumber that dodges the position unique constraint. Reuse it; do
+   not write a second implementation.
+4. `app/routers/admin_content.py`: objective routes under a course, and the new
+   fields on the course update payload. Behind the existing router-level
+   `require_admin`.
+5. `GET /courses/{slug}` returns objectives, level, field of study,
+   prerequisites, and advance preparation in the public payload. This is the
+   disclosure requirement — if it is only in the admin API, the feature is not
+   done.
+6. `GET /meta/fields-of-study` and `/meta/program-levels`, so the admin editor
+   populates its selects from the server rather than duplicating the lists in
+   JavaScript. Two copies of a list NASBA controls will drift.
+7. Tests:
+   - publishing with no objectives is refused, and the message says so
+   - publishing an intermediate course with empty prerequisites is refused
+   - publishing a basic course with empty prerequisites succeeds
+   - an unknown field of study value is rejected by the constraint
+   - objectives come back in position order and reorder correctly
+   - the public course payload carries all five pieces of metadata
+   - the leak test still passes
 
 ## Frontend tasks
-1. `/` lists courses. `CourseCard` reuses `LessonCard`'s 16:9 thumbnail shape
-   and adds the segment count.
-2. `/courses/:slug` is the course page: description, an ordered list of its
-   lessons with per segment watch state, and a single "Take the assessment"
-   button gated on the whole course.
-3. `/courses/:slug/lessons/:lessonSlug` plays one segment, with previous and
-   next links. Watch tracking is unchanged apart from the route it lives on.
-4. The quiz, result, and certificate pages take a course slug. Their internals
-   barely change; the attempt id still drives everything after the start call.
-5. Admin: a course list, a course editor holding details plus an ordered lesson
-   list with add and reorder, and the existing lesson editor nested inside it.
-   Reuse `FileInput`, `VideoUploader`, `ThumbnailUploader`, and the publish
-   checklist from features 017 and 018 rather than rewriting them.
-6. Delete the old `/lessons/:slug` routes. There is no live traffic to preserve
-   and a redirect layer is a maintenance cost for nobody's benefit.
-
-## A thing to check rather than assume
-The watch gate and the retake policy both used to read `lesson`. Confirm the
-order of checks in `start_attempt` is still authenticate, then gate, then
-policy, as feature 016 established. A signed out visitor should be told to sign
-in, not told how many segments are left.
+1. `CourseDetail`: a "What you will learn" list of objectives, and a details
+   block showing level, field of study, prerequisites, and advance preparation.
+   Render "None" for empty prerequisites and advance preparation rather than
+   omitting the rows.
+2. Place all of it **above** the assessment button and the lesson list. It is
+   pre-enrolment disclosure; below the fold after the content is not disclosure
+   in advance.
+3. `AdminCourseEditor`: an objectives editor reusing the question editor's
+   add/edit/reorder interaction, plus selects for level and field of study fed
+   by the meta endpoints, plus two textareas.
+4. The selects show the technical/non-technical grouping as optgroups, with
+   "Not CPE eligible" first and selected by default.
+5. Publish checklist picks up the new failures automatically from the existing
+   validation response. Confirm this rather than adding checklist entries by
+   hand — if it needs manual entries, feature 017's design has a gap worth
+   knowing about.
 
 ## Acceptance criteria
-- `alembic upgrade head` creates courses and moves attempts; `downgrade -1`
-  reverses cleanly on an empty database
-- a course with three lessons shows all three on its page, in order
-- the assessment button stays locked until every segment has been watched, and
-  the page says which segment is outstanding
-- the assessment serves all fifteen questions in lesson then position order
-- passing at 12 of 15 issues a certificate naming the course
-- the certificate PDF shows the course title and the course wide score
-- admin can create a course, add three lessons to it, reorder them, and publish
-- publishing a course with a lesson that has no video is refused, and the
-  checklist says which lesson
-- `/admin/courses/{id}/stats` shows question rows labelled with their lesson
-- the leak test passes: `is_correct` appears nowhere in any public payload
-- two users sharing a browser see independent watch progress
-- pytest passes
+- `alembic upgrade head` adds the table and columns with working CHECK
+  constraints; `downgrade -1` reverses
+- an admin can add, edit, reorder, and delete learning objectives
+- the field of study select lists every value from the NASBA document, grouped
+  technical and non-technical, defaulting to Not CPE eligible
+- an intermediate course cannot publish without prerequisites and advance
+  preparation, and the checklist says which is missing
+- a basic course publishes with both blank, and its public page shows "None"
+- the public course page shows objectives, level, field of study,
+  prerequisites, and advance preparation above the assessment button
+- a signed-out visitor sees all of it without starting anything
+- pytest passes, including the leak test
 
 ## When done
 Append an entry to CHANGELOG.md.
 
-Then check COMPLIANCE.md. This feature is structural — it makes program level
-credit possible rather than satisfying a requirement directly. Look for a
-locator in docs/2026-Statement-on-Standards-for-CPE-Programs.pdf that it
-genuinely meets. If there is none, write nothing to COMPLIANCE.md and say so
-explicitly in your summary. Do not invent a locator to have something to record.
+Then append to COMPLIANCE.md: one row per locator this feature satisfies, with
+the Requirement column quoted from
+docs/2026-Statement-on-Standards-for-CPE-Programs.pdf. Expect rows for 3.01,
+3.01.1, 3.02.1, 8.01.1, and 8.01.2 — but verify each against the PDF and drop
+any that this feature does not actually meet. 8.01.1 in particular is only
+partly satisfied here, since it also requires published refund, cancellation,
+and complaint resolution policies; record that in the Gap column rather than
+marking it done.
 
 Then stop.

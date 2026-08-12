@@ -3,6 +3,8 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.constants.fields_of_study import DEFAULT_FIELD_OF_STUDY
+from app.constants.program_levels import PROGRAM_LEVELS
 from app.db import Base
 
 
@@ -17,6 +19,14 @@ class Course(Base):
     thumbnail_key: Mapped[str | None] = mapped_column(String, nullable=True)
     retake_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    program_level: Mapped[str] = mapped_column(
+        String, nullable=False, default=PROGRAM_LEVELS[0], server_default=PROGRAM_LEVELS[0]
+    )
+    field_of_study: Mapped[str] = mapped_column(
+        String, nullable=False, default=DEFAULT_FIELD_OF_STUDY, server_default=DEFAULT_FIELD_OF_STUDY
+    )
+    prerequisites: Mapped[str | None] = mapped_column(Text, nullable=True)
+    advance_preparation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -25,6 +35,11 @@ class Course(Base):
     lessons: Mapped[list["Lesson"]] = relationship(
         back_populates="course",
         order_by="Lesson.position",
+        cascade="all, delete-orphan",
+    )
+    learning_objectives: Mapped[list["LearningObjective"]] = relationship(
+        back_populates="course",
+        order_by="LearningObjective.position",
         cascade="all, delete-orphan",
     )
 

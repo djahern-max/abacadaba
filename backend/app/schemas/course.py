@@ -24,6 +24,13 @@ class LessonInCourse(BaseModel):
     position: int
 
 
+class LearningObjectivePublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    text: str
+    position: int
+
+
 class CourseDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,6 +39,11 @@ class CourseDetail(BaseModel):
     title: str
     description: str
     has_thumbnail: bool
+    program_level: str
+    field_of_study: str
+    prerequisites: str | None
+    advance_preparation: str | None
+    learning_objectives: list[LearningObjectivePublic]
     lessons: list[LessonInCourse]
 
 

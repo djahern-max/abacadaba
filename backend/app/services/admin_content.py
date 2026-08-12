@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.program_levels import LEVELS_REQUIRING_PREREQUISITES, PROGRAM_LEVELS
 from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.course import Course
+from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
 
@@ -23,6 +25,10 @@ class LessonNotFoundError(Exception):
 
 class QuestionNotFoundError(Exception):
     """Raised when a question id does not match any question."""
+
+
+class ObjectiveNotFoundError(Exception):
+    """Raised when a learning objective id does not match any objective."""
 
 
 class ChoiceNotFoundError(Exception):
@@ -97,7 +103,10 @@ def _course_with_content_or_404(db: Session, course_id: int) -> Course:
     stmt = (
         select(Course)
         .where(Course.id == course_id)
-        .options(selectinload(Course.lessons).selectinload(Lesson.questions).selectinload(Question.choices))
+        .options(
+            selectinload(Course.lessons).selectinload(Lesson.questions).selectinload(Question.choices),
+            selectinload(Course.learning_objectives),
+        )
     )
     course = db.execute(stmt).scalar_one_or_none()
     if course is None:
@@ -205,6 +214,25 @@ def validate_for_publish(course: Course) -> list[str]:
         errors.append("Description is required")
     if not course.lessons:
         errors.append("Course must have at least one lesson")
+
+    if not course.learning_objectives:
+        errors.append("Course must have at least one learning objective")
+    else:
+        for objective in course.learning_objectives:
+            if not objective.text.strip():
+                errors.append(f"Learning objective {objective.position} cannot be blank")
+
+    if course.program_level not in PROGRAM_LEVELS:
+        errors.append("Program level must be one of: " + ", ".join(PROGRAM_LEVELS))
+
+    if not course.field_of_study.strip():
+        errors.append("Field of study is required")
+
+    if course.program_level in LEVELS_REQUIRING_PREREQUISITES:
+        if not (course.prerequisites and course.prerequisites.strip()):
+            errors.append("Prerequisites are required for intermediate, advanced, and update courses")
+        if not (course.advance_preparation and course.advance_preparation.strip()):
+            errors.append("Advance preparation is required for intermediate, advanced, and update courses")
 
     for lesson in course.lessons:
         if not lesson.video_key:
@@ -451,6 +479,71 @@ def move_choice(db: Session, choice_id: int, direction: str) -> None:
         ).scalars()
     )
     index = next(i for i, c in enumerate(ordered) if c.id == choice_id)
+    swap_with = index - 1 if direction == "up" else index + 1
+    if 0 <= swap_with < len(ordered):
+        ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
+        _renumber(db, ordered)
+    db.commit()
+
+
+def _objective_or_404(db: Session, objective_id: int) -> LearningObjective:
+    objective = db.get(LearningObjective, objective_id)
+    if objective is None:
+        raise ObjectiveNotFoundError(f"Learning objective {objective_id} not found")
+    return objective
+
+
+def create_objective(db: Session, course_id: int, text: str) -> LearningObjective:
+    _course_or_404(db, course_id)
+    next_position = db.execute(
+        select(func.coalesce(func.max(LearningObjective.position), 0)).where(
+            LearningObjective.course_id == course_id
+        )
+    ).scalar_one()
+
+    objective = LearningObjective(course_id=course_id, text=text, position=next_position + 1)
+    db.add(objective)
+    db.commit()
+    db.refresh(objective)
+    return objective
+
+
+def update_objective(db: Session, objective_id: int, updates: dict) -> LearningObjective:
+    objective = _objective_or_404(db, objective_id)
+    for field, value in updates.items():
+        setattr(objective, field, value)
+    db.commit()
+    db.refresh(objective)
+    return objective
+
+
+def delete_objective(db: Session, objective_id: int) -> None:
+    objective = _objective_or_404(db, objective_id)
+    course_id = objective.course_id
+    db.delete(objective)
+    db.flush()
+
+    remaining = list(
+        db.execute(
+            select(LearningObjective)
+            .where(LearningObjective.course_id == course_id)
+            .order_by(LearningObjective.position)
+        ).scalars()
+    )
+    _renumber(db, remaining)
+    db.commit()
+
+
+def move_objective(db: Session, objective_id: int, direction: str) -> None:
+    objective = _objective_or_404(db, objective_id)
+    ordered = list(
+        db.execute(
+            select(LearningObjective)
+            .where(LearningObjective.course_id == objective.course_id)
+            .order_by(LearningObjective.position)
+        ).scalars()
+    )
+    index = next(i for i, o in enumerate(ordered) if o.id == objective_id)
     swap_with = index - 1 if direction == "up" else index + 1
     if 0 <= swap_with < len(ordered):
         ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]

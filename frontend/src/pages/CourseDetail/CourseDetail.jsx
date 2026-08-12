@@ -51,6 +51,7 @@ function CourseDetail() {
   )
   const outstanding = watchStatus?.lessons.find((item) => !item.progress.unlocked)
   const gateMet = user?.is_admin || watchStatus?.gate_met === true
+  const levelLabel = course.program_level.charAt(0).toUpperCase() + course.program_level.slice(1)
 
   return (
     <article className={styles.detail}>
@@ -59,6 +60,36 @@ function CourseDetail() {
       </Link>
       <h1 className={styles.title}>{course.title}</h1>
       <p className={styles.description}>{course.description}</p>
+
+      {course.learning_objectives.length > 0 && (
+        <section className={styles.objectives}>
+          <h2 className={styles.sectionHeading}>What you will learn</h2>
+          <ul className={styles.objectivesList}>
+            {course.learning_objectives.map((objective) => (
+              <li key={objective.position}>{objective.text}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <dl className={styles.programDetails}>
+        <div className={styles.programDetail}>
+          <dt>Program level</dt>
+          <dd>{levelLabel}</dd>
+        </div>
+        <div className={styles.programDetail}>
+          <dt>Field of study</dt>
+          <dd>{course.field_of_study}</dd>
+        </div>
+        <div className={styles.programDetail}>
+          <dt>Prerequisites</dt>
+          <dd>{course.prerequisites || 'None'}</dd>
+        </div>
+        <div className={styles.programDetail}>
+          <dt>Advance preparation</dt>
+          <dd>{course.advance_preparation || 'None'}</dd>
+        </div>
+      </dl>
 
       <ol className={styles.lessonList}>
         {course.lessons.map((lesson) => (

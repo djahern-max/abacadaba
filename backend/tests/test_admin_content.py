@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
+from app.constants.fields_of_study import NON_CPE
 from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
@@ -33,6 +35,10 @@ ADMIN_ROUTES = [
     ("POST", "/api/v1/admin/courses/999999/publish"),
     ("POST", "/api/v1/admin/courses/999999/unpublish"),
     ("POST", "/api/v1/admin/courses/999999/lessons"),
+    ("POST", "/api/v1/admin/courses/999999/objectives"),
+    ("PATCH", "/api/v1/admin/objectives/999999"),
+    ("DELETE", "/api/v1/admin/objectives/999999"),
+    ("POST", "/api/v1/admin/objectives/999999/move"),
     ("GET", "/api/v1/admin/lessons/999999"),
     ("PATCH", "/api/v1/admin/lessons/999999"),
     ("DELETE", "/api/v1/admin/lessons/999999"),
@@ -103,6 +109,12 @@ def create_lesson(course_id, slug_suffix, **overrides):
     payload = {"title": f"Admin Test Lesson {slug_suffix}", "slug": f"{SLUG_PREFIX}-lesson-{slug_suffix}"}
     payload.update(overrides)
     response = client.post(f"/api/v1/admin/courses/{course_id}/lessons", json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_objective(course_id, text="Explain the objective."):
+    response = client.post(f"/api/v1/admin/courses/{course_id}/objectives", json={"text": text})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -250,6 +262,7 @@ def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
     lesson = create_lesson(course["id"], "dry-run-complete", description="A complete test lesson.")
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
@@ -265,6 +278,7 @@ def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch
     lesson = create_lesson(course["id"], "complete", description="A complete test lesson.")
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 200
@@ -280,6 +294,7 @@ def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monke
     lesson = create_lesson(course["id"], "publish-cascades", description="d")
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
 
     assert lesson["is_published"] is False
 
@@ -387,3 +402,194 @@ def test_delete_lesson_whose_course_has_a_completed_attempt_returns_409():
 
     response = client.delete(f"/api/v1/admin/lessons/{lesson['id']}")
     assert response.status_code == 409
+
+
+# --- learning objectives, program metadata (feature 020) --------------------
+
+
+def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
+    course = create_course(slug_suffix, description="A complete test course.")
+    if course_overrides:
+        response = client.patch(f"/api/v1/admin/courses/{course['id']}", json=course_overrides)
+        assert response.status_code == 200, response.text
+        course = response.json()
+    lesson = create_lesson(course["id"], slug_suffix, description="A complete test lesson.")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
+    return course, lesson
+
+
+def test_create_course_defaults_to_basic_level_and_non_cpe_field():
+    login_admin()
+    course = create_course("defaults")
+    assert course["program_level"] == "basic"
+    assert course["field_of_study"] == NON_CPE
+    assert course["learning_objectives"] == []
+
+
+def test_publish_with_no_objectives_returns_422(monkeypatch):
+    login_admin()
+    course = create_course("no-objectives")
+    lesson = create_lesson(course["id"], "no-objectives", description="d")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("learning objective" in error for error in errors)
+
+
+def test_publish_intermediate_course_with_empty_prerequisites_returns_422(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course(
+        "intermediate-missing-prereqs", monkeypatch, program_level="intermediate"
+    )
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("Prerequisites" in error for error in errors)
+    assert any("Advance preparation" in error for error in errors)
+
+
+def test_publish_basic_course_with_empty_prerequisites_succeeds(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("basic-empty-prereqs", monkeypatch, program_level="basic")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200
+
+
+def test_publish_intermediate_course_with_prerequisites_succeeds(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course(
+        "intermediate-complete",
+        monkeypatch,
+        program_level="intermediate",
+        prerequisites="Two years of general accounting experience.",
+        advance_preparation="Review the attached memo before the course.",
+    )
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200
+
+
+def test_unknown_field_of_study_rejected_by_constraint():
+    login_admin()
+    course = create_course("bad-field-of-study")
+
+    db = SessionLocal()
+    row = db.get(Course, course["id"])
+    row.field_of_study = "Not A Real Field"
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    db.close()
+
+
+def test_unknown_program_level_rejected_by_constraint():
+    login_admin()
+    course = create_course("bad-program-level")
+
+    db = SessionLocal()
+    row = db.get(Course, course["id"])
+    row.program_level = "expert"
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    db.close()
+
+
+def test_objectives_come_back_in_position_order_and_reorder_correctly():
+    login_admin()
+    course = create_course("objective-order")
+    o1 = add_objective(course["id"], "First objective")
+    o2 = add_objective(course["id"], "Second objective")
+    o3 = add_objective(course["id"], "Third objective")
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert [o["id"] for o in detail["learning_objectives"]] == [o1["id"], o2["id"], o3["id"]]
+    assert [o["position"] for o in detail["learning_objectives"]] == [1, 2, 3]
+
+    # o1, o2, o3 -> move o3 up -> o1, o3, o2 -> move o3 up again -> o3, o1, o2
+    assert client.post(f"/api/v1/admin/objectives/{o3['id']}/move", json={"direction": "up"}).status_code == 204
+    assert client.post(f"/api/v1/admin/objectives/{o3['id']}/move", json={"direction": "up"}).status_code == 204
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    positions = [(o["id"], o["position"]) for o in detail["learning_objectives"]]
+    assert [position for _, position in positions] == [1, 2, 3]
+    assert [objective_id for objective_id, _ in positions] == [o3["id"], o1["id"], o2["id"]]
+
+
+def test_deleting_an_objective_renumbers_the_rest():
+    login_admin()
+    course = create_course("objective-delete")
+    o1 = add_objective(course["id"], "First")
+    o2 = add_objective(course["id"], "Second")
+    o3 = add_objective(course["id"], "Third")
+
+    assert client.delete(f"/api/v1/admin/objectives/{o2['id']}").status_code == 204
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    positions = [(o["id"], o["position"]) for o in detail["learning_objectives"]]
+    assert positions == [(o1["id"], 1), (o3["id"], 2)]
+
+
+def test_editing_an_objective_updates_its_text():
+    login_admin()
+    course = create_course("objective-edit")
+    objective = add_objective(course["id"], "Original text")
+
+    response = client.patch(f"/api/v1/admin/objectives/{objective['id']}", json={"text": "Updated text"})
+    assert response.status_code == 200
+    assert response.json()["text"] == "Updated text"
+
+
+def test_public_course_payload_carries_program_metadata(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course(
+        "public-metadata",
+        monkeypatch,
+        program_level="intermediate",
+        field_of_study="Auditing",
+        prerequisites="Two years of experience.",
+        advance_preparation="Read chapter one.",
+    )
+    client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+
+    response = client.get(f"/api/v1/courses/{course['slug']}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["program_level"] == "intermediate"
+    assert body["field_of_study"] == "Auditing"
+    assert body["prerequisites"] == "Two years of experience."
+    assert body["advance_preparation"] == "Read chapter one."
+    assert [o["text"] for o in body["learning_objectives"]] == ["Explain the objective."]
+
+
+def test_public_course_payload_exposes_none_prerequisites_for_basic_course(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("public-metadata-basic", monkeypatch, program_level="basic")
+    client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+
+    response = client.get(f"/api/v1/courses/{course['slug']}")
+    body = response.json()
+    assert body["prerequisites"] is None
+    assert body["advance_preparation"] is None
+
+
+def test_meta_fields_of_study_lists_all_values():
+    response = client.get("/api/v1/meta/fields-of-study")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["non_cpe"] == NON_CPE
+    assert "Accounting" in body["technical"]
+    assert "Behavioral Ethics" in body["non_technical"]
+
+
+def test_meta_program_levels_lists_all_five():
+    response = client.get("/api/v1/meta/program-levels")
+    assert response.status_code == 200
+    assert response.json()["levels"] == ["basic", "intermediate", "advanced", "update", "overview"]

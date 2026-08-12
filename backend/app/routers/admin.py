@@ -20,6 +20,9 @@ from app.schemas.admin import (
     AdminLesson,
     AdminLessonCreate,
     AdminLessonUpdate,
+    AdminObjective,
+    AdminObjectiveIn,
+    AdminObjectiveUpdate,
     AdminQuestion,
     AdminQuestionIn,
     AdminQuestionUpdate,
@@ -166,6 +169,41 @@ async def upload_course_thumbnail(course_id: int, file: UploadFile = File(...), 
     db.commit()
 
     return {"thumbnail_key": course.thumbnail_key, "warning": warning}
+
+
+# --- learning objectives ------------------------------------------------------
+
+
+@router.post("/admin/courses/{course_id}/objectives", response_model=AdminObjective, status_code=201)
+def create_objective(course_id: int, payload: AdminObjectiveIn, db: Session = Depends(get_db)):
+    try:
+        return admin_content.create_objective(db, course_id, payload.text)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+
+
+@router.patch("/admin/objectives/{objective_id}", response_model=AdminObjective)
+def update_objective(objective_id: int, payload: AdminObjectiveUpdate, db: Session = Depends(get_db)):
+    try:
+        return admin_content.update_objective(db, objective_id, payload.model_dump(exclude_unset=True))
+    except admin_content.ObjectiveNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Learning objective not found") from exc
+
+
+@router.delete("/admin/objectives/{objective_id}", status_code=204)
+def delete_objective(objective_id: int, db: Session = Depends(get_db)):
+    try:
+        admin_content.delete_objective(db, objective_id)
+    except admin_content.ObjectiveNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Learning objective not found") from exc
+
+
+@router.post("/admin/objectives/{objective_id}/move", response_model=None, status_code=204)
+def move_objective(objective_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
+    try:
+        admin_content.move_objective(db, objective_id, payload.direction)
+    except admin_content.ObjectiveNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Learning objective not found") from exc
 
 
 # --- lessons -----------------------------------------------------------------

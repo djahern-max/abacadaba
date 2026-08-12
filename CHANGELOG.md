@@ -435,3 +435,58 @@ Learning objectives/program level/field of study (020), the development
 and review chain (021), credit calculation (022), and splitting review
 from assessment questions with a per-course pass threshold column (023)
 remain out of scope.
+
+## 2026-08-12, Feature 020, Program metadata and learning objectives
+New `learning_objectives` table (`course_id` FK ondelete CASCADE, unique
+`(course_id, position)`, `text`) plus four columns on `courses`:
+`program_level`, `field_of_study` (both plain `String` with a hand-added
+`CHECK` constraint and a Python constant, not a native Postgres enum —
+NASBA revises these lists on its own schedule, and altering a native
+enum in a migration is far more friction than editing a constant),
+`prerequisites`, and `advance_preparation` (both nullable `Text`).
+`app/constants/program_levels.py` and `app/constants/fields_of_study.py`
+hold the allowed values, transcribed from
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` and
+`docs/2024-Fields-of-Study-Document.pdf` (both added to `docs/` this
+feature) rather than from memory; fields of study carry a
+technical/non-technical split alongside each value for a future
+per-state non-technical credit cap, plus a `non_cpe` ("Not CPE
+eligible") sentinel that's abacadaba's actual default, since its
+content is deliberately non-financial. `admin_content.py` gained
+`create_objective`/`update_objective`/`delete_objective`/
+`move_objective`, reusing the existing two-phase `_renumber` unchanged
+rather than a second implementation. `validate_for_publish` gained five
+rules: at least one non-blank objective, a valid `program_level`, a
+non-blank `field_of_study`, and — the one with real logic — Intermediate/
+Advanced/Update courses must have both `prerequisites` and
+`advance_preparation` non-empty (3.02.1's conditional-on-another-field
+requirement), while Basic/Overview may leave both blank. `GET
+/courses/{slug}` now returns all five pieces of metadata in the public
+payload — the actual disclosure requirement, not just an admin-side
+add. Two new unauthenticated endpoints, `GET /meta/fields-of-study` and
+`GET /meta/program-levels`, feed the admin selects from the server
+instead of duplicating NASBA's lists in JavaScript. Frontend:
+`AdminCourseEditor` gained an `ObjectivesPanel`/`ObjectiveRow` pair that
+reuse `QuestionsEditor`/`QuestionEditor`'s CSS modules directly rather
+than forking them, and `CourseDetailsForm` gained a program-level
+select, a field-of-study select with Technical/Non-technical `optgroup`s
+("Not CPE eligible" first, selected by default for new courses),
+and two textareas. `CourseDetail` renders a "What you will learn" list
+and a program-details block — rendering literal "None" for blank
+prerequisites/advance preparation rather than omitting the row, since
+3.02.1 asks for a stated none — above both the lesson list and the
+assessment button, so it's pre-enrollment disclosure rather than
+something found after starting. `CoursePublishPanel` needed no changes:
+the new failures surface automatically through its existing
+`publishErrors` list, confirming feature 017's checklist design has no
+gap here. Verified against a real dev database end to end in a browser
+(Playwright): added, reordered, edited, and deleted objectives on a
+live course; set an Intermediate course's level with blank prerequisites
+and watched Publish block with the exact two missing-field messages;
+filled them in, set field of study via the grouped select, and
+published; confirmed the signed-out public page shows objectives,
+level, field of study, prerequisites, and advance preparation above the
+assessment button; and confirmed a Basic course with both fields left
+blank publishes and renders "None" for both on its public page. Objectives
+on individual lessons, and the development/review chain's "most recent
+publication, revision, or review date" (021), remain out of scope.

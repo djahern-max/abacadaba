@@ -4,6 +4,7 @@ import { checkAdminCoursePublish, deleteAdminCourse, getAdminCourse, uploadAdmin
 import { getCourseThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
 import CourseDetailsForm from './CourseDetailsForm'
+import ObjectivesPanel from './ObjectivesPanel'
 import LessonsPanel from './LessonsPanel'
 import CoursePublishPanel from './CoursePublishPanel'
 import styles from '../AdminLessonEditor/AdminLessonEditor.module.css'
@@ -93,6 +94,7 @@ function AdminCourseEditor() {
         onUploadingChange={setUploading}
         onChange={refresh}
       />
+      <ObjectivesPanel course={course} onChange={refresh} />
       <LessonsPanel course={course} onChange={refresh} />
       <CoursePublishPanel
         course={course}

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.middleware.viewer import ViewerIdentityMiddleware
-from app.routers import admin, admin_analytics, attempts, auth, certificates, courses, health
+from app.routers import admin, admin_analytics, attempts, auth, certificates, courses, health, meta
 
 docs_enabled = settings.environment != "production"
 app = FastAPI(
@@ -24,6 +24,7 @@ app.add_middleware(ViewerIdentityMiddleware)
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(courses.router, prefix="/api/v1")
+app.include_router(meta.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(admin_analytics.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")

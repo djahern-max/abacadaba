@@ -4,6 +4,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.course import Course
+from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
 
@@ -25,6 +26,11 @@ class CourseWithLessons:
     title: str
     description: str
     has_thumbnail: bool
+    program_level: str
+    field_of_study: str
+    prerequisites: str | None
+    advance_preparation: str | None
+    learning_objectives: list["LearningObjective"]
     lessons: list[Lesson]
 
 
@@ -75,7 +81,7 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
     stmt = (
         select(Course)
         .where(Course.slug == slug, Course.is_published.is_(True))
-        .options(selectinload(Course.lessons))
+        .options(selectinload(Course.lessons), selectinload(Course.learning_objectives))
     )
     course = db.execute(stmt).scalar_one_or_none()
     if course is None:
@@ -87,6 +93,11 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         title=course.title,
         description=course.description,
         has_thumbnail=course.has_thumbnail,
+        program_level=course.program_level,
+        field_of_study=course.field_of_study,
+        prerequisites=course.prerequisites,
+        advance_preparation=course.advance_preparation,
+        learning_objectives=course.learning_objectives,
         lessons=[lesson for lesson in course.lessons if lesson.is_published],
     )
 
