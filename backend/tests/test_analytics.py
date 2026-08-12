@@ -9,6 +9,7 @@ from app.main import app
 from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -16,6 +17,7 @@ from app.models.user import User
 
 client = TestClient(app)
 
+COURSE_SLUG = "test-course-analytics"
 LESSON_SLUG = "test-lesson-analytics"
 ADMIN_EMAIL = "analytics-admin@example.com"
 PASSWORD = "correct-horse-battery"
@@ -39,7 +41,13 @@ def seed_data():
     client.cookies.clear()
     db = SessionLocal()
 
+    course = Course(slug=COURSE_SLUG, title="Course For Analytics", description="Used to test analytics.", is_published=True)
+    db.add(course)
+    db.flush()
+
     lesson = Lesson(
+        course_id=course.id,
+        position=1,
         slug=LESSON_SLUG,
         title="Lesson For Analytics",
         description="Used to test analytics.",
@@ -65,7 +73,7 @@ def seed_data():
 
     for spec in ATTEMPTS.values():
         attempt = Attempt(
-            lesson_id=lesson.id,
+            course_id=course.id,
             completed_at=datetime.now(timezone.utc) if spec["completed"] else None,
             score=spec["score"],
             passed=spec["passed"],
@@ -90,11 +98,11 @@ def seed_data():
     yield
 
     db = SessionLocal()
-    lesson_ids = select(Lesson.id).where(Lesson.slug == LESSON_SLUG)
-    attempt_ids = select(Attempt.id).where(Attempt.lesson_id.in_(lesson_ids))
+    course_ids = select(Course.id).where(Course.slug == COURSE_SLUG)
+    attempt_ids = select(Attempt.id).where(Attempt.course_id.in_(course_ids))
     db.execute(delete(AttemptAnswer).where(AttemptAnswer.attempt_id.in_(attempt_ids)))
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug == LESSON_SLUG))
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == COURSE_SLUG))
     user_ids = select(User.id).where(User.email == ADMIN_EMAIL)
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email == ADMIN_EMAIL))
@@ -115,22 +123,22 @@ def login_admin():
     db.close()
 
 
-def get_lesson_id():
+def get_course_id():
     db = SessionLocal()
-    lesson_id = db.execute(select(Lesson.id).where(Lesson.slug == LESSON_SLUG)).scalar_one()
+    course_id = db.execute(select(Course.id).where(Course.slug == COURSE_SLUG)).scalar_one()
     db.close()
-    return lesson_id
+    return course_id
 
 
 def get_stats():
     login_admin()
-    response = client.get(f"/api/v1/admin/lessons/{get_lesson_id()}/stats")
+    response = client.get(f"/api/v1/admin/courses/{get_course_id()}/stats")
     assert response.status_code == 200, response.text
     return response.json()
 
 
-def test_lesson_stats_are_arithmetically_correct():
-    stats = get_stats()["lesson_stats"]
+def test_course_stats_are_arithmetically_correct():
+    stats = get_stats()["course_stats"]
     assert stats["attempts_started"] == 5
     assert stats["attempts_completed"] == 3
     assert stats["completion_rate"] == pytest.approx(0.6)
@@ -146,6 +154,7 @@ def test_question_stats_put_the_worst_question_first_and_it_is_flaggable():
     assert questions[0]["position"] == 4
     assert questions[0]["pct_correct"] == pytest.approx(0.0)
     assert questions[0]["answered"] == 3
+    assert questions[0]["lesson_title"] == "Lesson For Analytics"
 
     assert questions[1]["position"] == 3
     assert questions[1]["pct_correct"] == pytest.approx(100 / 3)
@@ -176,17 +185,19 @@ def test_choice_distribution_counts_picks_and_flags_the_correct_choice():
 
 
 def test_dropoff_shows_where_attempts_stop_answering():
-    dropoff_by_position = {row["position"]: row["attempts_reached"] for row in get_stats()["dropoff"]}
+    dropoff = get_stats()["dropoff"]
+    dropoff_by_position = {row["position"]: row["attempts_reached"] for row in dropoff}
     assert dropoff_by_position == {1: 4, 2: 4, 3: 3, 4: 3, 5: 3}
+    assert all(row["lesson_title"] == "Lesson For Analytics" for row in dropoff)
 
 
-def test_stats_for_unknown_lesson_returns_404():
+def test_stats_for_unknown_course_returns_404():
     login_admin()
-    response = client.get("/api/v1/admin/lessons/999999/stats")
+    response = client.get("/api/v1/admin/courses/999999/stats")
     assert response.status_code == 404
 
 
 def test_stats_requires_admin():
     client.cookies.clear()
-    response = client.get(f"/api/v1/admin/lessons/{get_lesson_id()}/stats")
+    response = client.get(f"/api/v1/admin/courses/{get_course_id()}/stats")
     assert response.status_code == 401

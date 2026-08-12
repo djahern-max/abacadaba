@@ -6,11 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.attempt import Attempt
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 
-REQUIRED_QUESTION_COUNT = 5
 MIN_CHOICES_PER_QUESTION = 2
+
+
+class CourseNotFoundError(Exception):
+    """Raised when a course id does not match any course."""
 
 
 class LessonNotFoundError(Exception):
@@ -26,15 +30,19 @@ class ChoiceNotFoundError(Exception):
 
 
 class SlugTakenError(Exception):
-    """Raised when a lesson slug collides with an existing one."""
+    """Raised when a slug collides with an existing one."""
+
+
+class CourseHasAttemptsError(Exception):
+    """Raised when deleting a course that has completed attempts."""
 
 
 class LessonHasAttemptsError(Exception):
-    """Raised when deleting a lesson that has completed attempts."""
+    """Raised when deleting a lesson whose course has completed attempts."""
 
 
 class PublishValidationError(Exception):
-    """Raised when publishing a lesson that fails validate_for_publish."""
+    """Raised when publishing a course that fails validate_for_publish."""
 
     def __init__(self, errors: list[str]):
         super().__init__("; ".join(errors))
@@ -42,18 +50,182 @@ class PublishValidationError(Exception):
 
 
 @dataclass
-class LessonListItem:
+class CourseListItem:
     id: int
     slug: str
     title: str
     is_published: bool
-    question_count: int
-    has_video: bool
+    lesson_count: int
 
 
 def slugify(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-")
-    return slug or "lesson"
+    return slug or "course"
+
+
+def _check_slug_available(db: Session, model, slug: str, exclude_id: int | None = None) -> None:
+    stmt = select(model.id).where(model.slug == slug)
+    if exclude_id is not None:
+        stmt = stmt.where(model.id != exclude_id)
+    if db.execute(stmt).scalar_one_or_none() is not None:
+        raise SlugTakenError(f"Slug '{slug}' is already in use")
+
+
+def _renumber(db: Session, items: list) -> None:
+    # Two-phase so no intermediate UPDATE collides with the (parent_id, position)
+    # unique constraint: bump everything to a value nothing else holds, then
+    # assign the final contiguous positions.
+    for item in items:
+        item.position = -item.id
+    db.flush()
+    for position, item in enumerate(items, start=1):
+        item.position = position
+    db.flush()
+
+
+# --- courses ---------------------------------------------------------------
+
+
+def _course_or_404(db: Session, course_id: int) -> Course:
+    course = db.get(Course, course_id)
+    if course is None:
+        raise CourseNotFoundError(f"Course {course_id} not found")
+    return course
+
+
+def _course_with_content_or_404(db: Session, course_id: int) -> Course:
+    stmt = (
+        select(Course)
+        .where(Course.id == course_id)
+        .options(selectinload(Course.lessons).selectinload(Lesson.questions).selectinload(Question.choices))
+    )
+    course = db.execute(stmt).scalar_one_or_none()
+    if course is None:
+        raise CourseNotFoundError(f"Course {course_id} not found")
+    return course
+
+
+def list_courses(db: Session) -> list[CourseListItem]:
+    stmt = (
+        select(Course, func.count(Lesson.id))
+        .outerjoin(Lesson, Lesson.course_id == Course.id)
+        .group_by(Course.id)
+        .order_by(Course.id)
+    )
+    rows = db.execute(stmt).all()
+    return [
+        CourseListItem(id=course.id, slug=course.slug, title=course.title, is_published=course.is_published, lesson_count=lesson_count)
+        for course, lesson_count in rows
+    ]
+
+
+def get_course(db: Session, course_id: int) -> Course:
+    return _course_with_content_or_404(db, course_id)
+
+
+def create_course(db: Session, title: str, slug: str | None, description: str) -> Course:
+    final_slug = slug.strip().lower() if slug else slugify(title)
+    _check_slug_available(db, Course, final_slug)
+
+    course = Course(title=title, slug=final_slug, description=description)
+    db.add(course)
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+def update_course(db: Session, course_id: int, updates: dict) -> Course:
+    course = _course_or_404(db, course_id)
+
+    if "slug" in updates and updates["slug"] is not None:
+        new_slug = updates["slug"].strip().lower()
+        if new_slug != course.slug:
+            _check_slug_available(db, Course, new_slug, exclude_id=course_id)
+        updates["slug"] = new_slug
+
+    for field, value in updates.items():
+        setattr(course, field, value)
+
+    db.commit()
+    return _course_with_content_or_404(db, course_id)
+
+
+def delete_course(db: Session, course_id: int) -> None:
+    course = _course_or_404(db, course_id)
+
+    completed_count = db.execute(
+        select(func.count())
+        .select_from(Attempt)
+        .where(Attempt.course_id == course_id, Attempt.completed_at.is_not(None))
+    ).scalar_one()
+    if completed_count > 0:
+        raise CourseHasAttemptsError(
+            f"Course has {completed_count} completed attempt(s) and cannot be deleted"
+        )
+
+    db.delete(course)
+    db.commit()
+
+
+def publish_course(db: Session, course_id: int) -> Course:
+    course = _course_with_content_or_404(db, course_id)
+    errors = validate_for_publish(course)
+    if errors:
+        raise PublishValidationError(errors)
+
+    # validate_for_publish already required every lesson to have a video and
+    # at least one well-formed question, so publishing the course publishes
+    # its lessons with it - there is no separate per-lesson publish action.
+    course.is_published = True
+    for lesson in course.lessons:
+        lesson.is_published = True
+    db.commit()
+    return _course_with_content_or_404(db, course_id)
+
+
+def check_publish_course(db: Session, course_id: int) -> list[str]:
+    course = _course_with_content_or_404(db, course_id)
+    return validate_for_publish(course)
+
+
+def unpublish_course(db: Session, course_id: int) -> Course:
+    course = _course_or_404(db, course_id)
+    course.is_published = False
+    db.commit()
+    return _course_with_content_or_404(db, course_id)
+
+
+def validate_for_publish(course: Course) -> list[str]:
+    errors = []
+    if not course.title.strip():
+        errors.append("Title is required")
+    if not course.slug.strip():
+        errors.append("Slug is required")
+    if not course.description.strip():
+        errors.append("Description is required")
+    if not course.lessons:
+        errors.append("Course must have at least one lesson")
+
+    for lesson in course.lessons:
+        if not lesson.video_key:
+            errors.append(f"Lesson '{lesson.title}' must have a video")
+        if not lesson.questions:
+            errors.append(f"Lesson '{lesson.title}' must have at least one question")
+        for question in lesson.questions:
+            if len(question.choices) < MIN_CHOICES_PER_QUESTION:
+                errors.append(
+                    f"Lesson '{lesson.title}' question {question.position} needs at least "
+                    f"{MIN_CHOICES_PER_QUESTION} choices"
+                )
+            correct_count = sum(1 for choice in question.choices if choice.is_correct)
+            if correct_count != 1:
+                errors.append(
+                    f"Lesson '{lesson.title}' question {question.position} must have exactly one correct choice"
+                )
+    return errors
+
+
+# --- lessons -----------------------------------------------------------------
 
 
 def _lesson_or_404(db: Session, lesson_id: int) -> Lesson:
@@ -94,47 +266,28 @@ def _choice_or_404(db: Session, choice_id: int) -> Choice:
     return choice
 
 
-def _check_slug_available(db: Session, slug: str, exclude_id: int | None = None) -> None:
-    stmt = select(Lesson.id).where(Lesson.slug == slug)
-    if exclude_id is not None:
-        stmt = stmt.where(Lesson.id != exclude_id)
-    if db.execute(stmt).scalar_one_or_none() is not None:
-        raise SlugTakenError(f"Slug '{slug}' is already in use")
-
-
-def list_lessons(db: Session) -> list[LessonListItem]:
-    stmt = (
-        select(Lesson, func.count(Question.id))
-        .outerjoin(Question, Question.lesson_id == Lesson.id)
-        .group_by(Lesson.id)
-        .order_by(Lesson.id)
-    )
-    rows = db.execute(stmt).all()
-    return [
-        LessonListItem(
-            id=lesson.id,
-            slug=lesson.slug,
-            title=lesson.title,
-            is_published=lesson.is_published,
-            question_count=question_count,
-            has_video=lesson.video_key is not None,
-        )
-        for lesson, question_count in rows
-    ]
-
-
 def get_lesson(db: Session, lesson_id: int) -> Lesson:
     return _lesson_with_content_or_404(db, lesson_id)
 
 
 def create_lesson(
-    db: Session, title: str, slug: str | None, description: str, duration_seconds: int | None
+    db: Session, course_id: int, title: str, slug: str | None, description: str, duration_seconds: int | None
 ) -> Lesson:
+    _course_or_404(db, course_id)
     final_slug = slug.strip().lower() if slug else slugify(title)
-    _check_slug_available(db, final_slug)
+    _check_slug_available(db, Lesson, final_slug)
+
+    next_position = db.execute(
+        select(func.coalesce(func.max(Lesson.position), 0)).where(Lesson.course_id == course_id)
+    ).scalar_one()
 
     lesson = Lesson(
-        title=title, slug=final_slug, description=description, duration_seconds=duration_seconds
+        course_id=course_id,
+        position=next_position + 1,
+        title=title,
+        slug=final_slug,
+        description=description,
+        duration_seconds=duration_seconds,
     )
     db.add(lesson)
     db.commit()
@@ -148,7 +301,7 @@ def update_lesson(db: Session, lesson_id: int, updates: dict) -> Lesson:
     if "slug" in updates and updates["slug"] is not None:
         new_slug = updates["slug"].strip().lower()
         if new_slug != lesson.slug:
-            _check_slug_available(db, new_slug, exclude_id=lesson_id)
+            _check_slug_available(db, Lesson, new_slug, exclude_id=lesson_id)
         updates["slug"] = new_slug
 
     for field, value in updates.items():
@@ -164,77 +317,40 @@ def delete_lesson(db: Session, lesson_id: int) -> None:
     completed_count = db.execute(
         select(func.count())
         .select_from(Attempt)
-        .where(Attempt.lesson_id == lesson_id, Attempt.completed_at.is_not(None))
+        .where(Attempt.course_id == lesson.course_id, Attempt.completed_at.is_not(None))
     ).scalar_one()
     if completed_count > 0:
         raise LessonHasAttemptsError(
-            f"Lesson has {completed_count} completed attempt(s) and cannot be deleted"
+            f"This lesson's course has {completed_count} completed attempt(s) and cannot be edited"
         )
 
+    course_id = lesson.course_id
     db.delete(lesson)
+    db.flush()
+
+    remaining = list(
+        db.execute(select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.position)).scalars()
+    )
+    _renumber(db, remaining)
     db.commit()
 
 
-def publish_lesson(db: Session, lesson_id: int) -> Lesson:
-    lesson = _lesson_with_content_or_404(db, lesson_id)
-    errors = validate_for_publish(lesson)
-    if errors:
-        raise PublishValidationError(errors)
-
-    lesson.is_published = True
-    db.commit()
-    return _lesson_with_content_or_404(db, lesson_id)
-
-
-def check_publish(db: Session, lesson_id: int) -> list[str]:
-    lesson = _lesson_with_content_or_404(db, lesson_id)
-    return validate_for_publish(lesson)
-
-
-def unpublish_lesson(db: Session, lesson_id: int) -> Lesson:
+def move_lesson(db: Session, lesson_id: int, direction: str) -> None:
     lesson = _lesson_or_404(db, lesson_id)
-    lesson.is_published = False
+    ordered = list(
+        db.execute(
+            select(Lesson).where(Lesson.course_id == lesson.course_id).order_by(Lesson.position)
+        ).scalars()
+    )
+    index = next(i for i, l in enumerate(ordered) if l.id == lesson_id)
+    swap_with = index - 1 if direction == "up" else index + 1
+    if 0 <= swap_with < len(ordered):
+        ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
+        _renumber(db, ordered)
     db.commit()
-    return _lesson_with_content_or_404(db, lesson_id)
 
 
-def validate_for_publish(lesson: Lesson) -> list[str]:
-    errors = []
-    if not lesson.title.strip():
-        errors.append("Title is required")
-    if not lesson.slug.strip():
-        errors.append("Slug is required")
-    if not lesson.description.strip():
-        errors.append("Description is required")
-    if not lesson.video_key:
-        errors.append("A video must be uploaded")
-    if len(lesson.questions) != REQUIRED_QUESTION_COUNT:
-        errors.append(
-            f"Lesson must have exactly {REQUIRED_QUESTION_COUNT} questions, "
-            f"has {len(lesson.questions)}"
-        )
-    for question in lesson.questions:
-        if len(question.choices) < MIN_CHOICES_PER_QUESTION:
-            errors.append(
-                f"Question {question.position} needs at least "
-                f"{MIN_CHOICES_PER_QUESTION} choices"
-            )
-        correct_count = sum(1 for choice in question.choices if choice.is_correct)
-        if correct_count != 1:
-            errors.append(f"Question {question.position} must have exactly one correct choice")
-    return errors
-
-
-def _renumber(db: Session, items: list) -> None:
-    # Two-phase so no intermediate UPDATE collides with the (parent_id, position)
-    # unique constraint: bump everything to a value nothing else holds, then
-    # assign the final contiguous positions.
-    for item in items:
-        item.position = -item.id
-    db.flush()
-    for position, item in enumerate(items, start=1):
-        item.position = position
-    db.flush()
+# --- questions and choices ---------------------------------------------------
 
 
 def create_question(db: Session, lesson_id: int, prompt: str) -> Question:

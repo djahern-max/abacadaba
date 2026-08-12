@@ -1,7 +1,7 @@
 import { apiFetch } from './client'
 
-export function startAttempt(slug) {
-  return apiFetch(`/api/v1/lessons/${slug}/attempts`, { method: 'POST' })
+export function startAttempt(courseSlug) {
+  return apiFetch(`/api/v1/courses/${courseSlug}/attempts`, { method: 'POST' })
 }
 
 export function submitAttemptAnswer(attemptId, questionId, choiceId) {

@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -15,17 +16,25 @@ from app.models.user import User
 
 client = TestClient(app)
 
-QUIZ_SLUG = "test-lesson-shuffle"
+COURSE_SLUG = "test-course-shuffle"
 SIGNED_IN_EMAIL = "shuffle-user@example.com"
 SIGNED_IN_PASSWORD = "correct-horse-battery"
 
 
 @pytest.fixture(autouse=True)
-def seed_test_lesson():
+def seed_test_course():
     db = SessionLocal()
 
+    course = Course(
+        slug=COURSE_SLUG, title="Course For Shuffle", description="Used to test quiz shuffling.", is_published=True
+    )
+    db.add(course)
+    db.flush()
+
     lesson = Lesson(
-        slug=QUIZ_SLUG,
+        course_id=course.id,
+        position=1,
+        slug=f"{COURSE_SLUG}-lesson",
         title="Lesson For Shuffle",
         description="Used to test quiz shuffling.",
         duration_seconds=300,
@@ -64,9 +73,9 @@ def seed_test_lesson():
     client.cookies.clear()
 
     db = SessionLocal()
-    lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    course_ids = select(Course.id).where(Course.slug == COURSE_SLUG)
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == COURSE_SLUG))
     user_ids = select(User.id).where(User.email == SIGNED_IN_EMAIL)
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email == SIGNED_IN_EMAIL))
@@ -75,7 +84,7 @@ def seed_test_lesson():
 
 
 def make_attempt(seed):
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     assert response.status_code == 201
     attempt_id = response.json()["attempt_id"]
 
@@ -89,7 +98,7 @@ def make_attempt(seed):
 
 def get_quiz(attempt_id=None):
     params = {"attempt_id": attempt_id} if attempt_id else {}
-    response = client.get(f"/api/v1/lessons/{QUIZ_SLUG}/quiz", params=params)
+    response = client.get(f"/api/v1/courses/{COURSE_SLUG}/quiz", params=params)
     assert response.status_code == 200
     return response.json()
 
@@ -129,5 +138,5 @@ def test_shuffle_drops_nothing_and_duplicates_nothing():
 
 
 def test_unknown_attempt_id_returns_404():
-    response = client.get(f"/api/v1/lessons/{QUIZ_SLUG}/quiz", params={"attempt_id": str(uuid.uuid4())})
+    response = client.get(f"/api/v1/courses/{COURSE_SLUG}/quiz", params={"attempt_id": str(uuid.uuid4())})
     assert response.status_code == 404

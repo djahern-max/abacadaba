@@ -7,14 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.dependencies import require_admin
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.schemas.admin import (
     AdminChoice,
     AdminChoiceIn,
     AdminChoiceUpdate,
+    AdminCourse,
+    AdminCourseCreate,
+    AdminCourseSummary,
+    AdminCourseUpdate,
     AdminLesson,
     AdminLessonCreate,
-    AdminLessonSummary,
     AdminLessonUpdate,
     AdminQuestion,
     AdminQuestionIn,
@@ -50,17 +54,131 @@ TARGET_ASPECT_RATIO = 16 / 9
 ASPECT_RATIO_TOLERANCE = 0.02
 
 
-@router.get("/admin/lessons", response_model=list[AdminLessonSummary])
-def list_lessons(db: Session = Depends(get_db)):
-    return admin_content.list_lessons(db)
+# --- courses -----------------------------------------------------------------
 
 
-@router.post("/admin/lessons", response_model=AdminLesson, status_code=201)
-def create_lesson(payload: AdminLessonCreate, db: Session = Depends(get_db)):
+@router.get("/admin/courses", response_model=list[AdminCourseSummary])
+def list_courses(db: Session = Depends(get_db)):
+    return admin_content.list_courses(db)
+
+
+@router.post("/admin/courses", response_model=AdminCourse, status_code=201)
+def create_course(payload: AdminCourseCreate, db: Session = Depends(get_db)):
+    try:
+        course = admin_content.create_course(db, payload.title, payload.slug, payload.description)
+    except admin_content.SlugTakenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return admin_content.get_course(db, course.id)
+
+
+@router.get("/admin/courses/{course_id}", response_model=AdminCourse)
+def get_course(course_id: int, db: Session = Depends(get_db)):
+    try:
+        return admin_content.get_course(db, course_id)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+
+
+@router.patch("/admin/courses/{course_id}", response_model=AdminCourse)
+def update_course(course_id: int, payload: AdminCourseUpdate, db: Session = Depends(get_db)):
+    try:
+        return admin_content.update_course(db, course_id, payload.model_dump(exclude_unset=True))
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    except admin_content.SlugTakenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/admin/courses/{course_id}", status_code=204)
+def delete_course(course_id: int, db: Session = Depends(get_db)):
+    try:
+        admin_content.delete_course(db, course_id)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    except admin_content.CourseHasAttemptsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/admin/courses/{course_id}/publish", response_model=None)
+def publish_course(course_id: int, dry_run: bool = False, db: Session = Depends(get_db)):
+    try:
+        if dry_run:
+            return {"errors": admin_content.check_publish_course(db, course_id)}
+        course = admin_content.publish_course(db, course_id)
+        return AdminCourse.model_validate(course)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    except admin_content.PublishValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
+
+
+@router.post("/admin/courses/{course_id}/unpublish", response_model=AdminCourse)
+def unpublish_course(course_id: int, db: Session = Depends(get_db)):
+    try:
+        return admin_content.unpublish_course(db, course_id)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+
+
+@router.post("/admin/courses/{course_id}/thumbnail")
+async def upload_course_thumbnail(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    ext = ALLOWED_THUMBNAIL_CONTENT_TYPES.get(file.content_type)
+    if ext is None:
+        raise HTTPException(status_code=400, detail="Thumbnail must be JPEG, PNG, or WebP")
+
+    course = db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    contents = await file.read()
+    if len(contents) > MAX_THUMBNAIL_BYTES:
+        raise HTTPException(status_code=400, detail="Thumbnail must be 2 MB or smaller")
+
+    try:
+        with Image.open(io.BytesIO(contents)) as image:
+            image.load()
+            actual_format = image.format
+            width, height = image.size
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="Thumbnail must be JPEG, PNG, or WebP") from None
+
+    if actual_format != THUMBNAIL_PIL_FORMATS[file.content_type]:
+        raise HTTPException(status_code=400, detail="Thumbnail must be JPEG, PNG, or WebP")
+
+    warning = None
+    if abs(width / height - TARGET_ASPECT_RATIO) > ASPECT_RATIO_TOLERANCE:
+        warning = "This image isn't 16:9, so it may not display cleanly."
+
+    old_key = course.thumbnail_key
+    key = f"courses/{course.slug}-thumb{ext}"
+    try:
+        storage.upload_fileobj(io.BytesIO(contents), key, file.content_type)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if old_key and old_key != key:
+        try:
+            storage.delete_object(old_key)
+        except storage.StorageError:
+            pass
+
+    course.thumbnail_key = key
+    db.commit()
+
+    return {"thumbnail_key": course.thumbnail_key, "warning": warning}
+
+
+# --- lessons -----------------------------------------------------------------
+
+
+@router.post("/admin/courses/{course_id}/lessons", response_model=AdminLesson, status_code=201)
+def create_lesson(course_id: int, payload: AdminLessonCreate, db: Session = Depends(get_db)):
     try:
         lesson = admin_content.create_lesson(
-            db, payload.title, payload.slug, payload.description, payload.duration_seconds
+            db, course_id, payload.title, payload.slug, payload.description, payload.duration_seconds
         )
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
     except admin_content.SlugTakenError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return admin_content.get_lesson(db, lesson.id)
@@ -94,23 +212,10 @@ def delete_lesson(lesson_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/admin/lessons/{lesson_id}/publish", response_model=None)
-def publish_lesson(lesson_id: int, dry_run: bool = False, db: Session = Depends(get_db)):
+@router.post("/admin/lessons/{lesson_id}/move", response_model=None, status_code=204)
+def move_lesson(lesson_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
     try:
-        if dry_run:
-            return {"errors": admin_content.check_publish(db, lesson_id)}
-        lesson = admin_content.publish_lesson(db, lesson_id)
-        return AdminLesson.model_validate(lesson)
-    except admin_content.LessonNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Lesson not found") from exc
-    except admin_content.PublishValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors) from exc
-
-
-@router.post("/admin/lessons/{lesson_id}/unpublish", response_model=AdminLesson)
-def unpublish_lesson(lesson_id: int, db: Session = Depends(get_db)):
-    try:
-        return admin_content.unpublish_lesson(db, lesson_id)
+        admin_content.move_lesson(db, lesson_id, payload.direction)
     except admin_content.LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lesson not found") from exc
 

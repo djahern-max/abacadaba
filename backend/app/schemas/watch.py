@@ -11,3 +11,15 @@ class WatchProgressResponse(BaseModel):
     duration_seconds: int | None
     ratio: float
     unlocked: bool
+
+
+class LessonWatchStatusResponse(BaseModel):
+    lesson_slug: str
+    lesson_title: str
+    position: int
+    progress: WatchProgressResponse
+
+
+class CourseWatchStatusResponse(BaseModel):
+    gate_met: bool
+    lessons: list[LessonWatchStatusResponse]

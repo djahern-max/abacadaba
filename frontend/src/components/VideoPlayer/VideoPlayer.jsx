@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getThumbnailUrl, getVideoUrl } from '../../api/lessons'
+import { getLessonThumbnailUrl, getLessonVideoUrl } from '../../api/courses'
 import { getWatchProgress, sendHeartbeat } from '../../api/watch'
 import styles from './VideoPlayer.module.css'
 
@@ -12,7 +12,7 @@ function formatTime(seconds) {
   return `${minutes}:${String(secs).padStart(2, '0')}`
 }
 
-function VideoPlayer({ slug, onProgressChange }) {
+function VideoPlayer({ courseSlug, lessonSlug, onProgressChange }) {
   const [state, setState] = useState({ status: 'loading', url: null })
   const [progress, setProgress] = useState(null)
   const [barRatio, setBarRatio] = useState(0)
@@ -22,31 +22,31 @@ function VideoPlayer({ slug, onProgressChange }) {
 
   const fetchUrl = useCallback(() => {
     setState({ status: 'loading', url: null })
-    getVideoUrl(slug)
+    getLessonVideoUrl(courseSlug, lessonSlug)
       .then(({ url }) => setState({ status: 'playing', url }))
       .catch((error) => {
         setState({ status: error.status === 404 ? 'no-video' : 'error', url: null })
       })
-  }, [slug])
+  }, [courseSlug, lessonSlug])
 
   useEffect(() => {
     fetchUrl()
   }, [fetchUrl])
 
   useEffect(() => {
-    getThumbnailUrl(slug)
+    getLessonThumbnailUrl(courseSlug, lessonSlug)
       .then(({ url }) => setPosterUrl(url))
       .catch(() => setPosterUrl(null))
-  }, [slug])
+  }, [courseSlug, lessonSlug])
 
   useEffect(() => {
-    getWatchProgress(slug)
+    getWatchProgress(courseSlug, lessonSlug)
       .then((data) => {
         setProgress(data)
         onProgressChange?.(data)
       })
       .catch(() => {})
-  }, [slug, onProgressChange])
+  }, [courseSlug, lessonSlug, onProgressChange])
 
   // The server response is always the source of truth for the bar; it
   // corrects any drift from the timeupdate-driven estimate below.
@@ -59,14 +59,14 @@ function VideoPlayer({ slug, onProgressChange }) {
   const flushHeartbeat = useCallback(
     (position) => {
       lastHeartbeatAtRef.current = Date.now()
-      sendHeartbeat(slug, Math.max(0, Math.floor(position)))
+      sendHeartbeat(courseSlug, lessonSlug, Math.max(0, Math.floor(position)))
         .then((data) => {
           setProgress(data)
           onProgressChange?.(data)
         })
         .catch(() => {})
     },
-    [slug, onProgressChange],
+    [courseSlug, lessonSlug, onProgressChange],
   )
 
   useEffect(() => {

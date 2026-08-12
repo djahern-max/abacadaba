@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class LessonStats(BaseModel):
+class CourseStats(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     attempts_started: int
@@ -15,6 +15,7 @@ class QuestionStat(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     question_id: int
+    lesson_title: str
     prompt: str
     position: int
     answered: int
@@ -39,12 +40,14 @@ class QuestionChoiceDistribution(BaseModel):
 class DropoffPoint(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    question_id: int
+    lesson_title: str
     position: int
     attempts_reached: int
 
 
-class LessonAnalytics(BaseModel):
-    lesson_stats: LessonStats
+class CourseAnalytics(BaseModel):
+    course_stats: CourseStats
     question_stats: list[QuestionStat]
     choice_distribution: list[QuestionChoiceDistribution]
     dropoff: list[DropoffPoint]

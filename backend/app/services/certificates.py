@@ -6,12 +6,12 @@ from datetime import datetime
 
 from reportlab.lib.pagesizes import LETTER, landscape
 from reportlab.pdfgen import canvas
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.models.attempt import Attempt
-from app.models.question import Question
+from app.services import courses as courses_service
 
 # Feature 008 is done: an attempt with a signed in user gets its certificate
 # name from the account automatically; anonymous attempts still type one in.
@@ -43,17 +43,12 @@ class RecipientNameRequiredError(Exception):
 class CertificateData:
     certificate_code: str
     recipient_name: str
-    lesson_slug: str
-    lesson_title: str
+    course_slug: str
+    course_title: str
     score: int
     question_count: int
     completed_at: datetime
     is_account_holder: bool
-
-
-def _question_count(db: Session, lesson_id: int) -> int:
-    stmt = select(func.count()).select_from(Question).where(Question.lesson_id == lesson_id)
-    return db.execute(stmt).scalar_one()
 
 
 def generate_code(db: Session) -> str:
@@ -75,10 +70,10 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
     return CertificateData(
         certificate_code=attempt.certificate_code,
         recipient_name=attempt.recipient_name,
-        lesson_slug=attempt.lesson.slug,
-        lesson_title=attempt.lesson.title,
+        course_slug=attempt.course.slug,
+        course_title=attempt.course.title,
         score=attempt.score,
-        question_count=_question_count(db, attempt.lesson_id),
+        question_count=courses_service.published_question_count(db, attempt.course_id),
         completed_at=attempt.completed_at,
         is_account_holder=attempt.user_id is not None,
     )
@@ -88,7 +83,7 @@ def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | N
     stmt = (
         select(Attempt)
         .where(Attempt.public_id == public_id)
-        .options(selectinload(Attempt.lesson), selectinload(Attempt.user))
+        .options(selectinload(Attempt.course), selectinload(Attempt.user))
     )
     attempt = db.execute(stmt).scalar_one_or_none()
     if attempt is None:
@@ -113,7 +108,7 @@ def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | N
 
 
 def get_certificate_for_download(db: Session, public_id: uuid.UUID) -> CertificateData:
-    stmt = select(Attempt).where(Attempt.public_id == public_id).options(selectinload(Attempt.lesson))
+    stmt = select(Attempt).where(Attempt.public_id == public_id).options(selectinload(Attempt.course))
     attempt = db.execute(stmt).scalar_one_or_none()
     if attempt is None:
         raise AttemptNotFoundError(f"Attempt {public_id} not found")
@@ -125,7 +120,7 @@ def get_certificate_for_download(db: Session, public_id: uuid.UUID) -> Certifica
 
 def verify_code(db: Session, code: str) -> CertificateData | None:
     normalized = _normalize_code(code)
-    stmt = select(Attempt).where(Attempt.certificate_code == normalized).options(selectinload(Attempt.lesson))
+    stmt = select(Attempt).where(Attempt.certificate_code == normalized).options(selectinload(Attempt.course))
     attempt = db.execute(stmt).scalar_one_or_none()
     if attempt is None:
         return None
@@ -161,9 +156,9 @@ def render_pdf(info: CertificateData) -> bytes:
     pdf.setFont("Helvetica", 16)
     pdf.drawCentredString(width / 2, height - 270, "has completed")
 
-    title_size = _fit_font_size(pdf, info.lesson_title, "Helvetica-Bold", max_text_width, 22)
+    title_size = _fit_font_size(pdf, info.course_title, "Helvetica-Bold", max_text_width, 22)
     pdf.setFont("Helvetica-Bold", title_size)
-    pdf.drawCentredString(width / 2, height - 305, info.lesson_title)
+    pdf.drawCentredString(width / 2, height - 305, info.course_title)
 
     score_text = f"Scored {info.score} out of {info.question_count}"
     date_text = info.completed_at.strftime("%B %d, %Y")

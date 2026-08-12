@@ -40,7 +40,7 @@ function Quiz() {
             status: 'locked',
             quiz: null,
             attemptId: null,
-            lockedDetail: error.body?.detail ?? 'Watch more of the video before taking the quiz.',
+            lockedDetail: error.body?.detail ?? 'Watch more of the course before taking the assessment.',
           })
           return
         }
@@ -49,7 +49,7 @@ function Quiz() {
             status: 'limited',
             quiz: null,
             attemptId: null,
-            lockedDetail: error.body?.detail ?? "You've reached the retake limit for this quiz.",
+            lockedDetail: error.body?.detail ?? "You've reached the retake limit for this assessment.",
           })
           return
         }
@@ -63,22 +63,22 @@ function Quiz() {
   }, [slug, authLoading, user])
 
   if (authLoading) {
-    return <p className={styles.message}>Loading quiz&hellip;</p>
+    return <p className={styles.message}>Loading assessment&hellip;</p>
   }
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: `/lessons/${slug}` }} replace />
+    return <Navigate to="/login" state={{ from: `/courses/${slug}` }} replace />
   }
 
   if (state.status === 'loading') {
-    return <p className={styles.message}>Loading quiz&hellip;</p>
+    return <p className={styles.message}>Loading assessment&hellip;</p>
   }
 
   if (state.status === 'not-found') {
     return (
       <div className={styles.message}>
-        <p>This lesson doesn&apos;t have a quiz yet.</p>
-        <Link to={`/lessons/${slug}`}>Back to lesson</Link>
+        <p>This course doesn&apos;t have an assessment yet.</p>
+        <Link to={`/courses/${slug}`}>Back to course</Link>
       </div>
     )
   }
@@ -87,13 +87,13 @@ function Quiz() {
     return (
       <div className={styles.message}>
         <p>{state.lockedDetail}</p>
-        <Link to={`/lessons/${slug}`}>Back to lesson</Link>
+        <Link to={`/courses/${slug}`}>Back to course</Link>
       </div>
     )
   }
 
   if (state.status === 'error') {
-    return <p className={styles.message}>Couldn&apos;t load this quiz. Please try again later.</p>
+    return <p className={styles.message}>Couldn&apos;t load this assessment. Please try again later.</p>
   }
 
   const { quiz, attemptId } = state
@@ -134,10 +134,10 @@ function Quiz() {
 
   return (
     <div className={styles.quiz}>
-      <Link to={`/lessons/${slug}`} className={styles.back}>
-        &larr; Back to lesson
+      <Link to={`/courses/${slug}`} className={styles.back}>
+        &larr; Back to course
       </Link>
-      <h1 className={styles.title}>{quiz.lesson_title}</h1>
+      <h1 className={styles.title}>{quiz.course_title}</h1>
       <ProgressBar current={currentIndex + 1} total={quiz.questions.length} />
       <QuestionCard
         question={question}

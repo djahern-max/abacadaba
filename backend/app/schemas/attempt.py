@@ -8,7 +8,7 @@ class AttemptStart(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     attempt_id: UUID
-    lesson_slug: str
+    course_slug: str
     question_count: int
 
 
@@ -28,8 +28,8 @@ class AttemptResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     attempt_id: UUID
-    lesson_slug: str
-    lesson_title: str
+    course_slug: str
+    course_title: str
     score: int
     question_count: int
     passed: bool
@@ -41,8 +41,8 @@ class UserAttempt(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     attempt_id: UUID
-    lesson_title: str
-    lesson_slug: str
+    course_title: str
+    course_slug: str
     score: int
     passed: bool
     completed_at: datetime

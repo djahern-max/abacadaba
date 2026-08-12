@@ -23,7 +23,7 @@ class QuestionPublic(BaseModel):
 class QuizPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    lesson_slug: str
-    lesson_title: str
+    course_slug: str
+    course_title: str
     question_count: int
     questions: list[QuestionPublic]

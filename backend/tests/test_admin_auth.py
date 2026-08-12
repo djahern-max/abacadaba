@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 
 from app.db import SessionLocal
 from app.main import app
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.session import Session as SessionModel
 from app.models.user import User
@@ -14,6 +15,7 @@ from app.services import storage
 
 client = TestClient(app)
 
+COURSE_SLUG = "test-course-admin-auth"
 LESSON_SLUG = "test-lesson-admin-auth"
 ADMIN_EMAIL = "admin@example.com"
 MEMBER_EMAIL = "member@example.com"
@@ -31,8 +33,18 @@ def seed_lesson_and_users():
     client.cookies.clear()
 
     db = SessionLocal()
+    course = Course(
+        slug=COURSE_SLUG,
+        title="Course For Admin Auth",
+        description="Used to test the upload guard.",
+        is_published=True,
+    )
+    db.add(course)
+    db.flush()
     db.add(
         Lesson(
+            course_id=course.id,
+            position=1,
             slug=LESSON_SLUG,
             title="Lesson For Admin Auth",
             description="Used to test the upload guard.",
@@ -53,6 +65,7 @@ def seed_lesson_and_users():
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email.in_(emails)))
     db.execute(delete(Lesson).where(Lesson.slug == LESSON_SLUG))
+    db.execute(delete(Course).where(Course.slug == COURSE_SLUG))
     db.commit()
     db.close()
 

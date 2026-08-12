@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
-import { uploadAdminThumbnail } from '../../../api/admin'
-import { getThumbnailUrl } from '../../../api/lessons'
-import FileInput from '../../../components/FileInput/FileInput'
+import FileInput from '../FileInput/FileInput'
 import styles from './ThumbnailUploader.module.css'
 
-function ThumbnailUploader({ lesson, onUploadingChange, onChange }) {
+function ThumbnailUploader({ item, uploadThumbnail, fetchThumbnailUrl, onUploadingChange, onChange }) {
   const [fileName, setFileName] = useState('')
   const [uploadStatus, setUploadStatus] = useState(null)
   const [error, setError] = useState('')
@@ -13,9 +11,9 @@ function ThumbnailUploader({ lesson, onUploadingChange, onChange }) {
 
   useEffect(() => {
     setPreviewUrl(null)
-    if (!lesson.thumbnail_key) return
+    if (!item.thumbnail_key) return
     let cancelled = false
-    getThumbnailUrl(lesson.slug)
+    fetchThumbnailUrl()
       .then(({ url }) => {
         if (!cancelled) setPreviewUrl(url)
       })
@@ -23,7 +21,8 @@ function ThumbnailUploader({ lesson, onUploadingChange, onChange }) {
     return () => {
       cancelled = true
     }
-  }, [lesson.thumbnail_key, lesson.slug])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.thumbnail_key, item.id])
 
   async function handleFileChange(event) {
     const file = event.target.files[0]
@@ -36,7 +35,7 @@ function ThumbnailUploader({ lesson, onUploadingChange, onChange }) {
 
     setUploadStatus({ status: 'uploading', percent: 0 })
     try {
-      const result = await uploadAdminThumbnail(lesson.id, file, (percent) => {
+      const result = await uploadThumbnail(item.id, file, (percent) => {
         setUploadStatus(percent >= 100 ? { status: 'processing' } : { status: 'uploading', percent })
       })
       setWarning(result.warning ?? '')
@@ -57,7 +56,7 @@ function ThumbnailUploader({ lesson, onUploadingChange, onChange }) {
     <section className={styles.section}>
       <h2 className={styles.heading}>Thumbnail</h2>
       <p className={styles.status}>
-        {lesson.thumbnail_key ? 'A thumbnail is uploaded for this lesson.' : 'No thumbnail uploaded yet.'}
+        {item.thumbnail_key ? 'A thumbnail is uploaded.' : 'No thumbnail uploaded yet.'}
       </p>
       {previewUrl && <img src={previewUrl} alt="" className={styles.preview} />}
       <FileInput

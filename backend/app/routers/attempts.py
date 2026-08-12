@@ -4,41 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.dependencies import get_viewer_id, require_user
+from app.dependencies import require_user
 from app.models.user import User
-from app.schemas.attempt import (
-    AttemptAnswerRequest,
-    AttemptAnswerResponse,
-    AttemptResult,
-    AttemptStart,
-    UserAttempt,
-)
+from app.schemas.attempt import AttemptAnswerRequest, AttemptAnswerResponse, AttemptResult, UserAttempt
 from app.services import attempts as attempts_service
 
 router = APIRouter()
-
-
-@router.post("/lessons/{slug}/attempts", response_model=AttemptStart, status_code=201)
-def start_attempt(
-    slug: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-    viewer_id: uuid.UUID = Depends(get_viewer_id),
-):
-    try:
-        result = attempts_service.start_attempt(db, slug, user, viewer_id)
-    except attempts_service.WatchRequirementNotMetError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except attempts_service.MaxAttemptsExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except attempts_service.RetakeCooldownError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    if result is None:
-        raise HTTPException(status_code=404, detail="This lesson has no quiz yet")
-
-    return AttemptStart(
-        attempt_id=result.attempt_id, lesson_slug=result.lesson_slug, question_count=result.question_count
-    )
 
 
 @router.post("/attempts/{attempt_id}/answers", response_model=AttemptAnswerResponse)
@@ -75,8 +46,8 @@ def get_attempt_result(attempt_id: uuid.UUID, db: Session = Depends(get_db)):
 
     return AttemptResult(
         attempt_id=result.attempt_id,
-        lesson_slug=result.lesson_slug,
-        lesson_title=result.lesson_title,
+        course_slug=result.course_slug,
+        course_title=result.course_title,
         score=result.score,
         question_count=result.question_count,
         passed=result.passed,
@@ -91,8 +62,8 @@ def get_my_attempts(db: Session = Depends(get_db), user: User = Depends(require_
     return [
         UserAttempt(
             attempt_id=r.attempt_id,
-            lesson_title=r.lesson_title,
-            lesson_slug=r.lesson_slug,
+            course_title=r.course_title,
+            course_slug=r.course_slug,
             score=r.score,
             passed=r.passed,
             completed_at=r.completed_at,

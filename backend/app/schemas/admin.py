@@ -56,25 +56,15 @@ class AdminLessonUpdate(BaseModel):
     description: str | None = None
     duration_seconds: int | None = None
     required_watch_ratio: float | None = Field(default=None, ge=0, le=1)
-    retake_cooldown_minutes: int | None = Field(default=None, ge=0)
-    max_attempts: int | None = Field(default=None, ge=1)
-
-
-class AdminLessonSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    slug: str
-    title: str
-    is_published: bool
-    question_count: int
-    has_video: bool
 
 
 class AdminLesson(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    course_id: int
+    course_slug: str
+    position: int
     slug: str
     title: str
     description: str
@@ -82,10 +72,50 @@ class AdminLesson(BaseModel):
     video_key: str | None
     thumbnail_key: str | None
     required_watch_ratio: float
+    is_published: bool
+    questions: list[AdminQuestion]
+
+
+class AdminCourseCreate(BaseModel):
+    title: str
+    slug: str | None = None
+    description: str = ""
+
+
+class AdminCourseUpdate(BaseModel):
+    """Partial update. Changing `slug` on a published course breaks any
+    links already handed out, so the caller must set it explicitly rather
+    than have it inferred from a title change."""
+
+    title: str | None = None
+    slug: str | None = None
+    description: str | None = None
+    retake_cooldown_minutes: int | None = Field(default=None, ge=0)
+    max_attempts: int | None = Field(default=None, ge=1)
+
+
+class AdminCourseSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    title: str
+    is_published: bool
+    lesson_count: int
+
+
+class AdminCourse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    title: str
+    description: str
+    thumbnail_key: str | None
     retake_cooldown_minutes: int
     max_attempts: int | None
     is_published: bool
-    questions: list[AdminQuestion]
+    lessons: list[AdminLesson]
 
 
 class MoveRequest(BaseModel):

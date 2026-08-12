@@ -46,7 +46,7 @@ function Verify() {
     <div className={styles.card}>
       <h1 className={styles.heading}>Certificate verified</h1>
       <p className={styles.explainer}>
-        An attempt with code {data.certificate_code} passed this lesson on {formatDate(data.completed_at)} with a
+        An attempt with code {data.certificate_code} passed this course on {formatDate(data.completed_at)} with a
         score of {data.score} out of {data.question_count}.{' '}
         {data.is_account_holder
           ? 'The name below is the account holder who took the quiz.'
@@ -55,8 +55,8 @@ function Verify() {
       <dl className={styles.details}>
         <dt>Name</dt>
         <dd>{data.recipient_name}</dd>
-        <dt>Lesson</dt>
-        <dd>{data.lesson_title}</dd>
+        <dt>Course</dt>
+        <dd>{data.course_title}</dd>
         <dt>Score</dt>
         <dd>
           {data.score} out of {data.question_count}

@@ -56,15 +56,15 @@ function Progress() {
         {state.attempts.map((attempt) => (
           <li key={attempt.attempt_id} className={styles.row}>
             <div className={styles.rowMain}>
-              <Link to={`/lessons/${attempt.lesson_slug}`} className={styles.lessonTitle}>
-                {attempt.lesson_title}
+              <Link to={`/courses/${attempt.course_slug}`} className={styles.lessonTitle}>
+                {attempt.course_title}
               </Link>
               <span className={`${styles.badge} ${attempt.passed ? styles.passed : styles.failed}`}>
                 {attempt.passed ? 'Passed' : 'Not passed'}
               </span>
             </div>
             <div className={styles.rowMeta}>
-              <span>Scored {attempt.score} out of 5</span>
+              <span>Scored {attempt.score}</span>
               <span>{formatDate(attempt.completed_at)}</span>
               {attempt.certificate_code && (
                 <a className={styles.downloadLink} href={certificatePdfUrl(attempt.attempt_id)} download>

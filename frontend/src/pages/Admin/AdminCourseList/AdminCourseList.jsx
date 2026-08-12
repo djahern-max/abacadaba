@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { createAdminLesson, getAdminLessons } from '../../../api/admin'
-import styles from './AdminLessonList.module.css'
+import { createAdminCourse, getAdminCourses } from '../../../api/admin'
+import styles from './AdminCourseList.module.css'
 
-function AdminLessonList() {
+function AdminCourseList() {
   const navigate = useNavigate()
-  const [state, setState] = useState({ status: 'loading', lessons: [] })
+  const [state, setState] = useState({ status: 'loading', courses: [] })
   const [title, setTitle] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    getAdminLessons()
-      .then((lessons) => setState({ status: 'loaded', lessons }))
-      .catch(() => setState({ status: 'error', lessons: [] }))
+    getAdminCourses()
+      .then((courses) => setState({ status: 'loaded', courses }))
+      .catch(() => setState({ status: 'error', courses: [] }))
   }, [])
 
   async function handleCreate(event) {
@@ -22,36 +22,36 @@ function AdminLessonList() {
     setError('')
     setCreating(true)
     try {
-      const lesson = await createAdminLesson({ title: title.trim() })
-      navigate(`/admin/lessons/${lesson.id}`)
+      const course = await createAdminCourse({ title: title.trim() })
+      navigate(`/admin/courses/${course.id}`)
     } catch {
-      setError('Could not create the lesson. Try a different title.')
+      setError('Could not create the course. Try a different title.')
       setCreating(false)
     }
   }
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.heading}>Admin: lessons</h1>
+      <h1 className={styles.heading}>Admin: courses</h1>
 
       <form className={styles.createForm} onSubmit={handleCreate}>
         <input
           className={styles.input}
           type="text"
-          placeholder="New lesson title"
+          placeholder="New course title"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           disabled={creating}
         />
         <button type="submit" className={styles.button} disabled={creating || !title.trim()}>
-          {creating ? 'Creating…' : 'Create lesson'}
+          {creating ? 'Creating…' : 'Create course'}
         </button>
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
 
       {state.status === 'loading' && <p className={styles.message}>Loading&hellip;</p>}
       {state.status === 'error' && (
-        <p className={styles.message}>Couldn&apos;t load lessons. Please try again later.</p>
+        <p className={styles.message}>Couldn&apos;t load courses. Please try again later.</p>
       )}
 
       {state.status === 'loaded' && (
@@ -60,28 +60,26 @@ function AdminLessonList() {
             <tr>
               <th>Title</th>
               <th>Status</th>
-              <th>Questions</th>
-              <th>Video</th>
+              <th>Lessons</th>
               <th>Stats</th>
             </tr>
           </thead>
           <tbody>
-            {state.lessons.map((lesson) => (
-              <tr key={lesson.id}>
+            {state.courses.map((course) => (
+              <tr key={course.id}>
                 <td>
-                  <Link to={`/admin/lessons/${lesson.id}`}>{lesson.title}</Link>
+                  <Link to={`/admin/courses/${course.id}`}>{course.title}</Link>
                 </td>
                 <td>
                   <span
-                    className={`${styles.badge} ${lesson.is_published ? styles.published : styles.draft}`}
+                    className={`${styles.badge} ${course.is_published ? styles.published : styles.draft}`}
                   >
-                    {lesson.is_published ? 'Published' : 'Draft'}
+                    {course.is_published ? 'Published' : 'Draft'}
                   </span>
                 </td>
-                <td>{lesson.question_count}</td>
-                <td>{lesson.has_video ? 'Yes' : 'No'}</td>
+                <td>{course.lesson_count}</td>
                 <td>
-                  <Link to={`/admin/lessons/${lesson.id}/stats`}>View stats</Link>
+                  <Link to={`/admin/courses/${course.id}/stats`}>View stats</Link>
                 </td>
               </tr>
             ))}
@@ -92,4 +90,4 @@ function AdminLessonList() {
   )
 }
 
-export default AdminLessonList
+export default AdminCourseList

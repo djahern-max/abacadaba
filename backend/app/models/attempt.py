@@ -15,8 +15,8 @@ class Attempt(Base):
     public_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), unique=True, index=True, nullable=False, default=uuid.uuid4
     )
-    lesson_id: Mapped[int] = mapped_column(
-        ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True
+    course_id: Mapped[int] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
@@ -35,7 +35,7 @@ class Attempt(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    lesson: Mapped["Lesson"] = relationship()
+    course: Mapped["Course"] = relationship()
     user: Mapped["User | None"] = relationship()
     answers: Mapped[list["AttemptAnswer"]] = relationship(
         back_populates="attempt", cascade="all, delete-orphan"

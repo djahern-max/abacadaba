@@ -9,8 +9,6 @@ function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
   const [duration, setDuration] = useState(lesson.duration_seconds ?? '')
   const [durationAutoFilled, setDurationAutoFilled] = useState(false)
   const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
-  const [cooldownMinutes, setCooldownMinutes] = useState(lesson.retake_cooldown_minutes)
-  const [maxAttempts, setMaxAttempts] = useState(lesson.max_attempts ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -19,9 +17,7 @@ function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
     slug !== lesson.slug ||
     description !== lesson.description ||
     String(duration) !== String(lesson.duration_seconds ?? '') ||
-    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100) ||
-    Number(cooldownMinutes) !== lesson.retake_cooldown_minutes ||
-    String(maxAttempts) !== String(lesson.max_attempts ?? '')
+    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
 
   useEffect(() => {
     onDirtyChange?.(dirty)
@@ -44,8 +40,6 @@ function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
         description,
         duration_seconds: duration === '' ? null : Number(duration),
         required_watch_ratio: Number(watchPercent) / 100,
-        retake_cooldown_minutes: Number(cooldownMinutes),
-        max_attempts: maxAttempts === '' ? null : Number(maxAttempts),
       })
       await onChange()
     } catch (err) {
@@ -114,7 +108,7 @@ function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
         )}
         {duration === '' && (
           <p className={styles.warning}>
-            No duration set, so the watch requirement below cannot apply. The quiz will be ungated.
+            No duration set, so the watch requirement below cannot apply. This segment will be ungated.
           </p>
         )}
 
@@ -130,32 +124,6 @@ function DetailsForm({ lesson, detectedDuration, onDirtyChange, onChange }) {
           value={watchPercent}
           onChange={(event) => setWatchPercent(event.target.value)}
         />
-
-        <label className={styles.label} htmlFor="cooldown-minutes">
-          Retake cooldown (minutes)
-        </label>
-        <input
-          id="cooldown-minutes"
-          className={styles.input}
-          type="number"
-          min="0"
-          value={cooldownMinutes}
-          onChange={(event) => setCooldownMinutes(event.target.value)}
-        />
-        <p className={styles.hint}>Blank or 0 means no cooldown between attempts.</p>
-
-        <label className={styles.label} htmlFor="max-attempts">
-          Max attempts
-        </label>
-        <input
-          id="max-attempts"
-          className={styles.input}
-          type="number"
-          min="1"
-          value={maxAttempts}
-          onChange={(event) => setMaxAttempts(event.target.value)}
-        />
-        <p className={styles.hint}>Blank means unlimited attempts.</p>
 
         {error && <p className={styles.fieldError}>{error}</p>}
         <button type="submit" className={styles.button} disabled={!dirty || saving}>

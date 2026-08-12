@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getLessonStats } from '../../../api/admin'
+import { getCourseStats } from '../../../api/admin'
 import styles from './Stats.module.css'
 
 const BAD_QUESTION_THRESHOLD = 40
@@ -54,6 +54,7 @@ function QuestionRow({ question, choices }) {
   const flagged = question.pct_correct !== null && question.pct_correct < BAD_QUESTION_THRESHOLD
   return (
     <tr className={flagged ? styles.flaggedRow : undefined}>
+      <td>{question.lesson_title}</td>
       <td>{question.position}</td>
       <td>{question.prompt}</td>
       <td>{question.answered}</td>
@@ -74,7 +75,7 @@ function Stats() {
 
   useEffect(() => {
     setState({ status: 'loading', data: null })
-    getLessonStats(id)
+    getCourseStats(id)
       .then((data) => setState({ status: 'loaded', data }))
       .catch(() => setState({ status: 'error', data: null }))
   }, [id])
@@ -83,22 +84,22 @@ function Stats() {
     return <p className={styles.message}>Loading&hellip;</p>
   }
   if (state.status === 'error') {
-    return <p className={styles.message}>Couldn&apos;t load stats for this lesson.</p>
+    return <p className={styles.message}>Couldn&apos;t load stats for this course.</p>
   }
 
   const { data } = state
-  const { lesson_stats: summary, question_stats: questions, choice_distribution: distribution, dropoff } = data
+  const { course_stats: summary, question_stats: questions, choice_distribution: distribution, dropoff } = data
   const choicesByQuestionId = Object.fromEntries(distribution.map((row) => [row.question_id, row.choices]))
 
   return (
     <div className={styles.page}>
-      <Link to={`/admin/lessons/${id}`} className={styles.back}>
-        &larr; Back to lesson
+      <Link to={`/admin/courses/${id}`} className={styles.back}>
+        &larr; Back to course
       </Link>
       <h1 className={styles.heading}>Stats</h1>
 
       {summary.attempts_started === 0 ? (
-        <p className={styles.message}>No attempts yet. Stats will appear once someone takes the quiz.</p>
+        <p className={styles.message}>No attempts yet. Stats will appear once someone takes the assessment.</p>
       ) : (
         <>
           <SummaryRow summary={summary} />
@@ -108,6 +109,7 @@ function Stats() {
             <table className={styles.table}>
               <thead>
                 <tr>
+                  <th>Segment</th>
                   <th>#</th>
                   <th>Prompt</th>
                   <th>Answered</th>
@@ -128,11 +130,11 @@ function Stats() {
           </section>
 
           <section className={styles.section}>
-            <h2 className={styles.sectionHeading}>Drop-off by question position</h2>
+            <h2 className={styles.sectionHeading}>Drop-off by question</h2>
             <ul className={styles.dropoffList}>
               {dropoff.map((point) => (
-                <li key={point.position}>
-                  Question {point.position}: {point.attempts_reached} attempt(s) reached it
+                <li key={point.question_id}>
+                  {point.lesson_title}, question {point.position}: {point.attempts_reached} attempt(s) reached it
                 </li>
               ))}
             </ul>

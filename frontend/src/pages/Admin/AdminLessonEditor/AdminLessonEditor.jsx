@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { checkAdminLessonPublish, deleteAdminLesson, getAdminLesson } from '../../../api/admin'
+import { deleteAdminLesson, getAdminLesson, uploadAdminThumbnail } from '../../../api/admin'
+import { getLessonThumbnailUrl } from '../../../api/courses'
+import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
 import DetailsForm from './DetailsForm'
 import VideoUploader from './VideoUploader'
-import ThumbnailUploader from './ThumbnailUploader'
 import QuestionsEditor from './QuestionsEditor'
-import PublishPanel from './PublishPanel'
 import styles from './AdminLessonEditor.module.css'
 
 function AdminLessonEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [state, setState] = useState({ status: 'loading', lesson: null })
-  const [publishErrors, setPublishErrors] = useState([])
   const [deleteError, setDeleteError] = useState('')
   const [detailsDirty, setDetailsDirty] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -22,10 +21,7 @@ function AdminLessonEditor() {
 
   const refresh = useCallback(() => {
     return getAdminLesson(id)
-      .then((lesson) => {
-        setState({ status: 'loaded', lesson })
-        return checkAdminLessonPublish(id).then((result) => setPublishErrors(result.errors))
-      })
+      .then((lesson) => setState({ status: 'loaded', lesson }))
       .catch(() => setState({ status: 'error', lesson: null }))
   }, [id])
 
@@ -55,7 +51,7 @@ function AdminLessonEditor() {
     setDeleteError('')
     try {
       await deleteAdminLesson(id)
-      navigate('/admin')
+      navigate(`/admin/courses/${state.lesson.course_id}`)
     } catch (error) {
       const detail = Array.isArray(error.body?.detail) ? error.body.detail.join(', ') : error.body?.detail
       setDeleteError(detail ?? 'Could not delete this lesson.')
@@ -70,21 +66,23 @@ function AdminLessonEditor() {
   }
 
   const { lesson } = state
+  const backTo = `/admin/courses/${lesson.course_id}`
 
   return (
     <div className={styles.page}>
-      <Link to="/admin" className={styles.back} onClick={handleBackClick}>
-        &larr; All lessons
+      <Link to={backTo} className={styles.back} onClick={handleBackClick}>
+        &larr; Back to course
       </Link>
       <div className={styles.headerRow}>
         <h1 className={styles.heading}>{lesson.title}</h1>
         <span className={`${styles.badge} ${lesson.is_published ? styles.published : styles.draft}`}>
           {lesson.is_published ? 'Published' : 'Draft'}
         </span>
-        <Link to={`/admin/lessons/${lesson.id}/stats`} className={styles.statsLink}>
-          View stats
-        </Link>
       </div>
+      <p className={styles.message}>
+        Publishing happens for the whole course. Once every lesson is complete, publish the course from{' '}
+        <Link to={backTo}>its editor</Link>.
+      </p>
 
       <DetailsForm
         lesson={lesson}
@@ -98,15 +96,14 @@ function AdminLessonEditor() {
         onUploadingChange={setUploading}
         onChange={refresh}
       />
-      <ThumbnailUploader lesson={lesson} onUploadingChange={setUploading} onChange={refresh} />
-      <QuestionsEditor lesson={lesson} onChange={refresh} />
-      <PublishPanel
-        lesson={lesson}
-        publishErrors={publishErrors}
-        detailsDirty={detailsDirty}
-        onPublishErrors={setPublishErrors}
+      <ThumbnailUploader
+        item={lesson}
+        uploadThumbnail={uploadAdminThumbnail}
+        fetchThumbnailUrl={() => getLessonThumbnailUrl(lesson.course_slug, lesson.slug)}
+        onUploadingChange={setUploading}
         onChange={refresh}
       />
+      <QuestionsEditor lesson={lesson} onChange={refresh} />
 
       <section className={styles.dangerZone}>
         <button type="button" className={styles.deleteButton} onClick={handleDelete}>

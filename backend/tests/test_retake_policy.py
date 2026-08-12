@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -29,9 +30,9 @@ def cleanup():
 
     client.cookies.clear()
     db = SessionLocal()
-    lesson_ids = select(Lesson.id).where(Lesson.slug.like(f"{SLUG_PREFIX}%"))
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug.like(f"{SLUG_PREFIX}%")))
+    course_ids = select(Course.id).where(Course.slug.like(f"{SLUG_PREFIX}%"))
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug.like(f"{SLUG_PREFIX}%")))
     emails = [ADMIN_EMAIL, USER_EMAIL]
     user_ids = select(User.id).where(User.email.in_(emails))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
@@ -40,16 +41,27 @@ def cleanup():
     db.close()
 
 
-def create_lesson(slug_suffix, **overrides):
+def create_course(slug_suffix, **overrides):
     db = SessionLocal()
-    lesson = Lesson(
+    course = Course(
         slug=f"{SLUG_PREFIX}-{slug_suffix}",
         title=f"Retake Policy {slug_suffix}",
+        description="Used to test the retake policy.",
+        is_published=True,
+        **overrides,
+    )
+    db.add(course)
+    db.flush()
+
+    lesson = Lesson(
+        course_id=course.id,
+        position=1,
+        slug=f"{SLUG_PREFIX}-{slug_suffix}-lesson",
+        title=f"Retake Policy Lesson {slug_suffix}",
         description="Used to test the retake policy.",
         duration_seconds=300,
         is_published=True,
         required_watch_ratio=0,  # ungated: these tests cover the retake policy, not watch gating
-        **overrides,
     )
     db.add(lesson)
     db.flush()
@@ -63,17 +75,17 @@ def create_lesson(slug_suffix, **overrides):
         db.add(question)
 
     db.commit()
-    db.refresh(lesson)
-    slug, lesson_id = lesson.slug, lesson.id
+    db.refresh(course)
+    slug, course_id = course.slug, course.id
     db.close()
-    return slug, lesson_id
+    return slug, course_id
 
 
-def add_completed_attempt(lesson_id, completed_at, viewer_id=None, user_id=None):
+def add_completed_attempt(course_id, completed_at, viewer_id=None, user_id=None):
     db = SessionLocal()
     db.add(
         Attempt(
-            lesson_id=lesson_id,
+            course_id=course_id,
             viewer_id=viewer_id,
             user_id=user_id,
             score=4,
@@ -97,13 +109,13 @@ def register_and_login(email):
 
 
 def start_attempt(slug):
-    return client.post(f"/api/v1/lessons/{slug}/attempts")
+    return client.post(f"/api/v1/courses/{slug}/attempts")
 
 
 def test_retake_inside_cooldown_returns_429_with_retry_time():
-    slug, lesson_id = create_lesson("cooldown", retake_cooldown_minutes=30)
+    slug, course_id = create_course("cooldown", retake_cooldown_minutes=30)
     user_id = register_and_login(USER_EMAIL)
-    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=5), user_id=user_id)
+    add_completed_attempt(course_id, datetime.now(timezone.utc) - timedelta(minutes=5), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 429
@@ -111,20 +123,20 @@ def test_retake_inside_cooldown_returns_429_with_retry_time():
 
 
 def test_retake_after_cooldown_elapses_succeeds():
-    slug, lesson_id = create_lesson("cooldown-elapsed", retake_cooldown_minutes=10)
+    slug, course_id = create_course("cooldown-elapsed", retake_cooldown_minutes=10)
     user_id = register_and_login(USER_EMAIL)
-    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=15), user_id=user_id)
+    add_completed_attempt(course_id, datetime.now(timezone.utc) - timedelta(minutes=15), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 201
 
 
 def test_exceeding_max_attempts_returns_429():
-    slug, lesson_id = create_lesson("max-attempts", max_attempts=2)
+    slug, course_id = create_course("max-attempts", max_attempts=2)
     user_id = register_and_login(USER_EMAIL)
     now = datetime.now(timezone.utc)
-    add_completed_attempt(lesson_id, now - timedelta(days=2), user_id=user_id)
-    add_completed_attempt(lesson_id, now - timedelta(days=1), user_id=user_id)
+    add_completed_attempt(course_id, now - timedelta(days=2), user_id=user_id)
+    add_completed_attempt(course_id, now - timedelta(days=1), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 429
@@ -132,11 +144,11 @@ def test_exceeding_max_attempts_returns_429():
 
 
 def test_null_max_attempts_allows_many_attempts():
-    slug, lesson_id = create_lesson("unlimited")
+    slug, course_id = create_course("unlimited")
     user_id = register_and_login(USER_EMAIL)
     now = datetime.now(timezone.utc)
     for i in range(10):
-        add_completed_attempt(lesson_id, now - timedelta(days=i + 1), user_id=user_id)
+        add_completed_attempt(course_id, now - timedelta(days=i + 1), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 201
@@ -154,8 +166,8 @@ def test_admin_bypasses_both_limits():
     user_id = user.id
     db.close()
 
-    slug, lesson_id = create_lesson("admin-bypass", retake_cooldown_minutes=60, max_attempts=1)
-    add_completed_attempt(lesson_id, datetime.now(timezone.utc) - timedelta(minutes=1), user_id=user_id)
+    slug, course_id = create_course("admin-bypass", retake_cooldown_minutes=60, max_attempts=1)
+    add_completed_attempt(course_id, datetime.now(timezone.utc) - timedelta(minutes=1), user_id=user_id)
 
     response = start_attempt(slug)
     assert response.status_code == 201

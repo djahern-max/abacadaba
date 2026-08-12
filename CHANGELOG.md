@@ -363,3 +363,75 @@ replace both show without a hard refresh, independent of publish
 state) and surfaces the aspect-ratio warning inline. Thumbnail
 generation from a video frame, multiple sizes/`srcset`, and a CDN
 remain out of scope.
+
+## 2026-08-12, Feature 019, Courses as the credit-bearing unit
+The unit a person completes is now a course, not a lesson — the structural
+change the 2026 CPE compliance work depends on. Both databases were
+confirmed empty right before this shipped (0 rows in `attempts` and
+`lessons`), so migration `05e053f86e0a` adds `courses`, moves `lessons`
+under it (`course_id` FK not null, `position` unique per course, `slug`
+still globally unique), and swaps `attempts.lesson_id` for
+`attempts.course_id`, all with no backfill logic — the migration's own
+docstring says why. `retake_cooldown_minutes`/`max_attempts` moved from
+lessons to courses (a person retakes a course); `watch_progress`,
+`questions`, and `choices` stay exactly where they were, deliberately.
+`PASS_THRESHOLD = 4` is gone, replaced by `PASS_RATIO = 0.8` applied to a
+course's total published-lesson question count and rounded up
+(`math.ceil`) — identical behaviour on a five-question course (4/5) and
+the generalised case proven with a fifteen-question course (12/15 passes,
+11/15 doesn't). Backend: a new `app/services/courses.py`
+(`list_published`, `get_by_slug`, `get_with_lessons`, plus
+`published_question_count`, `get_published_lesson`, and
+`get_lesson_in_course` for the segment page's prev/next links) backs a new
+`app/routers/courses.py` that replaces `lessons.py`/`quiz.py`/`watch.py`
+outright: `GET /courses`, `GET /courses/{slug}`, `GET
+/courses/{slug}/lessons/{lesson_slug}` (+ its `video-url`/`thumbnail-url`/
+`watch`), `GET /courses/{slug}/watch-status` (new — per-lesson progress
+plus one `gate_met` bool from `watch.course_watch_status`, which just
+reuses `get_progress`'s existing "no duration means unlocked" rule rather
+than re-deriving it), `GET /courses/{slug}/quiz`, and `POST
+/courses/{slug}/attempts`. `quiz.get_quiz_for_course` walks every
+published lesson's published questions in lesson-then-question order for
+free, since both relationships are already position-ordered — no extra
+sort, and the leak test moved over unchanged. `attempts.start_attempt`
+keeps feature 016's authenticate-then-gate-then-policy order, now against
+a course, and a locked assessment names the specific outstanding segment
+(`WatchRequirementNotMetError` carries its slug/title) rather than a bare
+second count. `admin_content.py` gained full course CRUD, `create_lesson`/
+`move_lesson`/`delete_lesson` nested under a course (reusing the existing
+two-phase `_renumber` unchanged), and `validate_for_publish` now walks a
+course: title/slug/description, at least one lesson, every lesson has a
+video and at least one question, and the feature 010 per-question rules —
+still one flat list of every failure at once. Publishing a course also
+flips every one of its lessons to `is_published = True` in the same
+transaction (there's no separate per-lesson publish action any more —
+`validate_for_publish` already proved each one was complete); this was
+caught by a test that actually re-fetched the public quiz after
+publishing rather than only asserting `course.is_published`. Deleting a
+course with completed attempts still 409s exactly as a lesson used to;
+deleting a lesson now checks its *course's* attempts, so a segment can't
+be pulled out from under an already-graded assessment either.
+`app/services/analytics.py` re-keys its four aggregates on `course_id`,
+and `question_stats`/`dropoff` now carry `lesson_title` per row (dropoff
+groups by `question_id`, not raw position, since position resets inside
+each lesson) so the admin can see which segment a bad question or a
+drop-off point belongs to. Frontend: `CourseList`/`CourseDetail` replace
+`LessonList`/`LessonDetail` (`CourseCard` reuses `LessonCard`'s 16:9 shape
+plus a segment count), a new `LessonSegment` page plays one segment with
+previous/next links, and `Quiz`/`Result`/`Progress`/`Verify` all take a
+course slug and `course_title` now. `AdminCourseList` and a new
+`AdminCourseEditor` (details, a generalised `ThumbnailUploader` moved to
+`components/` so both course and lesson can reuse it, an ordered
+`LessonsPanel` with add/move, and `CoursePublishPanel`) wrap the existing
+`AdminLessonEditor`, which lost its own publish panel and now links back
+to its course. The old `/lessons/:slug` routes are gone outright, no
+redirect layer — there was no live traffic to preserve. Verified against
+a real dev database end to end in a browser (Playwright): author a
+three-lesson course, reorder it, publish it, watch all three segments as
+a signed-in user, confirm the assessment button stays locked until every
+segment is watched and names which one is outstanding, pass a
+fifteen-question run at 12/15, and download the resulting certificate.
+Learning objectives/program level/field of study (020), the development
+and review chain (021), credit calculation (022), and splitting review
+from assessment questions with a per-course pass threshold column (023)
+remain out of scope.

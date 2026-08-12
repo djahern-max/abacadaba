@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -15,7 +16,7 @@ from app.models.user import User
 
 client = TestClient(app)
 
-QUIZ_SLUG = "test-lesson-certificates"
+COURSE_SLUG = "test-course-certificates"
 SIGNED_IN_EMAIL = "certificates-user@example.com"
 SIGNED_IN_PASSWORD = "correct-horse-battery"
 SIGNED_IN_DISPLAY_NAME = "Grace Hopper Account"
@@ -23,11 +24,22 @@ GENERIC_EMAIL = "certificates-flow-user@example.com"
 
 
 @pytest.fixture(autouse=True)
-def seed_test_lesson():
+def seed_test_course():
     db = SessionLocal()
 
+    course = Course(
+        slug=COURSE_SLUG,
+        title="Course For Certificates",
+        description="Used to test the certificate endpoints.",
+        is_published=True,
+    )
+    db.add(course)
+    db.flush()
+
     lesson = Lesson(
-        slug=QUIZ_SLUG,
+        course_id=course.id,
+        position=1,
+        slug=f"{COURSE_SLUG}-lesson",
         title="Lesson For Certificates",
         description="Used to test the certificate endpoints.",
         duration_seconds=300,
@@ -55,9 +67,9 @@ def seed_test_lesson():
     yield
 
     db = SessionLocal()
-    lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    course_ids = select(Course.id).where(Course.slug == COURSE_SLUG)
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == COURSE_SLUG))
     db.commit()
     db.close()
 
@@ -77,7 +89,8 @@ def get_questions():
     stmt = (
         select(Question)
         .join(Lesson)
-        .where(Lesson.slug == QUIZ_SLUG)
+        .join(Course)
+        .where(Course.slug == COURSE_SLUG)
         .order_by(Question.position)
     )
     questions = db.execute(stmt).scalars().all()
@@ -118,7 +131,7 @@ def ensure_signed_in():
 
 def start_and_pass_attempt():
     ensure_signed_in()
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     for q in get_questions():
         answer(attempt_id, q["question_id"], q["correct_choice_id"])
@@ -127,7 +140,7 @@ def start_and_pass_attempt():
 
 def start_and_fail_attempt():
     ensure_signed_in()
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     questions = get_questions()
     for q in questions[:2]:
@@ -139,7 +152,7 @@ def start_and_fail_attempt():
 
 def start_incomplete_attempt():
     ensure_signed_in()
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
     questions = get_questions()
     answer(attempt_id, questions[0]["question_id"], questions[0]["correct_choice_id"])
@@ -151,8 +164,8 @@ def start_and_pass_legacy_anonymous_attempt():
     # POST /attempts didn't require a signed in user. Built directly against
     # the DB rather than through the API, which no longer allows it.
     db = SessionLocal()
-    lesson_id = db.execute(select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)).scalar_one()
-    attempt = Attempt(lesson_id=lesson_id, viewer_id=uuid.uuid4(), shuffle_seed=1)
+    course_id = db.execute(select(Course.id).where(Course.slug == COURSE_SLUG)).scalar_one()
+    attempt = Attempt(course_id=course_id, viewer_id=uuid.uuid4(), shuffle_seed=1)
     db.add(attempt)
     db.commit()
     db.refresh(attempt)
@@ -175,7 +188,7 @@ def test_claiming_on_a_passed_attempt_returns_a_code_and_the_name():
     body = response.json()
     assert body["recipient_name"] == "Ada Lovelace"
     assert body["certificate_code"]
-    assert body["lesson_title"] == "Lesson For Certificates"
+    assert body["course_title"] == "Course For Certificates"
     assert body["score"] == 5
 
 
@@ -224,7 +237,7 @@ def test_pdf_endpoint_before_claiming_returns_409():
     assert response.status_code == 409
 
 
-def test_verifying_a_real_code_returns_valid_true_with_lesson_and_score():
+def test_verifying_a_real_code_returns_valid_true_with_course_and_score():
     attempt_id = start_and_pass_attempt()
     code = claim(attempt_id).json()["certificate_code"]
 
@@ -232,7 +245,7 @@ def test_verifying_a_real_code_returns_valid_true_with_lesson_and_score():
     assert response.status_code == 200
     body = response.json()
     assert body["valid"] is True
-    assert body["lesson_title"] == "Lesson For Certificates"
+    assert body["course_title"] == "Course For Certificates"
     assert body["score"] == 5
 
 

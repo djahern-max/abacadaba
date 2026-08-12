@@ -22,7 +22,7 @@ class CertificateInfo(BaseModel):
 
     certificate_code: str
     recipient_name: str
-    lesson_title: str
+    course_title: str
     score: int
     question_count: int
     completed_at: datetime
@@ -34,7 +34,7 @@ class CertificateVerification(BaseModel):
     valid: bool
     certificate_code: str | None = None
     recipient_name: str | None = None
-    lesson_title: str | None = None
+    course_title: str | None = None
     score: int | None = None
     question_count: int | None = None
     completed_at: datetime | None = None

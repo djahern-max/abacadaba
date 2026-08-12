@@ -1,7 +1,8 @@
 import { Link, Route, Routes } from 'react-router-dom'
 import Header from './components/Header/Header'
-import LessonList from './pages/LessonList/LessonList'
-import LessonDetail from './pages/LessonDetail/LessonDetail'
+import CourseList from './pages/CourseList/CourseList'
+import CourseDetail from './pages/CourseDetail/CourseDetail'
+import LessonSegment from './pages/LessonSegment/LessonSegment'
 import Quiz from './pages/Quiz/Quiz'
 import Result from './pages/Result/Result'
 import Verify from './pages/Verify/Verify'
@@ -9,7 +10,8 @@ import Login from './pages/Login/Login'
 import Register from './pages/Register/Register'
 import Progress from './pages/Progress/Progress'
 import AdminGuard from './pages/Admin/AdminGuard'
-import AdminLessonList from './pages/Admin/AdminLessonList/AdminLessonList'
+import AdminCourseList from './pages/Admin/AdminCourseList/AdminCourseList'
+import AdminCourseEditor from './pages/Admin/AdminCourseEditor/AdminCourseEditor'
 import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
 import Stats from './pages/Admin/Stats/Stats'
 import styles from './App.module.css'
@@ -29,9 +31,10 @@ function App() {
       <Header />
       <main className={styles.main}>
         <Routes>
-          <Route path="/" element={<LessonList />} />
-          <Route path="/lessons/:slug" element={<LessonDetail />} />
-          <Route path="/lessons/:slug/quiz" element={<Quiz />} />
+          <Route path="/" element={<CourseList />} />
+          <Route path="/courses/:slug" element={<CourseDetail />} />
+          <Route path="/courses/:slug/lessons/:lessonSlug" element={<LessonSegment />} />
+          <Route path="/courses/:slug/quiz" element={<Quiz />} />
           <Route path="/attempts/:attemptId" element={<Result />} />
           <Route path="/verify/:code" element={<Verify />} />
           <Route path="/login" element={<Login />} />
@@ -41,7 +44,23 @@ function App() {
             path="/admin"
             element={
               <AdminGuard>
-                <AdminLessonList />
+                <AdminCourseList />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/courses/:id"
+            element={
+              <AdminGuard>
+                <AdminCourseEditor />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/courses/:id/stats"
+            element={
+              <AdminGuard>
+                <Stats />
               </AdminGuard>
             }
           />
@@ -50,14 +69,6 @@ function App() {
             element={
               <AdminGuard>
                 <AdminLessonEditor />
-              </AdminGuard>
-            }
-          />
-          <Route
-            path="/admin/lessons/:id/stats"
-            element={
-              <AdminGuard>
-                <Stats />
               </AdminGuard>
             }
           />

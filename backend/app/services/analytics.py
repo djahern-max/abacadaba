@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.choice import Choice
+from app.models.lesson import Lesson
 from app.models.question import Question
 
 
 @dataclass
-class LessonStatsData:
+class CourseStatsData:
     attempts_started: int
     attempts_completed: int
     completion_rate: float
@@ -21,6 +22,7 @@ class LessonStatsData:
 @dataclass
 class QuestionStatData:
     question_id: int
+    lesson_title: str
     prompt: str
     position: int
     answered: int
@@ -38,11 +40,13 @@ class ChoiceStatData:
 
 @dataclass
 class DropoffPointData:
+    question_id: int
+    lesson_title: str
     position: int
     attempts_reached: int
 
 
-def lesson_stats(db: Session, lesson_id: int) -> LessonStatsData:
+def course_stats(db: Session, course_id: int) -> CourseStatsData:
     stmt = select(
         func.count(Attempt.id).label("started"),
         func.count(Attempt.id).filter(Attempt.completed_at.is_not(None)).label("completed"),
@@ -50,14 +54,14 @@ def lesson_stats(db: Session, lesson_id: int) -> LessonStatsData:
         .filter(Attempt.completed_at.is_not(None), Attempt.passed.is_(True))
         .label("passed"),
         func.avg(Attempt.score).filter(Attempt.completed_at.is_not(None)).label("mean_score"),
-    ).where(Attempt.lesson_id == lesson_id)
+    ).where(Attempt.course_id == course_id)
     row = db.execute(stmt).one()
 
     completion_rate = (row.completed / row.started) if row.started else 0.0
     pass_rate = (row.passed / row.completed) if row.completed else None
     mean_score = float(row.mean_score) if row.mean_score is not None else None
 
-    return LessonStatsData(
+    return CourseStatsData(
         attempts_started=row.started,
         attempts_completed=row.completed,
         completion_rate=completion_rate,
@@ -66,7 +70,7 @@ def lesson_stats(db: Session, lesson_id: int) -> LessonStatsData:
     )
 
 
-def question_stats(db: Session, lesson_id: int) -> list[QuestionStatData]:
+def question_stats(db: Session, course_id: int) -> list[QuestionStatData]:
     answered = func.count(AttemptAnswer.id)
     correct = func.count(AttemptAnswer.id).filter(AttemptAnswer.is_correct.is_(True))
     pct_correct = (correct * 100.0) / func.nullif(answered, 0)
@@ -74,21 +78,24 @@ def question_stats(db: Session, lesson_id: int) -> list[QuestionStatData]:
     stmt = (
         select(
             Question.id,
+            Lesson.title.label("lesson_title"),
             Question.prompt,
             Question.position,
             answered.label("answered"),
             pct_correct.label("pct_correct"),
         )
         .select_from(Question)
+        .join(Lesson, Lesson.id == Question.lesson_id)
         .outerjoin(AttemptAnswer, AttemptAnswer.question_id == Question.id)
-        .where(Question.lesson_id == lesson_id)
-        .group_by(Question.id)
+        .where(Lesson.course_id == course_id)
+        .group_by(Question.id, Lesson.title)
         .order_by(pct_correct.asc().nulls_last())
     )
     rows = db.execute(stmt).all()
     return [
         QuestionStatData(
             question_id=row.id,
+            lesson_title=row.lesson_title,
             prompt=row.prompt,
             position=row.position,
             answered=row.answered,
@@ -126,17 +133,28 @@ def choice_distribution(db: Session, question_id: int) -> list[ChoiceStatData]:
     ]
 
 
-def dropoff(db: Session, lesson_id: int) -> list[DropoffPointData]:
+def dropoff(db: Session, course_id: int) -> list[DropoffPointData]:
     stmt = (
         select(
+            Question.id,
+            Lesson.title.label("lesson_title"),
             Question.position,
             func.count(func.distinct(AttemptAnswer.attempt_id)).label("attempts_reached"),
         )
         .select_from(Question)
+        .join(Lesson, Lesson.id == Question.lesson_id)
         .outerjoin(AttemptAnswer, AttemptAnswer.question_id == Question.id)
-        .where(Question.lesson_id == lesson_id)
-        .group_by(Question.position)
-        .order_by(Question.position)
+        .where(Lesson.course_id == course_id)
+        .group_by(Question.id, Lesson.id, Lesson.title)
+        .order_by(Lesson.position, Question.position)
     )
     rows = db.execute(stmt).all()
-    return [DropoffPointData(position=row.position, attempts_reached=row.attempts_reached) for row in rows]
+    return [
+        DropoffPointData(
+            question_id=row.id,
+            lesson_title=row.lesson_title,
+            position=row.position,
+            attempts_reached=row.attempts_reached,
+        )
+        for row in rows
+    ]

@@ -6,6 +6,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
@@ -191,3 +192,37 @@ def get_progress(db: Session, lesson: Lesson, viewer_id: uuid.UUID, user_id: int
 
 def is_unlocked(db: Session, lesson: Lesson, viewer_id: uuid.UUID, user_id: int | None = None) -> bool:
     return get_progress(db, lesson, viewer_id, user_id).unlocked
+
+
+@dataclass
+class LessonWatchStatus:
+    lesson_slug: str
+    lesson_title: str
+    position: int
+    progress: WatchProgressData
+
+
+@dataclass
+class CourseWatchStatus:
+    gate_met: bool
+    lessons: list[LessonWatchStatus]
+
+
+def course_watch_status(
+    db: Session, course: Course, viewer_id: uuid.UUID, user_id: int | None = None
+) -> CourseWatchStatus:
+    lesson_statuses = [
+        LessonWatchStatus(
+            lesson_slug=lesson.slug,
+            lesson_title=lesson.title,
+            position=lesson.position,
+            progress=get_progress(db, lesson, viewer_id, user_id),
+        )
+        for lesson in course.lessons
+        if lesson.is_published
+    ]
+    # A lesson with no duration is already reported as unlocked by
+    # get_progress, so the gate only ever waits on lessons that have
+    # something to watch.
+    gate_met = all(status.progress.unlocked for status in lesson_statuses)
+    return CourseWatchStatus(gate_met=gate_met, lessons=lesson_statuses)

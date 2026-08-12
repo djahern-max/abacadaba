@@ -169,10 +169,10 @@ function Result() {
           You passed!
         </h1>
         <p className={styles.score}>
-          You scored {scoreText} on {result.lesson_title}.
+          You scored {scoreText} on {result.course_title}.
         </p>
         <Certificate attemptId={result.attempt_id} certificateCode={result.certificate_code} />
-        <Link to={`/lessons/${result.lesson_slug}`}>Back to lesson</Link>
+        <Link to={`/courses/${result.course_slug}`}>Back to course</Link>
       </div>
     )
   }
@@ -183,12 +183,11 @@ function Result() {
         Not quite yet
       </h1>
       <p className={styles.score}>
-        You scored {scoreText} on {result.lesson_title}. A passing score is 4 out of 5&mdash;you&apos;re close,
-        give it another go.
+        You scored {scoreText} on {result.course_title}. You&apos;re close, give it another go.
       </p>
       <div className={styles.actions}>
-        <Link to={`/lessons/${result.lesson_slug}`}>Watch again</Link>
-        <Link to={`/lessons/${result.lesson_slug}/quiz`}>Retry quiz</Link>
+        <Link to={`/courses/${result.course_slug}`}>Watch again</Link>
+        <Link to={`/courses/${result.course_slug}/quiz`}>Retry assessment</Link>
       </div>
     </div>
   )

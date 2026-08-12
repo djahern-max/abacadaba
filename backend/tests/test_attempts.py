@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -15,17 +16,28 @@ from app.models.user import User
 
 client = TestClient(app)
 
-QUIZ_SLUG = "test-lesson-attempts"
+COURSE_SLUG = "test-course-attempts"
 SIGNED_IN_EMAIL = "attempts-user@example.com"
 SIGNED_IN_PASSWORD = "correct-horse-battery"
 
 
 @pytest.fixture(autouse=True)
-def seed_test_lesson():
+def seed_test_course():
     db = SessionLocal()
 
+    course = Course(
+        slug=COURSE_SLUG,
+        title="Course For Attempts",
+        description="Used to test the attempts endpoints.",
+        is_published=True,
+    )
+    db.add(course)
+    db.flush()
+
     lesson = Lesson(
-        slug=QUIZ_SLUG,
+        course_id=course.id,
+        position=1,
+        slug=f"{COURSE_SLUG}-lesson",
         title="Lesson For Attempts",
         description="Used to test the attempts endpoints.",
         duration_seconds=300,
@@ -53,12 +65,9 @@ def seed_test_lesson():
     yield
 
     db = SessionLocal()
-    # attempt_answers has no cascading FK to questions, so attempts (and their
-    # answers, via the attempt_id cascade) must go before the lesson's
-    # questions do.
-    lesson_ids = select(Lesson.id).where(Lesson.slug == QUIZ_SLUG)
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug == QUIZ_SLUG))
+    course_ids = select(Course.id).where(Course.slug == COURSE_SLUG)
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == COURSE_SLUG))
     db.commit()
     db.close()
 
@@ -77,7 +86,8 @@ def get_questions():
     stmt = (
         select(Question)
         .join(Lesson)
-        .where(Lesson.slug == QUIZ_SLUG)
+        .join(Course)
+        .where(Course.slug == COURSE_SLUG)
         .order_by(Question.position)
     )
     questions = db.execute(stmt).scalars().all()
@@ -111,7 +121,7 @@ def ensure_signed_in():
 
 def start_attempt():
     ensure_signed_in()
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     assert response.status_code == 201
     return response.json()["attempt_id"]
 
@@ -125,16 +135,16 @@ def answer(attempt_id, question_id, choice_id):
 
 def test_starting_an_attempt_returns_a_uuid_and_question_count():
     ensure_signed_in()
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     assert response.status_code == 201
     body = response.json()
     assert uuid.UUID(body["attempt_id"])
-    assert body["lesson_slug"] == QUIZ_SLUG
+    assert body["course_slug"] == COURSE_SLUG
     assert body["question_count"] == 5
 
 
 def test_starting_an_attempt_while_signed_out_returns_401():
-    response = client.post(f"/api/v1/lessons/{QUIZ_SLUG}/attempts")
+    response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     assert response.status_code == 401
 
 
@@ -259,7 +269,7 @@ def test_a_signed_in_users_completed_attempt_appears_in_me_attempts():
     body = response.json()
     assert len(body) == 1
     assert body[0]["attempt_id"] == attempt_id
-    assert body[0]["lesson_slug"] == QUIZ_SLUG
+    assert body[0]["course_slug"] == COURSE_SLUG
     assert body[0]["score"] == 5
     assert body[0]["passed"] is True
     assert body[0]["certificate_code"] is None
@@ -268,3 +278,111 @@ def test_a_signed_in_users_completed_attempt_appears_in_me_attempts():
 def test_me_attempts_without_a_cookie_returns_401():
     response = client.get("/api/v1/me/attempts")
     assert response.status_code == 401
+
+
+LARGE_COURSE_SLUG = "test-course-attempts-large"
+
+
+@pytest.fixture
+def large_course():
+    db = SessionLocal()
+    course = Course(
+        slug=LARGE_COURSE_SLUG,
+        title="Course With Fifteen Questions",
+        description="Used to test the 80% pass ratio beyond five questions.",
+        is_published=True,
+    )
+    db.add(course)
+    db.flush()
+
+    for lesson_position in range(1, 4):
+        lesson = Lesson(
+            course_id=course.id,
+            position=lesson_position,
+            slug=f"{LARGE_COURSE_SLUG}-lesson-{lesson_position}",
+            title=f"Lesson {lesson_position}",
+            description="d",
+            duration_seconds=300,
+            is_published=True,
+            required_watch_ratio=0,
+        )
+        db.add(lesson)
+        db.flush()
+        for q_position in range(1, 6):
+            question = Question(lesson_id=lesson.id, prompt=f"Q{q_position}?", position=q_position)
+            question.choices = [
+                Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
+                for index, letter in enumerate(["A", "B", "C", "D"], start=1)
+            ]
+            db.add(question)
+
+    db.commit()
+    db.close()
+
+    yield
+
+    db = SessionLocal()
+    course_ids = select(Course.id).where(Course.slug == LARGE_COURSE_SLUG)
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == LARGE_COURSE_SLUG))
+    db.commit()
+    db.close()
+
+
+def _get_questions_for(slug):
+    db = SessionLocal()
+    stmt = (
+        select(Question)
+        .join(Lesson)
+        .join(Course)
+        .where(Course.slug == slug)
+        .order_by(Lesson.position, Question.position)
+    )
+    questions = db.execute(stmt).scalars().all()
+    result = []
+    for question in questions:
+        correct_choice = next(c for c in question.choices if c.is_correct)
+        wrong_choice = next(c for c in question.choices if not c.is_correct)
+        result.append(
+            {
+                "question_id": question.id,
+                "correct_choice_id": correct_choice.id,
+                "wrong_choice_id": wrong_choice.id,
+            }
+        )
+    db.close()
+    return result
+
+
+def test_passing_a_fifteen_question_course_requires_twelve_of_fifteen(large_course):
+    ensure_signed_in()
+    response = client.post(f"/api/v1/courses/{LARGE_COURSE_SLUG}/attempts")
+    assert response.status_code == 201
+    assert response.json()["question_count"] == 15
+    attempt_id = response.json()["attempt_id"]
+
+    questions = _get_questions_for(LARGE_COURSE_SLUG)
+    for q in questions[:11]:
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+    for q in questions[11:]:
+        answer(attempt_id, q["question_id"], q["wrong_choice_id"])
+
+    result = client.get(f"/api/v1/attempts/{attempt_id}/result").json()
+    assert result["score"] == 11
+    assert result["passed"] is False
+
+
+def test_passing_a_fifteen_question_course_at_twelve_succeeds(large_course):
+    ensure_signed_in()
+    response = client.post(f"/api/v1/courses/{LARGE_COURSE_SLUG}/attempts")
+    attempt_id = response.json()["attempt_id"]
+
+    questions = _get_questions_for(LARGE_COURSE_SLUG)
+    for q in questions[:12]:
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+    for q in questions[12:]:
+        answer(attempt_id, q["question_id"], q["wrong_choice_id"])
+
+    result = client.get(f"/api/v1/attempts/{attempt_id}/result").json()
+    assert result["score"] == 12
+    assert result["passed"] is True

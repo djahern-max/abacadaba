@@ -51,8 +51,26 @@
   flex: 1;
 }
 
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .duration {
   font-size: 13px;
   font-weight: 500;
   color: var(--color-accent);
+}
+
+.watched {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-success, #2a9d63);
+}
+
+.notWatched {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
 }

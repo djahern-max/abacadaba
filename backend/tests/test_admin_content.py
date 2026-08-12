@@ -10,6 +10,7 @@ from app.main import app
 from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.choice import Choice
+from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
@@ -24,13 +25,18 @@ MEMBER_EMAIL = "member-content@example.com"
 PASSWORD = "correct-horse-battery"
 
 ADMIN_ROUTES = [
-    ("GET", "/api/v1/admin/lessons"),
-    ("POST", "/api/v1/admin/lessons"),
+    ("GET", "/api/v1/admin/courses"),
+    ("POST", "/api/v1/admin/courses"),
+    ("GET", "/api/v1/admin/courses/999999"),
+    ("PATCH", "/api/v1/admin/courses/999999"),
+    ("DELETE", "/api/v1/admin/courses/999999"),
+    ("POST", "/api/v1/admin/courses/999999/publish"),
+    ("POST", "/api/v1/admin/courses/999999/unpublish"),
+    ("POST", "/api/v1/admin/courses/999999/lessons"),
     ("GET", "/api/v1/admin/lessons/999999"),
     ("PATCH", "/api/v1/admin/lessons/999999"),
     ("DELETE", "/api/v1/admin/lessons/999999"),
-    ("POST", "/api/v1/admin/lessons/999999/publish"),
-    ("POST", "/api/v1/admin/lessons/999999/unpublish"),
+    ("POST", "/api/v1/admin/lessons/999999/move"),
     ("POST", "/api/v1/admin/lessons/999999/questions"),
     ("PATCH", "/api/v1/admin/questions/999999"),
     ("DELETE", "/api/v1/admin/questions/999999"),
@@ -53,14 +59,15 @@ def cleanup():
     db = SessionLocal()
     emails = [ADMIN_EMAIL, MEMBER_EMAIL]
     user_ids = select(User.id).where(User.email.in_(emails))
-    lesson_ids = select(Lesson.id).where(Lesson.slug.like(f"{SLUG_PREFIX}%"))
+    course_ids = select(Course.id).where(Course.slug.like(f"{SLUG_PREFIX}%"))
+    lesson_ids = select(Lesson.id).where(Lesson.course_id.in_(course_ids))
     question_ids = select(Question.id).where(Question.lesson_id.in_(lesson_ids))
-    attempt_ids = select(Attempt.id).where(Attempt.lesson_id.in_(lesson_ids))
+    attempt_ids = select(Attempt.id).where(Attempt.course_id.in_(course_ids))
     db.execute(delete(AttemptAnswer).where(AttemptAnswer.attempt_id.in_(attempt_ids)))
-    db.execute(delete(Attempt).where(Attempt.lesson_id.in_(lesson_ids)))
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
     db.execute(delete(Choice).where(Choice.question_id.in_(question_ids)))
     db.execute(delete(Question).where(Question.lesson_id.in_(lesson_ids)))
-    db.execute(delete(Lesson).where(Lesson.slug.like(f"{SLUG_PREFIX}%")))
+    db.execute(delete(Course).where(Course.slug.like(f"{SLUG_PREFIX}%")))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email.in_(emails)))
     db.commit()
@@ -84,15 +91,23 @@ def login_admin():
     register_and_login(ADMIN_EMAIL, is_admin=True)
 
 
-def create_lesson(slug_suffix, **overrides):
-    payload = {"title": f"Admin Test Lesson {slug_suffix}", "slug": f"{SLUG_PREFIX}-{slug_suffix}"}
+def create_course(slug_suffix, **overrides):
+    payload = {"title": f"Admin Test Course {slug_suffix}", "slug": f"{SLUG_PREFIX}-{slug_suffix}"}
     payload.update(overrides)
-    response = client.post("/api/v1/admin/lessons", json=payload)
+    response = client.post("/api/v1/admin/courses", json=payload)
     assert response.status_code == 201, response.text
     return response.json()
 
 
-def add_complete_questions(lesson_id, count=5):
+def create_lesson(course_id, slug_suffix, **overrides):
+    payload = {"title": f"Admin Test Lesson {slug_suffix}", "slug": f"{SLUG_PREFIX}-lesson-{slug_suffix}"}
+    payload.update(overrides)
+    response = client.post(f"/api/v1/admin/courses/{course_id}/lessons", json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_complete_questions(lesson_id, count=1):
     for i in range(count):
         question = client.post(
             f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": f"Question {i}"}
@@ -105,6 +120,15 @@ def add_complete_questions(lesson_id, count=5):
                 json={"text": f"Choice {j}", "is_correct": j == 0},
             )
             assert choice.status_code == 201, choice.text
+
+
+def upload_video(slug, monkeypatch):
+    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+    response = client.post(
+        f"/api/v1/admin/lessons/{slug}/video",
+        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
+    )
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("method,path", ADMIN_ROUTES)
@@ -120,35 +144,88 @@ def test_non_admin_gets_403(method, path):
     assert response.status_code == 403
 
 
-def test_create_lesson_is_unpublished():
+def test_create_course_is_unpublished():
     login_admin()
-    lesson = create_lesson("create")
-    assert lesson["is_published"] is False
-    assert lesson["questions"] == []
+    course = create_course("create")
+    assert course["is_published"] is False
+    assert course["lessons"] == []
 
 
-def test_publish_with_four_questions_returns_422():
+def test_create_lesson_adds_it_to_the_course_in_order():
     login_admin()
-    lesson = create_lesson("four-questions")
-    add_complete_questions(lesson["id"], count=4)
+    course = create_course("lesson-order")
+    lesson_a = create_lesson(course["id"], "a")
+    lesson_b = create_lesson(course["id"], "b")
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish")
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert [lesson["id"] for lesson in detail["lessons"]] == [lesson_a["id"], lesson_b["id"]]
+    assert [lesson["position"] for lesson in detail["lessons"]] == [1, 2]
+
+
+def test_reordering_lessons_produces_contiguous_positions():
+    login_admin()
+    course = create_course("lesson-reorder")
+    l1 = create_lesson(course["id"], "1")
+    l2 = create_lesson(course["id"], "2")
+    l3 = create_lesson(course["id"], "3")
+
+    # l1, l2, l3 -> move l3 up -> l1, l3, l2 -> move l3 up again -> l3, l1, l2
+    assert client.post(f"/api/v1/admin/lessons/{l3['id']}/move", json={"direction": "up"}).status_code == 204
+    assert client.post(f"/api/v1/admin/lessons/{l3['id']}/move", json={"direction": "up"}).status_code == 204
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    positions = [(lesson["id"], lesson["position"]) for lesson in detail["lessons"]]
+    assert [position for _, position in positions] == [1, 2, 3]
+    assert [lesson_id for lesson_id, _ in positions] == [l3["id"], l1["id"], l2["id"]]
+
+
+def test_publish_with_no_lessons_returns_422():
+    login_admin()
+    course = create_course("no-lessons")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 422
     errors = response.json()["detail"]
-    assert any("must have exactly 5 questions" in error for error in errors)
+    assert any("at least one lesson" in error for error in errors)
 
 
-def test_publish_with_missing_correct_choice_returns_422():
+def test_publish_with_a_lesson_missing_a_video_names_that_lesson():
     login_admin()
-    lesson = create_lesson("no-correct-choice")
-    add_complete_questions(lesson["id"], count=5)
+    course = create_course("missing-video")
+    lesson = create_lesson(course["id"], "missing-video", description="A lesson without a video.")
+    add_complete_questions(lesson["id"], count=1)
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(lesson["title"] in error and "video" in error for error in errors)
+
+
+def test_publish_with_a_lesson_missing_questions_names_that_lesson(monkeypatch):
+    login_admin()
+    course = create_course("missing-questions")
+    lesson = create_lesson(course["id"], "missing-questions", description="A lesson without questions.")
+    upload_video(lesson["slug"], monkeypatch)
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(lesson["title"] in error and "question" in error for error in errors)
+
+
+def test_publish_with_missing_correct_choice_returns_422(monkeypatch):
+    login_admin()
+    course = create_course("no-correct-choice")
+    lesson = create_lesson(course["id"], "no-correct-choice", description="d")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
 
     detail = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()
     first_choice_id = detail["questions"][0]["choices"][0]["id"]
     unset = client.patch(f"/api/v1/admin/choices/{first_choice_id}", json={"is_correct": False})
     assert unset.status_code == 200
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish")
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 422
     errors = response.json()["detail"]
     assert any("must have exactly one correct choice" in error for error in errors)
@@ -156,77 +233,88 @@ def test_publish_with_missing_correct_choice_returns_422():
 
 def test_dry_run_publish_reports_errors_without_publishing():
     login_admin()
-    lesson = create_lesson("dry-run-incomplete")
-    add_complete_questions(lesson["id"], count=4)
+    course = create_course("dry-run-incomplete")
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish?dry_run=true")
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
     errors = response.json()["errors"]
-    assert any("must have exactly 5 questions" in error for error in errors)
+    assert any("at least one lesson" in error for error in errors)
 
-    detail = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     assert detail["is_published"] is False
 
 
-def test_dry_run_publish_reports_no_errors_for_complete_lesson(monkeypatch):
-    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
     login_admin()
-    lesson = create_lesson("dry-run-complete", description="A complete test lesson.")
-    add_complete_questions(lesson["id"], count=5)
-    client.post(
-        f"/api/v1/admin/lessons/{lesson['slug']}/video",
-        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
-    )
+    course = create_course("dry-run-complete", description="A complete test course.")
+    lesson = create_lesson(course["id"], "dry-run-complete", description="A complete test lesson.")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish?dry_run=true")
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
     assert response.json()["errors"] == []
 
-    detail = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     assert detail["is_published"] is False
 
 
-def test_publish_complete_lesson_succeeds_and_appears_in_public_list(monkeypatch):
-    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
+def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch):
     login_admin()
-    lesson = create_lesson("complete", description="A complete test lesson.")
-    add_complete_questions(lesson["id"], count=5)
-    upload = client.post(
-        f"/api/v1/admin/lessons/{lesson['slug']}/video",
-        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
-    )
-    assert upload.status_code == 200
+    course = create_course("complete", description="A complete test course.")
+    lesson = create_lesson(course["id"], "complete", description="A complete test lesson.")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish")
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 200
     assert response.json()["is_published"] is True
 
-    public = client.get("/api/v1/lessons")
-    assert lesson["slug"] in [item["slug"] for item in public.json()]
+    public = client.get("/api/v1/courses")
+    assert course["slug"] in [item["slug"] for item in public.json()]
+
+
+def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monkeypatch):
+    login_admin()
+    course = create_course("publish-cascades", description="A complete test course.")
+    lesson = create_lesson(course["id"], "publish-cascades", description="d")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+
+    assert lesson["is_published"] is False
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200
+    assert response.json()["lessons"][0]["is_published"] is True
+
+    detail = client.get(f"/api/v1/courses/{course['slug']}").json()
+    assert len(detail["lessons"]) == 1
+
+    quiz = client.get(f"/api/v1/courses/{course['slug']}/quiz")
+    assert quiz.status_code == 200
+    assert quiz.json()["question_count"] == 1
 
 
 def test_unpublish_removes_from_public_list(monkeypatch):
-    monkeypatch.setattr(storage, "upload_fileobj", lambda fileobj, key, content_type: None)
     login_admin()
-    lesson = create_lesson("unpublish", description="A lesson to unpublish.")
-    add_complete_questions(lesson["id"], count=5)
-    client.post(
-        f"/api/v1/admin/lessons/{lesson['slug']}/video",
-        files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
-    )
-    client.post(f"/api/v1/admin/lessons/{lesson['id']}/publish")
+    course = create_course("unpublish", description="A course to unpublish.")
+    lesson = create_lesson(course["id"], "unpublish", description="d")
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+    client.post(f"/api/v1/admin/courses/{course['id']}/publish")
 
-    response = client.post(f"/api/v1/admin/lessons/{lesson['id']}/unpublish")
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/unpublish")
     assert response.status_code == 200
     assert response.json()["is_published"] is False
 
-    public = client.get("/api/v1/lessons")
-    assert lesson["slug"] not in [item["slug"] for item in public.json()]
+    public = client.get("/api/v1/courses")
+    assert course["slug"] not in [item["slug"] for item in public.json()]
 
 
 def test_setting_correct_choice_clears_previous():
     login_admin()
-    lesson = create_lesson("correct-swap")
+    course = create_course("correct-swap")
+    lesson = create_lesson(course["id"], "correct-swap")
     question = client.post(
         f"/api/v1/admin/lessons/{lesson['id']}/questions", json={"prompt": "Which one?"}
     ).json()
@@ -250,7 +338,8 @@ def test_setting_correct_choice_clears_previous():
 
 def test_reordering_questions_produces_contiguous_positions():
     login_admin()
-    lesson = create_lesson("reorder")
+    course = create_course("question-reorder")
+    lesson = create_lesson(course["id"], "question-reorder")
     q1 = client.post(f"/api/v1/admin/lessons/{lesson['id']}/questions", json={"prompt": "Q1"}).json()
     q2 = client.post(f"/api/v1/admin/lessons/{lesson['id']}/questions", json={"prompt": "Q2"}).json()
     q3 = client.post(f"/api/v1/admin/lessons/{lesson['id']}/questions", json={"prompt": "Q3"}).json()
@@ -265,14 +354,32 @@ def test_reordering_questions_produces_contiguous_positions():
     assert [question_id for question_id, _ in positions] == [q3["id"], q1["id"], q2["id"]]
 
 
-def test_delete_lesson_with_completed_attempt_returns_409():
+def test_delete_course_with_completed_attempt_returns_409():
     login_admin()
-    lesson = create_lesson("delete-with-attempt")
+    course = create_course("delete-with-attempt")
 
     db = SessionLocal()
     db.add(
         Attempt(
-            lesson_id=lesson["id"], score=4, passed=True, completed_at=datetime.now(timezone.utc)
+            course_id=course["id"], score=4, passed=True, completed_at=datetime.now(timezone.utc)
+        )
+    )
+    db.commit()
+    db.close()
+
+    response = client.delete(f"/api/v1/admin/courses/{course['id']}")
+    assert response.status_code == 409
+
+
+def test_delete_lesson_whose_course_has_a_completed_attempt_returns_409():
+    login_admin()
+    course = create_course("delete-lesson-with-attempt")
+    lesson = create_lesson(course["id"], "delete-lesson-with-attempt")
+
+    db = SessionLocal()
+    db.add(
+        Attempt(
+            course_id=course["id"], score=4, passed=True, completed_at=datetime.now(timezone.utc)
         )
     )
     db.commit()

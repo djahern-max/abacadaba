@@ -16,7 +16,7 @@ def _to_info(data: certificates_service.CertificateData) -> CertificateInfo:
     return CertificateInfo(
         certificate_code=data.certificate_code,
         recipient_name=data.recipient_name,
-        lesson_title=data.lesson_title,
+        course_title=data.course_title,
         score=data.score,
         question_count=data.question_count,
         completed_at=data.completed_at,
@@ -47,7 +47,7 @@ def download_certificate(attempt_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     pdf_bytes = certificates_service.render_pdf(data)
-    filename = f"abacadaba-{data.lesson_slug}.pdf"
+    filename = f"abacadaba-{data.course_slug}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
@@ -65,7 +65,7 @@ def verify_certificate(code: str, db: Session = Depends(get_db)):
         valid=True,
         certificate_code=data.certificate_code,
         recipient_name=data.recipient_name,
-        lesson_title=data.lesson_title,
+        course_title=data.course_title,
         score=data.score,
         question_count=data.question_count,
         completed_at=data.completed_at,
