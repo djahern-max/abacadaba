@@ -1,14 +1,20 @@
+# Secrets
 .env
+.env.prod
+.env.production
+.env.local
+!.env.example
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Node
 node_modules/
 dist/
+
+# Local
 .DS_Store
-
 notes.txt
-
-# Production env for the Droplet
-.env
-!.env.example
