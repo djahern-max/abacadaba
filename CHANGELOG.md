@@ -490,3 +490,100 @@ assessment button; and confirmed a Basic course with both fields left
 blank publishes and renders "None" for both on its public page. Objectives
 on individual lessons, and the development/review chain's "most recent
 publication, revision, or review date" (021), remain out of scope.
+
+## 2026-08-14, Feature 020a, Dirty-tracking defects in the questions and objectives editors
+`DetailsForm` already reported its dirty state up to the page-level
+`hasUnsavedWork` (the `beforeunload` warning and the "Back" link's
+confirm dialog); the row editors for questions, choices, and learning
+objectives did not, even though each row already computed its own
+dirty flag locally to enable its own Save button. Editing a question
+prompt, a choice, or an objective and then navigating away without
+clicking that row's Save lost the edit silently. Extended the same
+`onDirtyChange` pattern one level deeper: `ChoiceRow` and `ObjectiveRow`
+now report `(id, dirty)` up; `QuestionEditor` combines its own prompt
+dirty state with the OR of its choices' into one signal per question;
+`QuestionsEditor` and `ObjectivesPanel` aggregate their rows' signals
+(dirty-id `Set`s) into a single boolean each and report it up via their
+own `onDirtyChange`; `AdminLessonEditor`'s and `AdminCourseEditor`'s
+`hasUnsavedWork` now OR in `questionsDirty`/`objectivesDirty` alongside
+the existing `detailsDirty`/`uploading`. The three aggregator callbacks
+(`QuestionsEditor`, `QuestionEditor`, `ObjectivesPanel`) needed
+`useCallback` — without a stable identity, each child row's dirty-effect
+depends on the callback reference, and a fresh function every render
+put React into an infinite `setState`-in-`useEffect` loop
+("Maximum update depth exceeded"), caught during manual browser
+verification (Playwright) before shipping, not by lint or pytest. No
+Save button moved, no save granularity changed — that's 020b, next.
+Verified against a live dev database via a scripted Playwright session:
+editing an objective, a question prompt, and a choice each independently
+triggers the confirm dialog on navigating away when unsaved and does not
+when clean or after that row's own Save is clicked; console stayed free
+of repeated render-loop errors through all three. `npm run lint` and the
+full backend `pytest` suite (183 tests, unchanged) both pass.
+
+## 2026-08-14, Feature 020b, Authoring workflow
+One save model, field labels, a restructured questions editor, an explicit
+next step, and orientation text for an empty course — five presentation-only
+fixes from watching one person author a course start to finish. All Details,
+Objectives, Questions, and Choices edits are now held in client state and
+committed by a single sticky `StickySaveBar` (new, `components/StickySaveBar`)
+pinned to the bottom of each editor page, showing a live count of unsaved
+changes and inert at zero; every per-row Save button (`ChoiceRow`,
+`QuestionEditor`'s prompt, `ObjectiveRow`, `DetailsForm`, `CourseDetailsForm`)
+is gone. Reaching this from 020a's per-row dirty booleans meant widening the
+contract to counts and adding a matching commit path: each row now exposes a
+`save()` via `useImperativeHandle` (fresh closure every render, since a
+memoized handle would go stale the way the naive dirty-callback did in 020a),
+and each aggregator (`QuestionEditor` over its choices, `QuestionsEditor` over
+its questions, `ObjectivesPanel` over its objectives) holds a `Map` of child
+refs alongside its `Map` of dirty counts and sums both on the way up; the
+page's `handleSaveAll` calls whichever refs are actually dirty, awaits them
+together, and only then refetches. Delete/Move/Add/upload stayed immediate —
+uploads now say so explicitly in both `VideoUploader` and the shared
+`ThumbnailUploader` ("saves immediately... unlike the rest of this page").
+`ThumbnailUploader` gained `label`/`placementNote` props so the course and
+lesson thumbnail sections read as what they are ("Course thumbnail — shown on
+the course card in the catalog" vs "Lesson thumbnail — the poster frame shown
+before this segment's video plays"); `CourseDetailsForm`'s description field
+is now labelled "Course description" with a hint naming it the 8.01.1
+pre-enrollment disclosure, and `DetailsForm`'s lesson description got its own
+hint. In `QuestionEditor`, choices moved into a `.choicesBlock` — indented,
+left-ruled, surface-tinted — so they read as belonging to their question
+instead of just trailing it, and `QuestionsEditor` moved "Add question" (now
+a textarea, matching a prompt's shape rather than a choice's single-line
+input) into a dashed full-width block above the question list instead of
+below the last one, so it can no longer sit directly under an "Add choice"
+input. Objectives have no nested add-control, so no equivalent adjacency
+existed there and `ObjectivesPanel` is unchanged in that respect.
+`AdminLessonEditor` gained a "Next" section — reusing `checkAdminCoursePublish`
+(previously course-editor-only) filtered to messages starting with `Lesson
+'<this lesson's title>'`, stripped of that prefix — showing what's still
+outstanding or confirming the lesson is publish-ready, plus a repeated "Back
+to course" link, both above the danger zone. `CoursePublishPanel`'s per-lesson
+failure messages now match that same `Lesson '<title>'` pattern against
+`course.lessons` and render as links to `/admin/lessons/{id}` when a match is
+found; its publish-blocked reasoning generalized from a details-only
+`detailsDirty` prop to `hasUnsavedWork`, since unsaved objective edits are
+just as stale-publish-worthy as unsaved details now. `LessonsPanel` shows
+orientation text — what a lesson is, and that a course is one or more of them
+in order — only while `course.lessons.length === 0`, replaced by the list
+once one exists. Verified against a live dev database via a scripted
+Playwright session covering both editors end to end: created a course,
+confirmed the empty-lessons orientation text, edited a detail field and an
+objective and saved both with one click, confirmed the unsaved-changes dialog
+fires on a dirty question prompt and a dirty choice and clears after save,
+confirmed a hard-reloaded page shows the persisted values (not just local
+state), watched the lesson's "Next" section drop "must have at least one
+question" once a question with two choices and a correct answer existed,
+and clicked a lesson-named publish-checklist failure through to that lesson's
+editor. `npm run lint` and the full backend `pytest` suite (183 tests,
+unchanged — no backend file touched) both pass. This feature is entirely
+presentation and client state in the admin tool; `ThumbnailUploader`, the one
+shared component touched, is never used on the public course page, so no
+participant-facing disclosure changed. COMPLIANCE.md gains no row: the
+8.01.1 and 3.02.1 mappings from feature 020 are unchanged and still accurate
+against `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`, and Part 2's
+relabelling did not surface any field mapped in 020 that turned out to be
+unrendered. 020a's three dirty-tracking defects, background/resumable
+upload, bulk question import, and certificate design remain out of scope, as
+specified.

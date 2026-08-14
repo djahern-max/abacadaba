@@ -1,14 +1,20 @@
-import { useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { deleteAdminChoice, moveAdminChoice, setCorrectChoice, updateAdminChoice } from '../../../api/admin'
 import styles from './ChoiceRow.module.css'
 
-function ChoiceRow({ choice, questionId, onChange }) {
+const ChoiceRow = forwardRef(function ChoiceRow({ choice, questionId, onDirtyChange, onChange }, ref) {
   const [text, setText] = useState(choice.text)
 
-  async function handleSave() {
-    await updateAdminChoice(choice.id, text)
-    await onChange()
-  }
+  const dirty = text !== choice.text
+
+  useEffect(() => {
+    onDirtyChange?.(choice.id, dirty ? 1 : 0)
+    return () => onDirtyChange?.(choice.id, 0)
+  }, [choice.id, dirty, onDirtyChange])
+
+  useImperativeHandle(ref, () => ({
+    save: () => updateAdminChoice(choice.id, text),
+  }))
 
   async function handleCorrect() {
     await setCorrectChoice(questionId, choice.id)
@@ -40,9 +46,6 @@ function ChoiceRow({ choice, questionId, onChange }) {
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
-      <button type="button" onClick={handleSave} disabled={text === choice.text}>
-        Save
-      </button>
       <button type="button" onClick={() => handleMove('up')}>
         Up
       </button>
@@ -54,6 +57,6 @@ function ChoiceRow({ choice, questionId, onChange }) {
       </button>
     </li>
   )
-}
+})
 
 export default ChoiceRow

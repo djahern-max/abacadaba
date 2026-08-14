@@ -1,22 +1,48 @@
-import { useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createAdminChoice, deleteAdminQuestion, moveAdminQuestion, updateAdminQuestion } from '../../../api/admin'
 import ChoiceRow from './ChoiceRow'
 import styles from './QuestionEditor.module.css'
 
-function QuestionEditor({ question, isFirst, isLast, onChange }) {
+const QuestionEditor = forwardRef(function QuestionEditor(
+  { question, isFirst, isLast, onDirtyChange, onChange },
+  ref,
+) {
   const [prompt, setPrompt] = useState(question.prompt)
   const [newChoiceText, setNewChoiceText] = useState('')
-  const [error, setError] = useState('')
+  const [dirtyChoiceCounts, setDirtyChoiceCounts] = useState(() => new Map())
+  const choiceRefs = useRef(new Map())
 
-  async function handleSavePrompt() {
-    setError('')
-    try {
-      await updateAdminQuestion(question.id, prompt)
-      await onChange()
-    } catch {
-      setError('Could not save this question.')
-    }
-  }
+  const promptDirty = prompt !== question.prompt
+  const choicesDirtyTotal = [...dirtyChoiceCounts.values()].reduce((sum, count) => sum + count, 0)
+  const ownDirtyCount = (promptDirty ? 1 : 0) + choicesDirtyTotal
+
+  useEffect(() => {
+    onDirtyChange?.(question.id, ownDirtyCount)
+    return () => onDirtyChange?.(question.id, 0)
+  }, [question.id, ownDirtyCount, onDirtyChange])
+
+  const handleChoiceDirtyChange = useCallback((choiceId, count) => {
+    setDirtyChoiceCounts((prev) => {
+      const already = prev.get(choiceId) ?? 0
+      if (already === count) return prev
+      const next = new Map(prev)
+      if (count > 0) next.set(choiceId, count)
+      else next.delete(choiceId)
+      return next
+    })
+  }, [])
+
+  useImperativeHandle(ref, () => ({
+    save: async () => {
+      const tasks = []
+      if (promptDirty) tasks.push(updateAdminQuestion(question.id, prompt))
+      for (const choiceId of dirtyChoiceCounts.keys()) {
+        const choiceRef = choiceRefs.current.get(choiceId)
+        if (choiceRef) tasks.push(choiceRef.save())
+      }
+      await Promise.all(tasks)
+    },
+  }))
 
   async function handleMove(direction) {
     await moveAdminQuestion(question.id, direction)
@@ -54,33 +80,41 @@ function QuestionEditor({ question, isFirst, isLast, onChange }) {
         <button type="button" onClick={() => handleMove('down')} disabled={isLast}>
           Move down
         </button>
-        <button type="button" onClick={handleSavePrompt} disabled={prompt === question.prompt}>
-          Save
-        </button>
         <button type="button" className={styles.dangerButton} onClick={handleDeleteQuestion}>
           Delete question
         </button>
       </div>
-      {error && <p className={styles.fieldError}>{error}</p>}
 
-      <ul className={styles.choices}>
-        {question.choices.map((choice) => (
-          <ChoiceRow key={choice.id} choice={choice} questionId={question.id} onChange={onChange} />
-        ))}
-      </ul>
+      <div className={styles.choicesBlock}>
+        <ul className={styles.choices}>
+          {question.choices.map((choice) => (
+            <ChoiceRow
+              key={choice.id}
+              ref={(el) => {
+                if (el) choiceRefs.current.set(choice.id, el)
+                else choiceRefs.current.delete(choice.id)
+              }}
+              choice={choice}
+              questionId={question.id}
+              onDirtyChange={handleChoiceDirtyChange}
+              onChange={onChange}
+            />
+          ))}
+        </ul>
 
-      <form className={styles.addChoiceForm} onSubmit={handleAddChoice}>
-        <input
-          className={styles.choiceTextInput}
-          type="text"
-          placeholder="New choice text"
-          value={newChoiceText}
-          onChange={(event) => setNewChoiceText(event.target.value)}
-        />
-        <button type="submit">Add choice</button>
-      </form>
+        <form className={styles.addChoiceForm} onSubmit={handleAddChoice}>
+          <input
+            className={styles.choiceTextInput}
+            type="text"
+            placeholder="New choice text"
+            value={newChoiceText}
+            onChange={(event) => setNewChoiceText(event.target.value)}
+          />
+          <button type="submit">Add choice</button>
+        </form>
+      </div>
     </div>
   )
-}
+})
 
 export default QuestionEditor

@@ -33,6 +33,13 @@ function LessonsPanel({ course, onChange }) {
     <section className={styles.section}>
       <h2 className={styles.heading}>Lessons ({course.lessons.length})</h2>
 
+      {course.lessons.length === 0 && (
+        <p className={styles.emptyState}>
+          A lesson is one video segment plus its questions. A course is one or more lessons, taken in order.
+          Add the first one below.
+        </p>
+      )}
+
       <ol className={styles.list}>
         {course.lessons.map((lesson, index) => (
           <li key={lesson.id} className={styles.row}>

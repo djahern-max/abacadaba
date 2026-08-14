@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { checkAdminCoursePublish, deleteAdminCourse, getAdminCourse, uploadAdminCourseThumbnail } from '../../../api/admin'
 import { getCourseThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
+import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
 import CourseDetailsForm from './CourseDetailsForm'
 import ObjectivesPanel from './ObjectivesPanel'
 import LessonsPanel from './LessonsPanel'
@@ -15,10 +16,17 @@ function AdminCourseEditor() {
   const [state, setState] = useState({ status: 'loading', course: null })
   const [publishErrors, setPublishErrors] = useState([])
   const [deleteError, setDeleteError] = useState('')
-  const [detailsDirty, setDetailsDirty] = useState(false)
+  const [detailsDirty, setDetailsDirty] = useState(0)
+  const [objectivesDirty, setObjectivesDirty] = useState(0)
   const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
-  const hasUnsavedWork = detailsDirty || uploading
+  const detailsRef = useRef(null)
+  const objectivesRef = useRef(null)
+
+  const totalDirty = detailsDirty + objectivesDirty
+  const hasUnsavedWork = totalDirty > 0 || uploading
 
   const refresh = useCallback(() => {
     return getAdminCourse(id)
@@ -47,6 +55,22 @@ function AdminCourseEditor() {
   function handleBackClick(event) {
     if (hasUnsavedWork && !window.confirm('You have unsaved changes. Leave this page?')) {
       event.preventDefault()
+    }
+  }
+
+  async function handleSaveAll() {
+    setSaveError('')
+    setSaving(true)
+    try {
+      const tasks = []
+      if (detailsDirty > 0) tasks.push(detailsRef.current.save())
+      if (objectivesDirty > 0) tasks.push(objectivesRef.current.save())
+      await Promise.all(tasks)
+      await refresh()
+    } catch {
+      setSaveError('Could not save your changes. Try again.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -86,20 +110,22 @@ function AdminCourseEditor() {
         </Link>
       </div>
 
-      <CourseDetailsForm course={course} onDirtyChange={setDetailsDirty} onChange={refresh} />
+      <CourseDetailsForm ref={detailsRef} course={course} onDirtyChange={setDetailsDirty} />
       <ThumbnailUploader
         item={course}
+        label="Course thumbnail"
+        placementNote="Shown on the course card in the catalog."
         uploadThumbnail={uploadAdminCourseThumbnail}
         fetchThumbnailUrl={() => getCourseThumbnailUrl(course.slug)}
         onUploadingChange={setUploading}
         onChange={refresh}
       />
-      <ObjectivesPanel course={course} onChange={refresh} />
+      <ObjectivesPanel ref={objectivesRef} course={course} onDirtyChange={setObjectivesDirty} onChange={refresh} />
       <LessonsPanel course={course} onChange={refresh} />
       <CoursePublishPanel
         course={course}
         publishErrors={publishErrors}
-        detailsDirty={detailsDirty}
+        hasUnsavedWork={hasUnsavedWork}
         onPublishErrors={setPublishErrors}
         onChange={refresh}
       />
@@ -110,6 +136,8 @@ function AdminCourseEditor() {
         </button>
         {deleteError && <p className={styles.fieldError}>{deleteError}</p>}
       </section>
+
+      <StickySaveBar count={totalDirty} saving={saving} error={saveError} onSave={handleSaveAll} />
     </div>
   )
 }

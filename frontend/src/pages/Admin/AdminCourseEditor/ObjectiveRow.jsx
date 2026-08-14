@@ -1,20 +1,20 @@
-import { useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { deleteAdminObjective, moveAdminObjective, updateAdminObjective } from '../../../api/admin'
 import styles from '../AdminLessonEditor/QuestionEditor.module.css'
 
-function ObjectiveRow({ objective, isFirst, isLast, onChange }) {
+const ObjectiveRow = forwardRef(function ObjectiveRow({ objective, isFirst, isLast, onDirtyChange, onChange }, ref) {
   const [text, setText] = useState(objective.text)
-  const [error, setError] = useState('')
 
-  async function handleSave() {
-    setError('')
-    try {
-      await updateAdminObjective(objective.id, text)
-      await onChange()
-    } catch {
-      setError('Could not save this objective.')
-    }
-  }
+  const dirty = text !== objective.text
+
+  useEffect(() => {
+    onDirtyChange?.(objective.id, dirty ? 1 : 0)
+    return () => onDirtyChange?.(objective.id, 0)
+  }, [objective.id, dirty, onDirtyChange])
+
+  useImperativeHandle(ref, () => ({
+    save: () => updateAdminObjective(objective.id, text),
+  }))
 
   async function handleMove(direction) {
     await moveAdminObjective(objective.id, direction)
@@ -44,16 +44,12 @@ function ObjectiveRow({ objective, isFirst, isLast, onChange }) {
         <button type="button" onClick={() => handleMove('down')} disabled={isLast}>
           Move down
         </button>
-        <button type="button" onClick={handleSave} disabled={text === objective.text}>
-          Save
-        </button>
         <button type="button" className={styles.dangerButton} onClick={handleDelete}>
           Delete objective
         </button>
       </div>
-      {error && <p className={styles.fieldError}>{error}</p>}
     </div>
   )
-}
+})
 
 export default ObjectiveRow

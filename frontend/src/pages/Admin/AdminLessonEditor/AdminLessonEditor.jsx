@@ -1,27 +1,49 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteAdminLesson, getAdminLesson, uploadAdminThumbnail } from '../../../api/admin'
+import { checkAdminCoursePublish, deleteAdminLesson, getAdminLesson, uploadAdminThumbnail } from '../../../api/admin'
 import { getLessonThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
+import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
 import DetailsForm from './DetailsForm'
 import VideoUploader from './VideoUploader'
 import QuestionsEditor from './QuestionsEditor'
 import styles from './AdminLessonEditor.module.css'
+
+const LESSON_MESSAGE_PATTERN = /^Lesson '.+?'\s*/
 
 function AdminLessonEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [state, setState] = useState({ status: 'loading', lesson: null })
   const [deleteError, setDeleteError] = useState('')
-  const [detailsDirty, setDetailsDirty] = useState(false)
+  const [detailsDirty, setDetailsDirty] = useState(0)
+  const [questionsDirty, setQuestionsDirty] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [detectedDuration, setDetectedDuration] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [outstanding, setOutstanding] = useState(null)
 
-  const hasUnsavedWork = detailsDirty || uploading
+  const detailsRef = useRef(null)
+  const questionsRef = useRef(null)
+
+  const totalDirty = detailsDirty + questionsDirty
+  const hasUnsavedWork = totalDirty > 0 || uploading
 
   const refresh = useCallback(() => {
     return getAdminLesson(id)
-      .then((lesson) => setState({ status: 'loaded', lesson }))
+      .then((lesson) => {
+        setState({ status: 'loaded', lesson })
+        return checkAdminCoursePublish(lesson.course_id)
+          .then((result) =>
+            setOutstanding(
+              result.errors
+                .filter((message) => message.startsWith(`Lesson '${lesson.title}'`))
+                .map((message) => message.replace(LESSON_MESSAGE_PATTERN, '')),
+            ),
+          )
+          .catch(() => setOutstanding(null))
+      })
       .catch(() => setState({ status: 'error', lesson: null }))
   }, [id])
 
@@ -43,6 +65,22 @@ function AdminLessonEditor() {
   function handleBackClick(event) {
     if (hasUnsavedWork && !window.confirm('You have unsaved changes. Leave this page?')) {
       event.preventDefault()
+    }
+  }
+
+  async function handleSaveAll() {
+    setSaveError('')
+    setSaving(true)
+    try {
+      const tasks = []
+      if (detailsDirty > 0) tasks.push(detailsRef.current.save())
+      if (questionsDirty > 0) tasks.push(questionsRef.current.save())
+      await Promise.all(tasks)
+      await refresh()
+    } catch {
+      setSaveError('Could not save your changes. Try again.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -85,10 +123,10 @@ function AdminLessonEditor() {
       </p>
 
       <DetailsForm
+        ref={detailsRef}
         lesson={lesson}
         detectedDuration={detectedDuration}
         onDirtyChange={setDetailsDirty}
-        onChange={refresh}
       />
       <VideoUploader
         lesson={lesson}
@@ -98,12 +136,35 @@ function AdminLessonEditor() {
       />
       <ThumbnailUploader
         item={lesson}
+        label="Lesson thumbnail"
+        placementNote="The poster frame shown before this segment's video plays."
         uploadThumbnail={uploadAdminThumbnail}
         fetchThumbnailUrl={() => getLessonThumbnailUrl(lesson.course_slug, lesson.slug)}
         onUploadingChange={setUploading}
         onChange={refresh}
       />
-      <QuestionsEditor lesson={lesson} onChange={refresh} />
+      <QuestionsEditor ref={questionsRef} lesson={lesson} onDirtyChange={setQuestionsDirty} onChange={refresh} />
+
+      <section className={styles.nextStep}>
+        <h2 className={styles.heading}>Next</h2>
+        {outstanding === null ? (
+          <p className={styles.message}>Checking what's still outstanding&hellip;</p>
+        ) : outstanding.length === 0 ? (
+          <p className={styles.message}>This lesson meets all publish requirements.</p>
+        ) : (
+          <>
+            <p className={styles.message}>Still needed before the course can publish:</p>
+            <ul className={styles.outstandingList}>
+              {outstanding.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        <Link to={backTo} className={styles.nextStepLink} onClick={handleBackClick}>
+          &larr; Back to course
+        </Link>
+      </section>
 
       <section className={styles.dangerZone}>
         <button type="button" className={styles.deleteButton} onClick={handleDelete}>
@@ -111,6 +172,8 @@ function AdminLessonEditor() {
         </button>
         {deleteError && <p className={styles.fieldError}>{deleteError}</p>}
       </section>
+
+      <StickySaveBar count={totalDirty} saving={saving} error={saveError} onSave={handleSaveAll} />
     </div>
   )
 }

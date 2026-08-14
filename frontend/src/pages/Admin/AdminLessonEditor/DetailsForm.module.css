@@ -48,25 +48,3 @@
   font-size: 13px;
 }
 
-.fieldError {
-  margin: 0 0 var(--space-sm);
-  color: var(--color-danger);
-  font-size: 14px;
-}
-
-.button {
-  align-self: flex-start;
-  padding: var(--space-sm) var(--space-md);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}

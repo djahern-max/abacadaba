@@ -1,12 +1,42 @@
-import { useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createAdminObjective } from '../../../api/admin'
 import ObjectiveRow from './ObjectiveRow'
 import styles from '../AdminLessonEditor/QuestionsEditor.module.css'
 
-function ObjectivesPanel({ course, onChange }) {
+const ObjectivesPanel = forwardRef(function ObjectivesPanel({ course, onDirtyChange, onChange }, ref) {
   const [text, setText] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
+  const [dirtyCounts, setDirtyCounts] = useState(() => new Map())
+  const objectiveRefs = useRef(new Map())
+
+  const totalDirty = [...dirtyCounts.values()].reduce((sum, count) => sum + count, 0)
+
+  useEffect(() => {
+    onDirtyChange?.(totalDirty)
+  }, [totalDirty, onDirtyChange])
+
+  const handleObjectiveDirtyChange = useCallback((objectiveId, count) => {
+    setDirtyCounts((prev) => {
+      const already = prev.get(objectiveId) ?? 0
+      if (already === count) return prev
+      const next = new Map(prev)
+      if (count > 0) next.set(objectiveId, count)
+      else next.delete(objectiveId)
+      return next
+    })
+  }, [])
+
+  useImperativeHandle(ref, () => ({
+    save: async () => {
+      const tasks = []
+      for (const objectiveId of dirtyCounts.keys()) {
+        const objectiveRef = objectiveRefs.current.get(objectiveId)
+        if (objectiveRef) tasks.push(objectiveRef.save())
+      }
+      await Promise.all(tasks)
+    },
+  }))
 
   async function handleAdd(event) {
     event.preventDefault()
@@ -31,9 +61,14 @@ function ObjectivesPanel({ course, onChange }) {
       {course.learning_objectives.map((objective, index) => (
         <ObjectiveRow
           key={objective.id}
+          ref={(el) => {
+            if (el) objectiveRefs.current.set(objective.id, el)
+            else objectiveRefs.current.delete(objective.id)
+          }}
           objective={objective}
           isFirst={index === 0}
           isLast={index === course.learning_objectives.length - 1}
+          onDirtyChange={handleObjectiveDirtyChange}
           onChange={onChange}
         />
       ))}
@@ -54,6 +89,6 @@ function ObjectivesPanel({ course, onChange }) {
       {error && <p className={styles.fieldError}>{error}</p>}
     </section>
   )
-}
+})
 
 export default ObjectivesPanel

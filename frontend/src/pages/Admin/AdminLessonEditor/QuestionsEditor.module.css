@@ -19,6 +19,26 @@
   gap: var(--space-sm);
 }
 
+.addQuestionForm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.addQuestionTextarea {
+  flex: 1;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}
+
 .input {
   flex: 1;
   max-width: 400px;

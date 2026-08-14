@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { publishAdminCourse, unpublishAdminCourse } from '../../../api/admin'
 import styles from '../AdminLessonEditor/PublishPanel.module.css'
 
@@ -8,7 +9,15 @@ const FIXED_CHECKS = [
   { label: 'At least one lesson', message: 'Course must have at least one lesson' },
 ]
 
-function CoursePublishPanel({ course, publishErrors, detailsDirty, onPublishErrors, onChange }) {
+const LESSON_MESSAGE_PATTERN = /^Lesson '(.+?)'/
+
+function lessonForMessage(course, message) {
+  const match = message.match(LESSON_MESSAGE_PATTERN)
+  if (!match) return null
+  return course.lessons.find((lesson) => lesson.title === match[1]) ?? null
+}
+
+function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishErrors, onChange }) {
   async function handlePublish() {
     try {
       await publishAdminCourse(course.id)
@@ -29,7 +38,7 @@ function CoursePublishPanel({ course, publishErrors, detailsDirty, onPublishErro
 
   const fixedMessages = new Set(FIXED_CHECKS.map((check) => check.message))
   const lessonErrors = publishErrors.filter((message) => !fixedMessages.has(message))
-  const publishDisabled = detailsDirty || publishErrors.length > 0
+  const publishDisabled = hasUnsavedWork || publishErrors.length > 0
 
   return (
     <section className={styles.section}>
@@ -49,11 +58,21 @@ function CoursePublishPanel({ course, publishErrors, detailsDirty, onPublishErro
             question has exactly one correct choice
           </li>
         ) : (
-          lessonErrors.map((message) => (
-            <li key={message} className={styles.checklistItem}>
-              <span aria-hidden="true">○</span> {message}
-            </li>
-          ))
+          lessonErrors.map((message) => {
+            const lesson = lessonForMessage(course, message)
+            return (
+              <li key={message} className={styles.checklistItem}>
+                <span aria-hidden="true">○</span>{' '}
+                {lesson ? (
+                  <Link to={`/admin/lessons/${lesson.id}`} className={styles.lessonLink}>
+                    {message}
+                  </Link>
+                ) : (
+                  message
+                )}
+              </li>
+            )
+          })
         )}
       </ul>
       {course.is_published ? (
@@ -65,7 +84,7 @@ function CoursePublishPanel({ course, publishErrors, detailsDirty, onPublishErro
           <button type="button" className={styles.button} onClick={handlePublish} disabled={publishDisabled}>
             Publish
           </button>
-          {detailsDirty && <p className={styles.reason}>Save your details first.</p>}
+          {hasUnsavedWork && <p className={styles.reason}>Save your changes first.</p>}
         </>
       )}
     </section>

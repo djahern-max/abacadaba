@@ -65,6 +65,10 @@ function VideoUploader({ lesson, onDurationDetected, onUploadingChange, onChange
         fileName={fileName}
         buttonLabel="Choose video"
       />
+      <p className={styles.hint}>
+        This saves immediately when you choose a file — unlike the rest of this page, there is no separate
+        save step.
+      </p>
       {uploadStatus && (
         <p className={styles.uploadStatus}>
           {uploadStatus.status === 'uploading' && `Uploading… ${uploadStatus.percent}%`}

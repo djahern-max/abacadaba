@@ -30,6 +30,11 @@
   color: var(--color-success);
 }
 
+.lessonLink {
+  color: var(--color-text-muted);
+  text-decoration: underline;
+}
+
 .reason {
   margin: var(--space-sm) 0 0;
   color: var(--color-text-muted);

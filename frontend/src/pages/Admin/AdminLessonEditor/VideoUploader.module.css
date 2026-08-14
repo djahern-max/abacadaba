@@ -16,6 +16,12 @@
   color: var(--color-text-muted);
 }
 
+.hint {
+  margin: var(--space-sm) 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .uploadStatus {
   margin: var(--space-sm) 0 0;
   font-size: 14px;

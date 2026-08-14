@@ -1,194 +1,198 @@
 # Current Feature
 
-## Feature 020, Program metadata and learning objectives
+## Feature 020b, Authoring workflow
 
 ## Goal
-A course carries the descriptive information the Standards require a
-participant to be able to read before they decide to take it: what they will be
-able to do afterwards, who it is pitched at, what they need to know first, and
-what subject area it counts toward. All of it is visible on the public course
-page, not just in the admin editor.
+Authoring a course stops requiring knowledge of the data model. One save model
+instead of four, fields that say what they are for, a control that cannot be
+mistaken for a different control, and a visible next step at every point.
 
 ## In scope
-- Learning objectives as ordered rows on a course
-- Program knowledge level, prerequisites, advance preparation
-- Field of study, from NASBA's published list
-- Publish validation enforcing the conditional rules these fields carry
-- Disclosure of all of it on the public course page, before starting
+- One save model across both editors
+- Labelling the course/lesson field pairs that currently look duplicated
+- Separating the add-question control from the add-choice control
+- A next step at the bottom of every editor, not only a link at the top
+- Orienting a new author on an empty course
 
 ## Out of scope
-- The development and review chain, and the "most recent publication, revision,
-  or review date" that 4.01 requires. Feature 021 produces that date; adding a
-  column for it here would mean adding a column nothing writes to.
-- Refund, cancellation, and complaint resolution policies. 8.01.1 requires these
-  published too, but they are site-wide static pages rather than course fields.
-  Feature 026.
-- Credit calculation and field-of-study credit splits. Feature 022.
-- Objectives on individual lessons. See "Objectives belong to the course" below.
+- The three defects in 020a. Run that first; this feature assumes it shipped.
+- Background or resumable video upload. Real, scheduled, not here — it changes
+  the upload transport and this feature only changes the page around it.
+- Bulk question import from a template. Also real, also not here, and it wants
+  the feature 023 review/assessment split to exist first so the template does
+  not need versioning three weeks in.
+- Certificate content or design. Feature 024.
+- Any schema change. This is entirely presentation and client state.
+- Changing what publish validation requires. 020a adjusts the rules; this
+  feature only changes how they are surfaced.
 
-## The locators this feature is built against
-Read these in docs/2026-Statement-on-Standards-for-CPE-Programs.pdf before
-starting. Quote them into COMPLIANCE.md; do not work from this summary.
+## Where this came from
+One authoring session, start to finish, by the person who commissioned every
+feature in the sequence. The verdict was "I am building the thing and I don't
+even understand the way it is supposed to work." Every item below is something
+that happened in that session, not something anticipated.
 
-- 3.01 — activities based on learning objectives that articulate the
-  professional competence participants should achieve
-- 3.01.1 — knowledge level, content, and objectives specified so a potential
-  participant can judge fit. Levels: Basic, Intermediate, Advanced, Update,
-  Overview
-- 3.02.1 — Intermediate, Advanced, and Update programs must clearly identify
-  prerequisite education, experience, and advance preparation in precise
-  language. Basic and Overview note them if applicable, otherwise state "none"
-- 8.01.1 — significant features disclosed in advance
-- 8.01.2 — prerequisites and advance preparation identified in the descriptive
-  materials
+Features 010 through 020 were each specified and built in isolation, and each is
+internally coherent. The path across them is not. That is the defect.
 
-This is the first feature where COMPLIANCE.md has real rows to write. Take the
-Requirement column from the PDF's own words.
+## Part 1, one save model
 
-## Objectives belong to the course
-Objectives attach to the program a person completes, which is the course. A
-lesson is a segment inside it.
+Right now the lesson and course editors use four different rules on one page:
 
-There is a real argument for per-lesson objectives as an instructional design
-practice, and superCPE may want them later. Do not build it now. Two levels of
-objectives means deciding how they roll up, which of them publish validation
-checks, and which appear on a certificate — questions with no forced answer yet.
+- Details: one Save button for the whole section
+- Learning objectives: a Save button per row
+- Questions: a Save per question, plus a Save per choice
+- Video and thumbnail: no save at all, upload begins on file selection
 
-## Data model
-New `learning_objectives` table:
-- id, course_id (FK, ondelete CASCADE, indexed), position (int, unique per
-  course), text (string, not null)
+There is nothing to learn here, because it is not a rule. An author who has
+internalised "Save is per row" then loses a details edit, and one who has
+internalised "it saves itself" loses a question prompt — which is exactly what
+020a is fixing the consequences of.
 
-Ordered rows rather than a text blob. They are validated individually, counted,
-and will be reused in feature 022's course documentation; a newline-delimited
-textarea would have to be parsed back apart every time.
+**Decision: keep explicit save, make it one per editor page.**
 
-Add to `courses`:
-- program_level: string, not null. One of basic, intermediate, advanced,
-  update, overview.
-- field_of_study: string, not null.
-- prerequisites: text, nullable
-- advance_preparation: text, nullable
+Explicit save is right and should not become autosave. A published course is a
+document participants are working through and that a sponsor has to be able to
+produce on audit; edits landing on it keystroke by keystroke is the wrong
+behaviour for that object regardless of how convenient it feels in the editor.
+The problem was never that saving is explicit. It is that "explicit" was
+implemented at four different granularities.
 
-On the column type for the two enumerated fields: use a plain string with a
-CHECK constraint and a Python constant holding the allowed values, not a native
-Postgres enum. The lists come from documents NASBA revises on its own schedule,
-and altering a native enum in a migration is far more friction than editing a
-constant and a constraint.
+So:
+- Edits to details, objectives, questions, and choices are held in client state
+  and committed by one Save action for the page.
+- A sticky bar at the bottom of the editor is the only Save control. It shows a
+  count of unsaved changes and is inert when there are none.
+- Every per-row Save button is removed. Row-level Delete, Move up, and Move down
+  stay immediate — they are actions, not field edits, and batching a delete
+  behind a save is worse than not batching it.
+- Uploads stay immediate. They are file transfers, not form fields, and holding
+  a 200 MB file in client state until a Save click would be a lie about what is
+  happening. Say so in the section: the upload section explicitly states that
+  video and thumbnail save on selection, unlike everything else on the page.
 
-## Field of study values
-Enumerate them once, in `app/constants/fields_of_study.py`, from the January
-2024 Fields of Study document in docs/. Do not type them from memory and do not
-invent a shortened list. Technical: Accounting, Accounting (Governmental),
-Auditing, Auditing (Governmental), Business Law, Economics, Finance,
-Information Technology, Management Services, Regulatory Ethics, Specialized
-Knowledge, Statistics, Taxes. Non-technical: Behavioral Ethics, Business
-Management & Organization, Communications and Marketing, Computer Software &
-Applications, Personal Development, Personnel/Human Resources, Production.
+Keep 020a's dirty tracking as the mechanism. This feature changes what the
+author does with it, not how it is computed.
 
-Verify that list against the PDF rather than trusting this file.
+If batching question and choice edits turns out to need a new bulk endpoint,
+stop and say so before building one — that is a backend change this feature
+claims not to need, and it is worth a decision rather than a quiet migration.
 
-Carry the technical/non-technical distinction alongside each value — state
-boards limit non-technical credit, so superCPE will need it, and recording it
-now costs one column in a constant.
+## Part 2, the duplicated-looking fields
 
-Add one more value, `non_cpe`, labelled "Not CPE eligible", and make it the
-default for new courses. abacadaba's content is deliberately non-financial and
-none of it belongs in a real field of study. The sentinel keeps the column
-honest and non-nullable instead of leaving it blank and meaningless.
+A course has a thumbnail and a description. Each lesson inside it also has a
+thumbnail and a description. The author's reaction on hitting the second pair
+was "What happens with the first thumbnail??"
 
-## Validation rules
-These go in `validate_for_publish` on the course, alongside feature 019's
-rules, and must keep returning every failure at once so feature 017's checklist
-still works.
+Nothing happens to it. All four are used and none overwrite each other. But
+nothing on either page says so, and the fields are labelled identically.
 
-1. At least one learning objective, each with non-whitespace text.
-2. `program_level` set to one of the five values.
-3. `field_of_study` set.
-4. If `program_level` is intermediate, advanced, or update: `prerequisites` and
-   `advance_preparation` must both be non-empty. This is 3.02.1 stated
-   directly, and it is the interesting rule in this feature — a conditional
-   requirement driven by another field's value.
-5. If `program_level` is basic or overview: both may be empty, and the public
-   page renders "None" rather than hiding the row. Stating "none" explicitly is
-   what 3.02.1 asks for; an absent row is not the same as a stated none.
+Label each with where it appears:
+- Course thumbnail: shown on the course card in the catalog.
+- Course description: shown on the public course page before enrollment. This is
+  the pre-enrollment disclosure required by 8.01.1, so it is the one that
+  matters most and should read as the more consequential of the two.
+- Lesson thumbnail: the poster frame shown before this segment's video plays.
+- Lesson description: a short blurb for this segment in the course's lesson list.
 
-Do not validate objective text against a verb list. Measurable-verb phrasing is
-a quality expectation, not something to enforce with a regex, and a bad list
-would block legitimate wording. It belongs in the reviewer's judgment in
-feature 021.
+Helper text under the field, in the same style as the existing "Blank means
+unlimited attempts." lines. Not a tooltip.
+
+## Part 3, the add-question control
+
+`New choice text` / `Add choice` sits directly above `New question prompt` /
+`Add question`. Same width, same shape, a few pixels apart. The author put an
+answer into the question box three times in three attempts.
+
+That is a control problem, not an attention problem. Fix it structurally:
+
+- Choices are visually nested inside their question — indented, with a rule or
+  background distinguishing the question's block from the page.
+- The add-question control moves out of the flow of the last question's choices.
+  Put it in the Questions section header, or make it a full-width button clearly
+  outside every question block. It must not be the next thing under a choice
+  input.
+- The two inputs get different shapes. A question prompt is a textarea, a choice
+  is a single-line input; make that visible rather than rendering both as
+  same-sized boxes.
+
+Same treatment for objectives if the equivalent adjacency exists there.
+
+## Part 4, the next step
+
+Finishing a lesson leaves the author at the bottom of the page with a Delete
+lesson button and nothing else. The only route onward is scrolling to the top
+and finding a hyperlink inside a sentence.
+
+- Both editors end with an explicit next action, below the content and above the
+  danger zone. In a lesson: back to its course, plus what is still outstanding on
+  this lesson. In a course: publish, or what is blocking it.
+- The course publish checklist's per-lesson failures become links to that
+  lesson's editor. "Lesson 'X' must have a video" should be clickable.
+- The danger zone stays last and stays visually separate. Delete is not a next
+  step.
+
+## Part 5, the empty course
+
+A new course opens on an empty editor with eight fields and `Lessons (0)`, and
+does not say that lessons are where video and questions live. The author went
+looking for the question editor on the course page.
+
+When a course has no lessons, the Lessons panel says what a lesson is: one video
+segment plus its questions, and a course is one or more of them in order. One or
+two sentences in the panel, replaced by the list once a lesson exists. Not a
+modal, not a dismissible tour.
+
+## Compliance
+This feature changes how existing disclosures are labelled in the admin tool. It
+does not change what is disclosed to a participant, so the expectation is that
+COMPLIANCE.md gains no row — the 8.01.1 and 3.02.1 mappings from feature 020 are
+unchanged and still accurate. Confirm that against
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` and say so explicitly
+rather than leaving it unstated.
+
+If Part 2's relabelling reveals that a field mapped in 020 is not actually
+rendered where COMPLIANCE.md claims, that is a real gap and it goes in the Gap
+column. Check it while you are in there.
 
 ## Backend tasks
-1. `app/models/learning_objective.py` plus the four columns on `Course`. Then
-   `alembic revision --autogenerate -m "add program metadata and learning
-   objectives"`. Autogenerate will not write the CHECK constraints — add them by
-   hand. Verify `downgrade -1`.
-2. `app/constants/fields_of_study.py` and `app/constants/program_levels.py`.
-3. `app/services/admin_content.py`: objective CRUD with the same move-up and
-   move-down reordering pattern already used for questions, including the
-   two-pass renumber that dodges the position unique constraint. Reuse it; do
-   not write a second implementation.
-4. `app/routers/admin_content.py`: objective routes under a course, and the new
-   fields on the course update payload. Behind the existing router-level
-   `require_admin`.
-5. `GET /courses/{slug}` returns objectives, level, field of study,
-   prerequisites, and advance preparation in the public payload. This is the
-   disclosure requirement — if it is only in the admin API, the feature is not
-   done.
-6. `GET /meta/fields-of-study` and `/meta/program-levels`, so the admin editor
-   populates its selects from the server rather than duplicating the lists in
-   JavaScript. Two copies of a list NASBA controls will drift.
-7. Tests:
-   - publishing with no objectives is refused, and the message says so
-   - publishing an intermediate course with empty prerequisites is refused
-   - publishing a basic course with empty prerequisites succeeds
-   - an unknown field of study value is rejected by the constraint
-   - objectives come back in position order and reorder correctly
-   - the public course payload carries all five pieces of metadata
-   - the leak test still passes
+None expected. If a task appears to need one, stop and check whether existing
+endpoints can carry it before adding anything.
 
 ## Frontend tasks
-1. `CourseDetail`: a "What you will learn" list of objectives, and a details
-   block showing level, field of study, prerequisites, and advance preparation.
-   Render "None" for empty prerequisites and advance preparation rather than
-   omitting the rows.
-2. Place all of it **above** the assessment button and the lesson list. It is
-   pre-enrolment disclosure; below the fold after the content is not disclosure
-   in advance.
-3. `AdminCourseEditor`: an objectives editor reusing the question editor's
-   add/edit/reorder interaction, plus selects for level and field of study fed
-   by the meta endpoints, plus two textareas.
-4. The selects show the technical/non-technical grouping as optgroups, with
-   "Not CPE eligible" first and selected by default.
-5. Publish checklist picks up the new failures automatically from the existing
-   validation response. Confirm this rather than adding checklist entries by
-   hand — if it needs manual entries, feature 017's design has a gap worth
-   knowing about.
+1. One sticky Save per editor page; per-row Save buttons removed; uploads
+   exempted and labelled as such.
+2. Helper text on both thumbnail and both description fields.
+3. Questions restructured: choices nested, add-question moved out of the choice
+   flow, textarea vs input distinction.
+4. Next-step block at the bottom of both editors; publish checklist lesson
+   failures link to their lesson.
+5. Empty-state text in the Lessons panel.
+
+## A thing to check rather than assume
+020a wires dirty tracking through the questions and objectives editors. This
+feature depends on that being in place and correct. Confirm it before starting;
+if 020a has not shipped, stop rather than building a second dirty-tracking path
+that will have to be reconciled.
 
 ## Acceptance criteria
-- `alembic upgrade head` adds the table and columns with working CHECK
-  constraints; `downgrade -1` reverses
-- an admin can add, edit, reorder, and delete learning objectives
-- the field of study select lists every value from the NASBA document, grouped
-  technical and non-technical, defaulting to Not CPE eligible
-- an intermediate course cannot publish without prerequisites and advance
-  preparation, and the checklist says which is missing
-- a basic course publishes with both blank, and its public page shows "None"
-- the public course page shows objectives, level, field of study,
-  prerequisites, and advance preparation above the assessment button
-- a signed-out visitor sees all of it without starting anything
-- pytest passes, including the leak test
+- there is exactly one Save control per editor page, and it reports how many
+  unsaved changes it will commit
+- editing a question, an objective, and a details field, then saving once,
+  persists all three
+- the upload sections state that they save on selection
+- each thumbnail and description field says where it appears
+- adding a choice and adding a question are visibly different actions in
+  different places, and choices read as belonging to their question
+- the bottom of a lesson editor offers a route back to its course and says what
+  is outstanding
+- a publish checklist entry naming a lesson navigates to that lesson
+- a course with no lessons explains what a lesson is
+- authoring a complete course start to finish requires no scrolling back to the
+  top to find the way forward, and no prior knowledge of the data model
+- `npm run lint` passes
+- pytest passes, unchanged
 
 ## When done
-Append an entry to CHANGELOG.md.
-
-Then append to COMPLIANCE.md: one row per locator this feature satisfies, with
-the Requirement column quoted from
-docs/2026-Statement-on-Standards-for-CPE-Programs.pdf. Expect rows for 3.01,
-3.01.1, 3.02.1, 8.01.1, and 8.01.2 — but verify each against the PDF and drop
-any that this feature does not actually meet. 8.01.1 in particular is only
-partly satisfied here, since it also requires published refund, cancellation,
-and complaint resolution policies; record that in the Gap column rather than
-marking it done.
-
-Then stop.
+Append an entry to CHANGELOG.md. Append to COMPLIANCE.md only if a locator
+genuinely applies, and say explicitly in your summary if none does. Then stop.

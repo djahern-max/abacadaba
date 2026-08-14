@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react'
 import FileInput from '../FileInput/FileInput'
 import styles from './ThumbnailUploader.module.css'
 
-function ThumbnailUploader({ item, uploadThumbnail, fetchThumbnailUrl, onUploadingChange, onChange }) {
+function ThumbnailUploader({
+  item,
+  label = 'Thumbnail',
+  placementNote,
+  uploadThumbnail,
+  fetchThumbnailUrl,
+  onUploadingChange,
+  onChange,
+}) {
   const [fileName, setFileName] = useState('')
   const [uploadStatus, setUploadStatus] = useState(null)
   const [error, setError] = useState('')
@@ -54,7 +62,8 @@ function ThumbnailUploader({ item, uploadThumbnail, fetchThumbnailUrl, onUploadi
 
   return (
     <section className={styles.section}>
-      <h2 className={styles.heading}>Thumbnail</h2>
+      <h2 className={styles.heading}>{label}</h2>
+      {placementNote && <p className={styles.hint}>{placementNote}</p>}
       <p className={styles.status}>
         {item.thumbnail_key ? 'A thumbnail is uploaded.' : 'No thumbnail uploaded yet.'}
       </p>
@@ -68,6 +77,10 @@ function ThumbnailUploader({ item, uploadThumbnail, fetchThumbnailUrl, onUploadi
         buttonLabel="Choose thumbnail"
       />
       <p className={styles.hint}>Recommended size: 1280&times;720 (16:9). JPEG, PNG, or WebP, up to 2 MB.</p>
+      <p className={styles.hint}>
+        This saves immediately when you choose a file — unlike the rest of this page, there is no separate
+        save step.
+      </p>
       {uploadStatus && (
         <p className={styles.uploadStatus}>
           {uploadStatus.status === 'uploading' && `Uploading… ${uploadStatus.percent}%`}

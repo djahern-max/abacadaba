@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { updateAdminCourse } from '../../../api/admin'
 import { getFieldsOfStudy, getProgramLevels } from '../../../api/meta'
 import styles from '../AdminLessonEditor/DetailsForm.module.css'
 
-function CourseDetailsForm({ course, onDirtyChange, onChange }) {
+const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirtyChange }, ref) {
   const [title, setTitle] = useState(course.title)
   const [slug, setSlug] = useState(course.slug)
   const [description, setDescription] = useState(course.description)
@@ -13,8 +13,6 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
   const [fieldOfStudy, setFieldOfStudy] = useState(course.field_of_study)
   const [prerequisites, setPrerequisites] = useState(course.prerequisites ?? '')
   const [advancePreparation, setAdvancePreparation] = useState(course.advance_preparation ?? '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
   const [fieldsOfStudy, setFieldsOfStudy] = useState(null)
   const [programLevels, setProgramLevels] = useState(null)
 
@@ -35,15 +33,12 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
     advancePreparation !== (course.advance_preparation ?? '')
 
   useEffect(() => {
-    onDirtyChange?.(dirty)
+    onDirtyChange?.(dirty ? 1 : 0)
   }, [dirty, onDirtyChange])
 
-  async function handleSave(event) {
-    event.preventDefault()
-    setError('')
-    setSaving(true)
-    try {
-      await updateAdminCourse(course.id, {
+  useImperativeHandle(ref, () => ({
+    save: () =>
+      updateAdminCourse(course.id, {
         title,
         slug,
         description,
@@ -53,19 +48,13 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
         field_of_study: fieldOfStudy,
         prerequisites: prerequisites === '' ? null : prerequisites,
         advance_preparation: advancePreparation === '' ? null : advancePreparation,
-      })
-      await onChange()
-    } catch (err) {
-      setError(err.body?.detail ?? 'Could not save these details.')
-    } finally {
-      setSaving(false)
-    }
-  }
+      }),
+  }))
 
   return (
     <section className={styles.section}>
       <h2 className={styles.heading}>Details</h2>
-      <form className={styles.form} onSubmit={handleSave}>
+      <div className={styles.form}>
         <label className={styles.label} htmlFor="course-title">
           Title
         </label>
@@ -92,7 +81,7 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
         )}
 
         <label className={styles.label} htmlFor="course-description">
-          Description
+          Course description
         </label>
         <textarea
           id="course-description"
@@ -101,6 +90,10 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
           value={description}
           onChange={(event) => setDescription(event.target.value)}
         />
+        <p className={styles.hint}>
+          Shown on the public course page before enrollment — the disclosure a participant reads to decide
+          whether to take this course. The most consequential field on this page.
+        </p>
 
         <label className={styles.label} htmlFor="course-program-level">
           Program level
@@ -201,14 +194,9 @@ function CourseDetailsForm({ course, onDirtyChange, onChange }) {
           onChange={(event) => setMaxAttempts(event.target.value)}
         />
         <p className={styles.hint}>Blank means unlimited attempts.</p>
-
-        {error && <p className={styles.fieldError}>{error}</p>}
-        <button type="submit" className={styles.button} disabled={!dirty || saving}>
-          {saving ? 'Saving…' : 'Save details'}
-        </button>
-      </form>
+      </div>
     </section>
   )
-}
+})
 
 export default CourseDetailsForm
