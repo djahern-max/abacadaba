@@ -1,6 +1,65 @@
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class AdminSMECreate(BaseModel):
+    name: str
+    credentials: str
+    affiliation: str | None = None
+    bio: str | None = None
+    is_licensed_cpa: bool = False
+    is_tax_attorney: bool = False
+    is_enrolled_agent: bool = False
+    license_jurisdiction: str | None = None
+
+
+class AdminSMEUpdate(BaseModel):
+    name: str | None = None
+    credentials: str | None = None
+    affiliation: str | None = None
+    bio: str | None = None
+    is_licensed_cpa: bool | None = None
+    is_tax_attorney: bool | None = None
+    is_enrolled_agent: bool | None = None
+    license_jurisdiction: str | None = None
+
+
+class AdminSME(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    credentials: str
+    affiliation: str | None
+    bio: str | None
+    is_licensed_cpa: bool
+    is_tax_attorney: bool
+    is_enrolled_agent: bool
+    license_jurisdiction: str | None
+
+
+class AdminSourceIn(BaseModel):
+    citation: str
+    url: str | None = None
+    retrieved_on: date | None = None
+
+
+class AdminSourceUpdate(BaseModel):
+    citation: str | None = None
+    url: str | None = None
+    retrieved_on: date | None = None
+
+
+class AdminSource(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    position: int
+    citation: str
+    url: str | None
+    retrieved_on: date | None
 
 
 class AdminObjectiveIn(BaseModel):
@@ -112,6 +171,11 @@ class AdminCourseUpdate(BaseModel):
     field_of_study: str | None = None
     prerequisites: str | None = None
     advance_preparation: str | None = None
+    developer_id: int | None = None
+    reviewer_id: int | None = None
+    reviewed_at: datetime | None = None
+    review_notes: str | None = None
+    review_cycle: str | None = None
 
 
 class AdminCourseSummary(BaseModel):
@@ -141,6 +205,15 @@ class AdminCourse(BaseModel):
     is_published: bool
     lessons: list[AdminLesson]
     learning_objectives: list[AdminObjective]
+    developer_id: int | None
+    reviewer_id: int | None
+    developer: AdminSME | None
+    reviewer: AdminSME | None
+    reviewed_at: datetime | None
+    review_notes: str | None
+    review_cycle: str
+    content_updated_at: datetime
+    sources: list[AdminSource]
 
 
 class MoveRequest(BaseModel):

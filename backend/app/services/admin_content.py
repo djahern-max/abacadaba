@@ -1,9 +1,11 @@
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.fields_of_study import CPA_REQUIRED, TAX_CREDENTIAL_REQUIRED, credential_tag_for
 from app.constants.program_levels import LEVELS_REQUIRING_PREREQUISITES, PROGRAM_LEVELS
 from app.models.attempt import Attempt
 from app.models.choice import Choice
@@ -11,8 +13,20 @@ from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.source import Source
+from app.models.subject_matter_expert import SubjectMatterExpert
 
 MIN_CHOICES_PER_QUESTION = 2
+
+# Fields on Course that record a review having happened, not the content
+# being reviewed - excluded from the content_updated_at bump for exactly the
+# reason spelled out in current-feature.md: bumping on these would make
+# `reviewed_at < content_updated_at` true the instant after every review.
+# review_cycle is set from the same Review panel and PATCH as the rest of
+# this group (ReviewPanel.jsx sends all five fields together) - excluding
+# only four of the five would reintroduce that exact bug the moment a
+# reviewer also touches the cycle, which was caught live in browser testing.
+REVIEW_CHAIN_FIELDS = {"developer_id", "reviewer_id", "reviewed_at", "review_notes", "review_cycle"}
 
 
 class CourseNotFoundError(Exception):
@@ -33,6 +47,26 @@ class ObjectiveNotFoundError(Exception):
 
 class ChoiceNotFoundError(Exception):
     """Raised when a choice id does not match any choice."""
+
+
+class SourceNotFoundError(Exception):
+    """Raised when a source id does not match any source."""
+
+
+class SMENotFoundError(Exception):
+    """Raised when a subject matter expert id does not match any record."""
+
+
+class SMEInUseError(Exception):
+    """Raised when deleting a subject matter expert who is a course's developer or reviewer."""
+
+
+class SameExpertError(Exception):
+    """Raised when a course's developer and reviewer would be set to the same person.
+
+    The database CHECK constraint (ck_courses_developer_reviewer_differ) is
+    the real backstop and blocks this unconditionally; this check exists so
+    the API returns a clean 409 instead of a raw IntegrityError."""
 
 
 class SlugTakenError(Exception):
@@ -93,6 +127,21 @@ def _unique_slug(db: Session, model, base_slug: str) -> str:
     return slug
 
 
+def touch_content_updated_at(db: Session, course_id: int) -> None:
+    """The single choke point for "did this mutation change what a
+    participant would see". Every write path that touches course fields,
+    objectives, lessons, questions, choices, video, or thumbnails calls this
+    - including the video/thumbnail upload routes in app/routers/admin.py,
+    which write directly rather than through a service function here.
+
+    Deliberately NOT called for: developer_id, reviewer_id, reviewed_at,
+    review_notes, sources, or publish/unpublish - see current-feature.md.
+    """
+    course = db.get(Course, course_id)
+    if course is not None:
+        course.content_updated_at = datetime.now(timezone.utc)
+
+
 def _renumber(db: Session, items: list) -> None:
     # Two-phase so no intermediate UPDATE collides with the (parent_id, position)
     # unique constraint: bump everything to a value nothing else holds, then
@@ -122,6 +171,9 @@ def _course_with_content_or_404(db: Session, course_id: int) -> Course:
         .options(
             selectinload(Course.lessons).selectinload(Lesson.questions).selectinload(Question.choices),
             selectinload(Course.learning_objectives),
+            selectinload(Course.sources),
+            selectinload(Course.developer),
+            selectinload(Course.reviewer),
         )
     )
     course = db.execute(stmt).scalar_one_or_none()
@@ -178,6 +230,16 @@ def update_course(db: Session, course_id: int, updates: dict) -> Course:
 
     for field, value in updates.items():
         setattr(course, field, value)
+
+    if (
+        course.developer_id is not None
+        and course.reviewer_id is not None
+        and course.developer_id == course.reviewer_id
+    ):
+        raise SameExpertError("Developer and reviewer must be different people")
+
+    if set(updates.keys()) - REVIEW_CHAIN_FIELDS:
+        touch_content_updated_at(db, course_id)
 
     db.commit()
     return _course_with_content_or_404(db, course_id)
@@ -257,6 +319,33 @@ def validate_for_publish(course: Course) -> list[str]:
             errors.append("Prerequisites are required for intermediate, advanced, and update courses")
         if not (course.advance_preparation and course.advance_preparation.strip()):
             errors.append("Advance preparation is required for intermediate, advanced, and update courses")
+
+    if course.developer_id is None:
+        errors.append("A developer is required")
+    if course.reviewer_id is None:
+        errors.append("A reviewer is required")
+    if (
+        course.developer_id is not None
+        and course.reviewer_id is not None
+        and course.developer_id == course.reviewer_id
+    ):
+        errors.append("Developer and reviewer must be different people")
+    if course.reviewed_at is None:
+        errors.append("A review date is required")
+    elif course.reviewed_at < course.content_updated_at:
+        errors.append("This course has changed since it was reviewed")
+
+    credential_tag = credential_tag_for(course.field_of_study)
+    if credential_tag is not None:
+        experts = [expert for expert in (course.developer, course.reviewer) if expert is not None]
+        if credential_tag == CPA_REQUIRED and not any(expert.is_licensed_cpa for expert in experts):
+            errors.append("An accounting or auditing course needs a licensed CPA as developer or reviewer")
+        elif credential_tag == TAX_CREDENTIAL_REQUIRED and not any(
+            expert.is_licensed_cpa or expert.is_tax_attorney or expert.is_enrolled_agent for expert in experts
+        ):
+            errors.append(
+                "A taxes course needs a licensed CPA, tax attorney, or enrolled agent as developer or reviewer"
+            )
 
     for lesson in course.lessons:
         if not lesson.video_key:
@@ -342,6 +431,7 @@ def create_lesson(
         duration_seconds=duration_seconds,
     )
     db.add(lesson)
+    touch_content_updated_at(db, course_id)
     db.commit()
     db.refresh(lesson)
     return lesson
@@ -359,6 +449,7 @@ def update_lesson(db: Session, lesson_id: int, updates: dict) -> Lesson:
     for field, value in updates.items():
         setattr(lesson, field, value)
 
+    touch_content_updated_at(db, lesson.course_id)
     db.commit()
     return _lesson_with_content_or_404(db, lesson_id)
 
@@ -390,6 +481,7 @@ def delete_lesson(db: Session, lesson_id: int) -> None:
         db.execute(select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.position)).scalars()
     )
     _renumber(db, remaining)
+    touch_content_updated_at(db, course_id)
     db.commit()
 
 
@@ -405,6 +497,7 @@ def move_lesson(db: Session, lesson_id: int, direction: str) -> None:
     if 0 <= swap_with < len(ordered):
         ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
         _renumber(db, ordered)
+        touch_content_updated_at(db, lesson.course_id)
     db.commit()
 
 
@@ -412,13 +505,14 @@ def move_lesson(db: Session, lesson_id: int, direction: str) -> None:
 
 
 def create_question(db: Session, lesson_id: int, prompt: str) -> Question:
-    _lesson_or_404(db, lesson_id)
+    lesson = _lesson_or_404(db, lesson_id)
     next_position = db.execute(
         select(func.coalesce(func.max(Question.position), 0)).where(Question.lesson_id == lesson_id)
     ).scalar_one()
 
     question = Question(lesson_id=lesson_id, prompt=prompt, position=next_position + 1)
     db.add(question)
+    touch_content_updated_at(db, lesson.course_id)
     db.commit()
     db.refresh(question)
     return question
@@ -428,6 +522,7 @@ def update_question(db: Session, question_id: int, updates: dict) -> Question:
     question = _question_or_404(db, question_id)
     for field, value in updates.items():
         setattr(question, field, value)
+    touch_content_updated_at(db, question.lesson.course_id)
     db.commit()
     return _question_or_404(db, question_id)
 
@@ -435,6 +530,7 @@ def update_question(db: Session, question_id: int, updates: dict) -> Question:
 def delete_question(db: Session, question_id: int) -> None:
     question = _question_or_404(db, question_id)
     lesson_id = question.lesson_id
+    course_id = question.lesson.course_id
     db.delete(question)
     db.flush()
 
@@ -444,6 +540,7 @@ def delete_question(db: Session, question_id: int) -> None:
         ).scalars()
     )
     _renumber(db, remaining)
+    touch_content_updated_at(db, course_id)
     db.commit()
 
 
@@ -461,17 +558,19 @@ def move_question(db: Session, question_id: int, direction: str) -> None:
     if 0 <= swap_with < len(ordered):
         ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
         _renumber(db, ordered)
+        touch_content_updated_at(db, question.lesson.course_id)
     db.commit()
 
 
 def create_choice(db: Session, question_id: int, text: str, is_correct: bool) -> Choice:
-    _question_or_404(db, question_id)
+    question = _question_or_404(db, question_id)
     next_position = db.execute(
         select(func.coalesce(func.max(Choice.position), 0)).where(Choice.question_id == question_id)
     ).scalar_one()
 
     choice = Choice(question_id=question_id, text=text, is_correct=is_correct, position=next_position + 1)
     db.add(choice)
+    touch_content_updated_at(db, question.lesson.course_id)
     db.commit()
     db.refresh(choice)
     return choice
@@ -481,6 +580,7 @@ def update_choice(db: Session, choice_id: int, updates: dict) -> Choice:
     choice = _choice_or_404(db, choice_id)
     for field, value in updates.items():
         setattr(choice, field, value)
+    touch_content_updated_at(db, choice.question.lesson.course_id)
     db.commit()
     db.refresh(choice)
     return choice
@@ -489,6 +589,7 @@ def update_choice(db: Session, choice_id: int, updates: dict) -> Choice:
 def delete_choice(db: Session, choice_id: int) -> None:
     choice = _choice_or_404(db, choice_id)
     question_id = choice.question_id
+    course_id = choice.question.lesson.course_id
     db.delete(choice)
     db.flush()
 
@@ -498,6 +599,7 @@ def delete_choice(db: Session, choice_id: int) -> None:
         ).scalars()
     )
     _renumber(db, remaining)
+    touch_content_updated_at(db, course_id)
     db.commit()
 
 
@@ -513,6 +615,7 @@ def move_choice(db: Session, choice_id: int, direction: str) -> None:
     if 0 <= swap_with < len(ordered):
         ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
         _renumber(db, ordered)
+        touch_content_updated_at(db, choice.question.lesson.course_id)
     db.commit()
 
 
@@ -533,6 +636,7 @@ def create_objective(db: Session, course_id: int, text: str) -> LearningObjectiv
 
     objective = LearningObjective(course_id=course_id, text=text, position=next_position + 1)
     db.add(objective)
+    touch_content_updated_at(db, course_id)
     db.commit()
     db.refresh(objective)
     return objective
@@ -542,6 +646,7 @@ def update_objective(db: Session, objective_id: int, updates: dict) -> LearningO
     objective = _objective_or_404(db, objective_id)
     for field, value in updates.items():
         setattr(objective, field, value)
+    touch_content_updated_at(db, objective.course_id)
     db.commit()
     db.refresh(objective)
     return objective
@@ -561,6 +666,7 @@ def delete_objective(db: Session, objective_id: int) -> None:
         ).scalars()
     )
     _renumber(db, remaining)
+    touch_content_updated_at(db, course_id)
     db.commit()
 
 
@@ -578,6 +684,7 @@ def move_objective(db: Session, objective_id: int, direction: str) -> None:
     if 0 <= swap_with < len(ordered):
         ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
         _renumber(db, ordered)
+        touch_content_updated_at(db, objective.course_id)
     db.commit()
 
 
@@ -588,4 +695,124 @@ def set_correct_choice(db: Session, question_id: int, choice_id: int) -> None:
 
     for choice in question.choices:
         choice.is_correct = choice.id == choice_id
+    touch_content_updated_at(db, question.lesson.course_id)
+    db.commit()
+
+
+# --- sources -------------------------------------------------------------------
+
+
+def _source_or_404(db: Session, source_id: int) -> Source:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise SourceNotFoundError(f"Source {source_id} not found")
+    return source
+
+
+def create_source(
+    db: Session, course_id: int, citation: str, url: str | None, retrieved_on: date | None
+) -> Source:
+    _course_or_404(db, course_id)
+    next_position = db.execute(
+        select(func.coalesce(func.max(Source.position), 0)).where(Source.course_id == course_id)
+    ).scalar_one()
+
+    source = Source(
+        course_id=course_id, citation=citation, url=url, retrieved_on=retrieved_on, position=next_position + 1
+    )
+    db.add(source)
+    # Deliberately not touch_content_updated_at: a source is a citation for
+    # the reviewer's judgment, not participant-visible content - see
+    # current-feature.md, "Sources are recorded, not required".
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+def update_source(db: Session, source_id: int, updates: dict) -> Source:
+    source = _source_or_404(db, source_id)
+    for field, value in updates.items():
+        setattr(source, field, value)
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+def delete_source(db: Session, source_id: int) -> None:
+    source = _source_or_404(db, source_id)
+    course_id = source.course_id
+    db.delete(source)
+    db.flush()
+
+    remaining = list(
+        db.execute(select(Source).where(Source.course_id == course_id).order_by(Source.position)).scalars()
+    )
+    _renumber(db, remaining)
+    db.commit()
+
+
+def move_source(db: Session, source_id: int, direction: str) -> None:
+    source = _source_or_404(db, source_id)
+    ordered = list(
+        db.execute(
+            select(Source).where(Source.course_id == source.course_id).order_by(Source.position)
+        ).scalars()
+    )
+    index = next(i for i, s in enumerate(ordered) if s.id == source_id)
+    swap_with = index - 1 if direction == "up" else index + 1
+    if 0 <= swap_with < len(ordered):
+        ordered[index], ordered[swap_with] = ordered[swap_with], ordered[index]
+        _renumber(db, ordered)
+    db.commit()
+
+
+# --- subject matter experts -----------------------------------------------------
+
+
+def _sme_or_404(db: Session, sme_id: int) -> SubjectMatterExpert:
+    sme = db.get(SubjectMatterExpert, sme_id)
+    if sme is None:
+        raise SMENotFoundError(f"Subject matter expert {sme_id} not found")
+    return sme
+
+
+def list_smes(db: Session) -> list[SubjectMatterExpert]:
+    return list(db.execute(select(SubjectMatterExpert).order_by(SubjectMatterExpert.name)).scalars())
+
+
+def get_sme(db: Session, sme_id: int) -> SubjectMatterExpert:
+    return _sme_or_404(db, sme_id)
+
+
+def create_sme(db: Session, **fields) -> SubjectMatterExpert:
+    sme = SubjectMatterExpert(**fields)
+    db.add(sme)
+    db.commit()
+    db.refresh(sme)
+    return sme
+
+
+def update_sme(db: Session, sme_id: int, updates: dict) -> SubjectMatterExpert:
+    sme = _sme_or_404(db, sme_id)
+    for field, value in updates.items():
+        setattr(sme, field, value)
+    db.commit()
+    db.refresh(sme)
+    return sme
+
+
+def delete_sme(db: Session, sme_id: int) -> None:
+    sme = _sme_or_404(db, sme_id)
+
+    in_use = db.execute(
+        select(func.count())
+        .select_from(Course)
+        .where((Course.developer_id == sme_id) | (Course.reviewer_id == sme_id))
+    ).scalar_one()
+    if in_use > 0:
+        raise SMEInUseError(
+            "This person is a developer or reviewer on a course and cannot be deleted"
+        )
+
+    db.delete(sme)
     db.commit()

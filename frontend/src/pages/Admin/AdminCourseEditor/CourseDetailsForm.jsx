@@ -134,16 +134,16 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
             <>
               <option value={fieldsOfStudy.non_cpe}>{fieldsOfStudy.non_cpe}</option>
               <optgroup label="Technical">
-                {fieldsOfStudy.technical.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
+                {fieldsOfStudy.technical.map((field) => (
+                  <option key={field.name} value={field.name}>
+                    {field.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Non-technical">
-                {fieldsOfStudy.non_technical.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
+                {fieldsOfStudy.non_technical.map((field) => (
+                  <option key={field.name} value={field.name}>
+                    {field.name}
                   </option>
                 ))}
               </optgroup>

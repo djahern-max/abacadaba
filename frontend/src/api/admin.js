@@ -64,6 +64,52 @@ export function moveAdminObjective(id, direction) {
   })
 }
 
+// --- subject matter experts -----------------------------------------------------
+
+export function getAdminSMEs() {
+  return apiFetch('/api/v1/admin/smes')
+}
+
+export function getAdminSME(id) {
+  return apiFetch(`/api/v1/admin/smes/${id}`)
+}
+
+export function createAdminSME(payload) {
+  return apiFetch('/api/v1/admin/smes', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateAdminSME(id, payload) {
+  return apiFetch(`/api/v1/admin/smes/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteAdminSME(id) {
+  return apiFetch(`/api/v1/admin/smes/${id}`, { method: 'DELETE' })
+}
+
+// --- sources ---------------------------------------------------------------------
+
+export function createAdminSource(courseId, payload) {
+  return apiFetch(`/api/v1/admin/courses/${courseId}/sources`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateAdminSource(id, payload) {
+  return apiFetch(`/api/v1/admin/sources/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteAdminSource(id) {
+  return apiFetch(`/api/v1/admin/sources/${id}`, { method: 'DELETE' })
+}
+
+export function moveAdminSource(id, direction) {
+  return apiFetch(`/api/v1/admin/sources/${id}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ direction }),
+  })
+}
+
 // --- lessons -----------------------------------------------------------------
 
 export function getAdminLesson(id) {

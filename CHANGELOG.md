@@ -795,3 +795,107 @@ could have gone stale is the render order, which was verified directly.
 Multi-lesson authoring, background/resumable upload, bulk question import,
 the development/review chain, credit calculation, and certificate
 content/design remain out of scope, as specified.
+
+## 2026-08-18, Feature 021, Development and review chain
+A published course now names who developed it, who reviewed it, and when -
+and a course whose content has changed since its review cannot be
+re-published until it is reviewed again. New `subject_matter_experts` table
+(`app/models/subject_matter_expert.py`), deliberately with no FK to `users`
+(see current-feature.md's reasoning: the reviewer is often an outside CPA
+with no reason to ever hold an account, and the record answers a different,
+longer-lived question than auth does): name, credentials, affiliation, bio,
+`license_jurisdiction`, and the three booleans `is_licensed_cpa`/
+`is_tax_attorney`/`is_enrolled_agent` that map one-to-one onto 4.02's own
+sentence rather than a tidier derived enum. New `sources` table (course_id
+FK cascade, position-ordered, reusing the existing two-phase `_renumber`
+unchanged) for the citations a course was built from - recorded, not
+required for publish. Six new columns on `courses`: `developer_id`/
+`reviewer_id` (both FK subject_matter_experts, nullable), `reviewed_at`,
+`review_notes`, `content_updated_at` (server-defaulted `now()` so the one
+existing course in the dev database, unpublished, got a value rather than
+breaking), and `review_cycle` (CHECK `'annual'`/`'biennial'`). Migration
+`561ad5e4ce3d` hand-adds two CHECK constraints past what autogenerate wrote:
+`reviewer_id <> developer_id` (unless either is null) and the review_cycle
+enum; `downgrade -1` verified. The dev database's one existing course was
+already unpublished, so nothing was left retroactively failing the new
+publish rules.
+
+`app/services/admin_content.py` gained one choke point,
+`touch_content_updated_at`, called from every write path that changes what
+a participant would see - course fields, objectives, lessons, questions,
+choices, and (from the two upload routes in `app/routers/admin.py`, which
+write directly rather than through this service) video and thumbnails - and
+called from nowhere else: not developer/reviewer/reviewed_at/review_notes,
+not sources, not publish/unpublish. That exclusion is the feature; getting
+it wrong makes `reviewed_at < content_updated_at` true the instant after
+every review and publish refuses forever. `validate_for_publish` gained
+seven rules: developer required, reviewer required, they must differ (the
+database CHECK is the backstop, this produces the message), review date
+required, `reviewed_at >= content_updated_at` ("This course has changed
+since it was reviewed"), and the 4.02 CPA/tax-credential participation
+rules for accounting-and-auditing and taxes courses, reading a
+`credential_tag` now carried on each `FieldOfStudy` entry in
+`app/constants/fields_of_study.py` (a dataclass replacing the old flat
+string lists, so the tag lives on the field itself instead of a second list
+that could drift) via a new `credential_tag_for()` lookup.
+`/meta/fields-of-study` now serves `{name, credential_tag}` objects instead
+of bare strings, which required updating `CourseDetailsForm.jsx`'s
+field-of-study `<option>` rendering - missed on the first pass and caught
+live in browser verification as a hard crash ("Objects are not valid as a
+React child"), not by lint or pytest. SME CRUD sits under `require_admin`
+at `/admin/smes`; deleting one in use as a developer or reviewer is refused
+with a 409 rather than a raw FK violation. Source CRUD is nested under a
+course. `GET /courses/{slug}` now carries `reviewed_at` and `developer`/
+`reviewer` (name and credentials only - bio and affiliation stay internal),
+served via a small `SMESummary` dataclass in `app/services/courses.py`
+rather than exposing the ORM row.
+
+Frontend: a new `/admin/smes` page (`AdminSMEList`/`SMERow`/`SMEForm`) is
+plain list/create/edit, immediate-effect like the rest of this codebase's
+admin CRUD, not part of any batched save. `ReviewPanel.jsx` joins the
+course editor's existing single `StickySaveBar`/header-Save batch exactly
+like `CourseDetailsForm`/`ObjectivesPanel` do (verified live: one Save
+click persists a content-field edit and a developer/reviewer/date change
+together) and renders `SourcesPanel` beside it per the placement decision
+in current-feature.md - a reviewer signing off next to an empty source
+list should have to notice. `ReviewPanel` sits directly on
+`AdminCourseEditor`, above the branch between `LessonsPanel` and
+`CollapsedLessonEditor`, so both course layouts get it for free. The stale
+state renders inline in the Review panel, not only in the publish
+checklist, which gained three permanent rows (Developer/Reviewer/Review
+date) alongside the existing conditional-message pattern the same-person,
+staleness, and credential rules already fit without a frontend change (the
+019a/020 checklist design held again). `CourseDetail.jsx` renders "Last
+reviewed <date>" plus "Developed by"/"Reviewed by" lines with name and
+credentials, above the assessment button.
+
+Verified live against a real dev database end to end via a scripted
+Playwright session (this environment has no `chromium-cli`; a throwaway
+local `npm install playwright` sufficed): created two subject matter
+experts, watched the publish checklist show Developer/Reviewer/Review date
+as outstanding, filled in the Review panel and a source, saved with one
+click, watched all three turn green while the video/question rules stayed
+outstanding, uploaded a video and a two-choice question, watched the
+checklist correctly go stale ("This course has changed since it was
+reviewed") because those edits postdated the recorded review, re-recorded
+the review, published, and confirmed the public course page rendered the
+last-reviewed date and both experts' names and credentials. That session
+caught two real bugs before they shipped: the field-of-study crash above,
+and a second one worth calling out because current-feature.md warned
+about its exact shape without naming this cause - `ReviewPanel.jsx`'s
+`save()` sends `review_cycle` in the same request as `reviewed_at` (it
+sends the whole panel, matching every other batched form in this
+codebase), so leaving `review_cycle` out of `REVIEW_CHAIN_FIELDS` meant
+every single review-save re-bumped `content_updated_at` a moment after
+writing `reviewed_at`, staling the review that same request created.
+Fixed by adding `review_cycle` to the excluded set; the existing
+`content_updated_at`-stability test was strengthened to PATCH all five
+review fields together, the way the real panel does, rather than only
+three of them, so it would have caught this. Confirmed the strengthened
+test fails against the pre-fix code and passes after.
+
+The overdue-review dashboard (feature 026), instructor qualifications
+(4.03, no instructor exists for a self study program), program evaluations
+(4.04, feature 025), purchased-content review (4.06, nothing is purchased),
+credit measurement (feature 022), and an approval workflow beyond the
+recorded developer/reviewer fact remain out of scope, as specified.

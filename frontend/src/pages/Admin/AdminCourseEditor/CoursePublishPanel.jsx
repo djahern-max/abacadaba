@@ -8,6 +8,9 @@ const FIXED_CHECKS = [
   { label: 'Slug', message: 'Slug is required' },
   { label: 'Description', message: 'Description is required' },
   { label: 'At least one lesson', message: 'Course must have at least one lesson' },
+  { label: 'Developer', message: 'A developer is required' },
+  { label: 'Reviewer', message: 'A reviewer is required' },
+  { label: 'Review date', message: 'A review date is required' },
 ]
 
 const LESSON_MESSAGE_PATTERN = /^Lesson '(.+?)'/

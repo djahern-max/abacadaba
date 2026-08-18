@@ -26,6 +26,12 @@ from app.schemas.admin import (
     AdminQuestion,
     AdminQuestionIn,
     AdminQuestionUpdate,
+    AdminSME,
+    AdminSMECreate,
+    AdminSMEUpdate,
+    AdminSource,
+    AdminSourceIn,
+    AdminSourceUpdate,
     MoveRequest,
     SetCorrectChoiceRequest,
 )
@@ -89,6 +95,8 @@ def update_course(course_id: int, payload: AdminCourseUpdate, db: Session = Depe
     except admin_content.CourseNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Course not found") from exc
     except admin_content.SlugTakenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except admin_content.SameExpertError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -166,9 +174,84 @@ async def upload_course_thumbnail(course_id: int, file: UploadFile = File(...), 
             pass
 
     course.thumbnail_key = key
+    admin_content.touch_content_updated_at(db, course.id)
     db.commit()
 
     return {"thumbnail_key": course.thumbnail_key, "warning": warning}
+
+
+# --- subject matter experts -----------------------------------------------------
+
+
+@router.get("/admin/smes", response_model=list[AdminSME])
+def list_smes(db: Session = Depends(get_db)):
+    return admin_content.list_smes(db)
+
+
+@router.post("/admin/smes", response_model=AdminSME, status_code=201)
+def create_sme(payload: AdminSMECreate, db: Session = Depends(get_db)):
+    return admin_content.create_sme(db, **payload.model_dump())
+
+
+@router.get("/admin/smes/{sme_id}", response_model=AdminSME)
+def get_sme(sme_id: int, db: Session = Depends(get_db)):
+    try:
+        return admin_content.get_sme(db, sme_id)
+    except admin_content.SMENotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Subject matter expert not found") from exc
+
+
+@router.patch("/admin/smes/{sme_id}", response_model=AdminSME)
+def update_sme(sme_id: int, payload: AdminSMEUpdate, db: Session = Depends(get_db)):
+    try:
+        return admin_content.update_sme(db, sme_id, payload.model_dump(exclude_unset=True))
+    except admin_content.SMENotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Subject matter expert not found") from exc
+
+
+@router.delete("/admin/smes/{sme_id}", status_code=204)
+def delete_sme(sme_id: int, db: Session = Depends(get_db)):
+    try:
+        admin_content.delete_sme(db, sme_id)
+    except admin_content.SMENotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Subject matter expert not found") from exc
+    except admin_content.SMEInUseError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# --- sources -------------------------------------------------------------------
+
+
+@router.post("/admin/courses/{course_id}/sources", response_model=AdminSource, status_code=201)
+def create_source(course_id: int, payload: AdminSourceIn, db: Session = Depends(get_db)):
+    try:
+        return admin_content.create_source(db, course_id, payload.citation, payload.url, payload.retrieved_on)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+
+
+@router.patch("/admin/sources/{source_id}", response_model=AdminSource)
+def update_source(source_id: int, payload: AdminSourceUpdate, db: Session = Depends(get_db)):
+    try:
+        return admin_content.update_source(db, source_id, payload.model_dump(exclude_unset=True))
+    except admin_content.SourceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Source not found") from exc
+
+
+@router.delete("/admin/sources/{source_id}", status_code=204)
+def delete_source(source_id: int, db: Session = Depends(get_db)):
+    try:
+        admin_content.delete_source(db, source_id)
+    except admin_content.SourceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Source not found") from exc
+
+
+@router.post("/admin/sources/{source_id}/move", response_model=None, status_code=204)
+def move_source(source_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
+    try:
+        admin_content.move_source(db, source_id, payload.direction)
+    except admin_content.SourceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Source not found") from exc
 
 
 # --- learning objectives ------------------------------------------------------
@@ -358,6 +441,7 @@ async def upload_lesson_video(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     lesson.video_key = key
+    admin_content.touch_content_updated_at(db, lesson.course_id)
     db.commit()
 
     return {"video_key": lesson.video_key}
@@ -415,6 +499,7 @@ async def upload_lesson_thumbnail(
             pass
 
     lesson.thumbnail_key = key
+    admin_content.touch_content_updated_at(db, lesson.course_id)
     db.commit()
 
     return {"thumbnail_key": lesson.thumbnail_key, "warning": warning}

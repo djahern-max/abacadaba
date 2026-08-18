@@ -99,6 +99,28 @@ function CourseDetail() {
         </div>
       </dl>
 
+      {course.reviewed_at && (
+        <section className={styles.reviewInfo}>
+          <p className={styles.reviewDate}>
+            Last reviewed {new Date(course.reviewed_at).toLocaleDateString()}
+          </p>
+          {(course.developer || course.reviewer) && (
+            <ul className={styles.reviewCredits}>
+              {course.developer && (
+                <li>
+                  Developed by {course.developer.name}, {course.developer.credentials}
+                </li>
+              )}
+              {course.reviewer && (
+                <li>
+                  Reviewed by {course.reviewer.name}, {course.reviewer.credentials}
+                </li>
+              )}
+            </ul>
+          )}
+        </section>
+      )}
+
       {singleLesson ? (
         <VideoPlayer
           courseSlug={course.slug}

@@ -7,6 +7,7 @@ import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
 import Button from '../../../components/Button/Button'
 import CourseDetailsForm from './CourseDetailsForm'
 import ObjectivesPanel from './ObjectivesPanel'
+import ReviewPanel from './ReviewPanel'
 import LessonsPanel from './LessonsPanel'
 import CollapsedLessonEditor from './CollapsedLessonEditor'
 import CoursePublishPanel from './CoursePublishPanel'
@@ -20,6 +21,7 @@ function AdminCourseEditor() {
   const [deleteError, setDeleteError] = useState('')
   const [detailsDirty, setDetailsDirty] = useState(0)
   const [objectivesDirty, setObjectivesDirty] = useState(0)
+  const [reviewDirty, setReviewDirty] = useState(0)
   const [collapsedDirty, setCollapsedDirty] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -27,9 +29,10 @@ function AdminCourseEditor() {
 
   const detailsRef = useRef(null)
   const objectivesRef = useRef(null)
+  const reviewRef = useRef(null)
   const collapsedRef = useRef(null)
 
-  const totalDirty = detailsDirty + objectivesDirty + collapsedDirty
+  const totalDirty = detailsDirty + objectivesDirty + reviewDirty + collapsedDirty
   const hasUnsavedWork = totalDirty > 0 || uploading
 
   const refresh = useCallback(() => {
@@ -78,6 +81,7 @@ function AdminCourseEditor() {
       const tasks = []
       if (detailsDirty > 0) tasks.push(detailsRef.current.save())
       if (objectivesDirty > 0) tasks.push(objectivesRef.current.save())
+      if (reviewDirty > 0) tasks.push(reviewRef.current.save())
       if (collapsedDirty > 0) tasks.push(collapsedRef.current.save())
       await Promise.all(tasks)
       await refresh()
@@ -163,6 +167,7 @@ function AdminCourseEditor() {
         onChange={refresh}
       />
       <ObjectivesPanel ref={objectivesRef} course={course} onDirtyChange={setObjectivesDirty} onChange={refresh} />
+      <ReviewPanel ref={reviewRef} course={course} onDirtyChange={setReviewDirty} onChange={refresh} />
       {singleLesson ? (
         <CollapsedLessonEditor
           ref={collapsedRef}

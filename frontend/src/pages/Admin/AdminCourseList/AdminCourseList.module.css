@@ -4,10 +4,23 @@
   padding: 0 var(--space-lg);
 }
 
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
 .heading {
-  margin: 0 0 var(--space-lg);
+  margin: 0;
   font-size: 24px;
   font-weight: 600;
+}
+
+.smeLink {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .createForm {

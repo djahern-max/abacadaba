@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -7,6 +8,12 @@ from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
+
+
+@dataclass
+class SMESummary:
+    name: str
+    credentials: str
 
 
 @dataclass
@@ -32,6 +39,9 @@ class CourseWithLessons:
     advance_preparation: str | None
     learning_objectives: list["LearningObjective"]
     lessons: list[Lesson]
+    reviewed_at: datetime | None
+    developer: SMESummary | None
+    reviewer: SMESummary | None
 
 
 @dataclass
@@ -81,7 +91,12 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
     stmt = (
         select(Course)
         .where(Course.slug == slug, Course.is_published.is_(True))
-        .options(selectinload(Course.lessons), selectinload(Course.learning_objectives))
+        .options(
+            selectinload(Course.lessons),
+            selectinload(Course.learning_objectives),
+            selectinload(Course.developer),
+            selectinload(Course.reviewer),
+        )
     )
     course = db.execute(stmt).scalar_one_or_none()
     if course is None:
@@ -99,6 +114,13 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         advance_preparation=course.advance_preparation,
         learning_objectives=course.learning_objectives,
         lessons=[lesson for lesson in course.lessons if lesson.is_published],
+        reviewed_at=course.reviewed_at,
+        developer=SMESummary(name=course.developer.name, credentials=course.developer.credentials)
+        if course.developer
+        else None,
+        reviewer=SMESummary(name=course.reviewer.name, credentials=course.reviewer.credentials)
+        if course.reviewer
+        else None,
     )
 
 

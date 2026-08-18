@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -31,6 +33,15 @@ class LearningObjectivePublic(BaseModel):
     position: int
 
 
+class SubjectMatterExpertPublic(BaseModel):
+    # 4.01's course documentation, not the full SME record - bio and
+    # affiliation stay internal.
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    credentials: str
+
+
 class CourseDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +56,9 @@ class CourseDetail(BaseModel):
     advance_preparation: str | None
     learning_objectives: list[LearningObjectivePublic]
     lessons: list[LessonInCourse]
+    reviewed_at: datetime | None
+    developer: SubjectMatterExpertPublic | None
+    reviewer: SubjectMatterExpertPublic | None
 
 
 class LessonSegmentDetail(BaseModel):

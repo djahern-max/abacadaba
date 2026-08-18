@@ -13,6 +13,7 @@ import AdminGuard from './pages/Admin/AdminGuard'
 import AdminCourseList from './pages/Admin/AdminCourseList/AdminCourseList'
 import AdminCourseEditor from './pages/Admin/AdminCourseEditor/AdminCourseEditor'
 import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
+import AdminSMEList from './pages/Admin/AdminSMEList/AdminSMEList'
 import Stats from './pages/Admin/Stats/Stats'
 import styles from './App.module.css'
 
@@ -69,6 +70,14 @@ function App() {
             element={
               <AdminGuard>
                 <AdminLessonEditor />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/smes"
+            element={
+              <AdminGuard>
+                <AdminSMEList />
               </AdminGuard>
             }
           />

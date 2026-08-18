@@ -16,6 +16,8 @@ from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.question import Question
 from app.models.session import Session as SessionModel
+from app.models.source import Source
+from app.models.subject_matter_expert import SubjectMatterExpert
 from app.models.user import User
 from app.services import storage
 
@@ -52,6 +54,15 @@ ADMIN_ROUTES = [
     ("DELETE", "/api/v1/admin/choices/999999"),
     ("POST", "/api/v1/admin/choices/999999/move"),
     ("POST", "/api/v1/admin/questions/999999/correct-choice"),
+    ("GET", "/api/v1/admin/smes"),
+    ("POST", "/api/v1/admin/smes"),
+    ("GET", "/api/v1/admin/smes/999999"),
+    ("PATCH", "/api/v1/admin/smes/999999"),
+    ("DELETE", "/api/v1/admin/smes/999999"),
+    ("POST", "/api/v1/admin/courses/999999/sources"),
+    ("PATCH", "/api/v1/admin/sources/999999"),
+    ("DELETE", "/api/v1/admin/sources/999999"),
+    ("POST", "/api/v1/admin/sources/999999/move"),
 ]
 
 
@@ -73,7 +84,9 @@ def cleanup():
     db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
     db.execute(delete(Choice).where(Choice.question_id.in_(question_ids)))
     db.execute(delete(Question).where(Question.lesson_id.in_(lesson_ids)))
+    db.execute(delete(Source).where(Source.course_id.in_(course_ids)))
     db.execute(delete(Course).where(Course.slug.like(f"{SLUG_PREFIX}%")))
+    db.execute(delete(SubjectMatterExpert).where(SubjectMatterExpert.name.like(f"{SLUG_PREFIX}%")))
     db.execute(delete(SessionModel).where(SessionModel.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.email.in_(emails)))
     db.commit()
@@ -141,6 +154,43 @@ def upload_video(slug, monkeypatch):
         files={"file": ("video.mp4", io.BytesIO(b"data"), "video/mp4")},
     )
     assert response.status_code == 200, response.text
+
+
+def create_sme(name_suffix, **overrides):
+    payload = {
+        "name": f"{SLUG_PREFIX} SME {name_suffix}",
+        "credentials": "CPA, active, NH #12345",
+    }
+    payload.update(overrides)
+    response = client.post("/api/v1/admin/smes", json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_review_chain(course_id, slug_suffix, developer_overrides=None, reviewer_overrides=None):
+    # Licensed CPA by default so an ordinary "complete course" helper doesn't
+    # trip rules 6/7 for tests unrelated to the credential requirement; tests
+    # that exercise those rules directly pass their own overrides.
+    developer_overrides = {"is_licensed_cpa": True, **(developer_overrides or {})}
+    developer = create_sme(f"{slug_suffix}-dev", **developer_overrides)
+    reviewer = create_sme(f"{slug_suffix}-rev", **(reviewer_overrides or {}))
+    response = client.patch(
+        f"/api/v1/admin/courses/{course_id}",
+        json={
+            "developer_id": developer["id"],
+            "reviewer_id": reviewer["id"],
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "review_notes": None,
+            # The real Review panel PATCHes all five review fields together
+            # in one request (ReviewPanel.jsx) - review_cycle must be
+            # included here too so this helper would have caught the bug
+            # where review_cycle wasn't excluded from the content_updated_at
+            # bump, which silently staled every review the instant it saved.
+            "review_cycle": "biennial",
+        },
+    )
+    assert response.status_code == 200, response.text
+    return developer, reviewer
 
 
 @pytest.mark.parametrize("method,path", ADMIN_ROUTES)
@@ -304,6 +354,7 @@ def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
+    add_review_chain(course["id"], "dry-run-complete")
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
@@ -320,6 +371,7 @@ def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
+    add_review_chain(course["id"], "complete")
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 200
@@ -336,6 +388,7 @@ def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monke
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
+    add_review_chain(course["id"], "publish-cascades")
 
     assert lesson["is_published"] is False
 
@@ -357,6 +410,8 @@ def test_unpublish_removes_from_public_list(monkeypatch):
     lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
+    add_review_chain(course["id"], "unpublish")
     client.post(f"/api/v1/admin/courses/{course['id']}/publish")
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/unpublish")
@@ -486,6 +541,8 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
+    add_review_chain(course["id"], slug_suffix)
+    course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     return course, lesson
 
 
@@ -654,11 +711,269 @@ def test_meta_fields_of_study_lists_all_values():
     assert response.status_code == 200
     body = response.json()
     assert body["non_cpe"] == NON_CPE
-    assert "Accounting" in body["technical"]
-    assert "Behavioral Ethics" in body["non_technical"]
+    technical_names = [field["name"] for field in body["technical"]]
+    assert "Accounting" in technical_names
+    assert {"name": "Accounting", "credential_tag": "cpa"} in body["technical"]
+    assert {"name": "Taxes", "credential_tag": "tax"} in body["technical"]
+    non_technical_names = [field["name"] for field in body["non_technical"]]
+    assert "Behavioral Ethics" in non_technical_names
 
 
 def test_meta_program_levels_lists_all_five():
     response = client.get("/api/v1/meta/program-levels")
     assert response.status_code == 200
     assert response.json()["levels"] == ["basic", "intermediate", "advanced", "update", "overview"]
+
+
+# --- development and review chain (feature 021) ------------------------------
+
+
+def test_publish_with_no_developer_is_refused_and_names_it(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("no-developer", monkeypatch)
+    # Clear the developer that _make_publishable_course set, keeping the
+    # reviewer and review date, to isolate rule 1.
+    client.patch(f"/api/v1/admin/courses/{course['id']}", json={"developer_id": None})
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("developer" in error.lower() for error in errors)
+
+
+def test_setting_same_expert_as_both_developer_and_reviewer_is_refused_by_the_api():
+    login_admin()
+    course = create_course("same-person")
+    sme = create_sme("same-person", is_licensed_cpa=True)
+
+    response = client.patch(
+        f"/api/v1/admin/courses/{course['id']}",
+        json={"developer_id": sme["id"], "reviewer_id": sme["id"]},
+    )
+    assert response.status_code == 409
+    assert "different people" in response.json()["detail"]
+
+
+def test_setting_same_expert_as_both_via_db_violates_check_constraint():
+    login_admin()
+    course = create_course("same-person-db")
+    sme = create_sme("same-person-db", is_licensed_cpa=True)
+
+    db = SessionLocal()
+    row = db.get(Course, course["id"])
+    row.developer_id = sme["id"]
+    row.reviewer_id = sme["id"]
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    db.close()
+
+
+def test_publish_with_review_older_than_content_edit_is_refused(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("stale-review", monkeypatch)
+
+    # The review recorded by _make_publishable_course now predates this edit.
+    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"description": "Edited after review."})
+    assert response.status_code == 200
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("changed since it was reviewed" in error for error in errors)
+
+
+def test_recording_a_review_does_not_change_content_updated_at(monkeypatch):
+    login_admin()
+    course = create_course("review-no-touch")
+    lesson = course["lessons"][0]
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
+    before = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+
+    add_review_chain(course["id"], "review-no-touch")
+
+    after = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after == before
+
+
+def test_editing_a_question_changes_content_updated_at(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("question-touch", monkeypatch)
+    before = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+
+    question_id = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()["questions"][0]["id"]
+    response = client.patch(f"/api/v1/admin/questions/{question_id}", json={"prompt": "Updated prompt?"})
+    assert response.status_code == 200
+
+    after = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after > before
+
+
+def test_adding_a_source_does_not_change_content_updated_at(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("source-no-touch", monkeypatch)
+    before = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+
+    response = client.post(
+        f"/api/v1/admin/courses/{course['id']}/sources",
+        json={"citation": "NASBA 2026 Statement on Standards", "url": None, "retrieved_on": None},
+    )
+    assert response.status_code == 201, response.text
+
+    after = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after == before
+
+    # Publish still succeeds - a source does not make the existing review stale.
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_accounting_course_with_no_licensed_cpa_is_refused(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course(
+        "accounting-no-cpa", monkeypatch, field_of_study="Accounting"
+    )
+    # _make_publishable_course's developer is a CPA by default; strip it so
+    # neither side of the chain carries the credential. Editing the SME
+    # record itself is not a course-content mutation, so the existing review
+    # stays fresh.
+    developer_id = client.get(f"/api/v1/admin/courses/{course['id']}").json()["developer_id"]
+    client.patch(f"/api/v1/admin/smes/{developer_id}", json={"is_licensed_cpa": False})
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("licensed CPA" in error for error in errors)
+
+
+def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
+    login_admin()
+    course = create_course("taxes-enrolled-agent", description="A complete test course.")
+    lesson = course["lessons"][0]
+    add_complete_questions(lesson["id"], count=1)
+    upload_video(lesson["slug"], monkeypatch)
+    add_objective(course["id"])
+    client.patch(f"/api/v1/admin/courses/{course['id']}", json={"field_of_study": "Taxes"})
+
+    developer = create_sme("taxes-ea-dev")
+    reviewer = create_sme("taxes-ea-rev", is_enrolled_agent=True)
+    response = client.patch(
+        f"/api/v1/admin/courses/{course['id']}",
+        json={
+            "developer_id": developer["id"],
+            "reviewer_id": reviewer["id"],
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_non_technical_course_is_unaffected_by_credential_rules(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course(
+        "non-technical", monkeypatch, field_of_study="Behavioral Ethics"
+    )
+    developer_id = client.get(f"/api/v1/admin/courses/{course['id']}").json()["developer_id"]
+    client.patch(f"/api/v1/admin/smes/{developer_id}", json={"is_licensed_cpa": False})
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_public_course_payload_carries_review_date_and_expert_names(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("public-review", monkeypatch)
+    publish = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert publish.status_code == 200, publish.text
+    admin_course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+
+    response = client.get(f"/api/v1/courses/{course['slug']}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reviewed_at"] is not None
+    assert body["developer"]["name"] == admin_course["developer"]["name"]
+    assert body["developer"]["credentials"] == admin_course["developer"]["credentials"]
+    assert body["reviewer"]["name"] == admin_course["reviewer"]["name"]
+    assert "bio" not in body["developer"]
+    assert "affiliation" not in body["developer"]
+
+
+def test_sources_come_back_in_position_order_and_reorder_correctly():
+    login_admin()
+    course = create_course("sources-order")
+
+    def add_source(citation):
+        response = client.post(
+            f"/api/v1/admin/courses/{course['id']}/sources", json={"citation": citation}
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    s1 = add_source("Source one")
+    s2 = add_source("Source two")
+    s3 = add_source("Source three")
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert [s["citation"] for s in detail["sources"]] == ["Source one", "Source two", "Source three"]
+    assert [s["position"] for s in detail["sources"]] == [1, 2, 3]
+
+    # s3, s3 up, s3 up -> s3, s1, s2
+    assert client.post(f"/api/v1/admin/sources/{s3['id']}/move", json={"direction": "up"}).status_code == 204
+    assert client.post(f"/api/v1/admin/sources/{s3['id']}/move", json={"direction": "up"}).status_code == 204
+
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert [s["id"] for s in detail["sources"]] == [s3["id"], s1["id"], s2["id"]]
+    assert [s["position"] for s in detail["sources"]] == [1, 2, 3]
+
+    delete_response = client.delete(f"/api/v1/admin/sources/{s1['id']}")
+    assert delete_response.status_code == 204
+    detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert [s["id"] for s in detail["sources"]] == [s3["id"], s2["id"]]
+    assert [s["position"] for s in detail["sources"]] == [1, 2]
+
+
+def test_sme_crud():
+    login_admin()
+    created = client.post(
+        "/api/v1/admin/smes",
+        json={
+            "name": f"{SLUG_PREFIX} SME crud",
+            "credentials": "CPA, active, CA #99999",
+            "affiliation": "Acme Advisory",
+            "is_licensed_cpa": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    sme = created.json()
+    assert sme["is_licensed_cpa"] is True
+    assert sme["is_tax_attorney"] is False
+
+    fetched = client.get(f"/api/v1/admin/smes/{sme['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["affiliation"] == "Acme Advisory"
+
+    updated = client.patch(f"/api/v1/admin/smes/{sme['id']}", json={"affiliation": "New Firm"})
+    assert updated.status_code == 200
+    assert updated.json()["affiliation"] == "New Firm"
+
+    listed = client.get("/api/v1/admin/smes")
+    assert listed.status_code == 200
+    assert sme["id"] in [item["id"] for item in listed.json()]
+
+    deleted = client.delete(f"/api/v1/admin/smes/{sme['id']}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/v1/admin/smes/{sme['id']}").status_code == 404
+
+
+def test_deleting_an_sme_in_use_as_developer_or_reviewer_is_refused(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("sme-in-use", monkeypatch)
+    developer_id = client.get(f"/api/v1/admin/courses/{course['id']}").json()["developer_id"]
+
+    response = client.delete(f"/api/v1/admin/smes/{developer_id}")
+    assert response.status_code == 409

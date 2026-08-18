@@ -1,254 +1,311 @@
 # Current Feature
 
-## Feature 019a, The single-lesson course
-
-## Numbering
-This is `019a`, not `020e`. It amends the hierarchy feature 019 introduced —
-what a course is made of and how many pages that costs — rather than the save
-model 020 and its suffixes have been working on. 020d filed it under this
-number; keep it there.
+## Feature 021, Development and review chain
 
 ## Goal
-A course with one lesson is authored on one page and taken on one page. The
-two-level model stays exactly as 019 built it in the database. It stops being
-something the author or the participant has to walk through.
+Every published course names the subject matter expert who developed it, a
+different one who reviewed it, and the date the review happened. A course whose
+content has changed since its review cannot be published until it is reviewed
+again. The review date appears on the course documentation, where 4.01 requires
+it.
 
 ## In scope
-- Creating a course creates its first lesson
-- A collapsed admin editor for courses with exactly one lesson
-- Expanding to the two-level editor when a second lesson is added, and
-  collapsing back when it is removed
-- The public course page playing its only segment inline
-- Refusing to delete the last remaining lesson of a course
+- A `subject_matter_experts` table, deliberately not tied to `users`
+- Developer, reviewer, review date, and review notes on a course
+- A `sources` table for the references a course was built from
+- `content_updated_at`, and publish refusing a review that predates it
+- The licensed-CPA participation rule for accounting, auditing, and tax fields
+- The most recent publication, revision, or review date, disclosed
+- The review cycle: annual for frequently-changing subjects, biennial otherwise
 
 ## Out of scope
-- Any schema change. Specifically: no `is_single_lesson` column, no mode flag,
-  no denormalised copy of lesson fields onto the course. See "One rule, derived"
-  below — this is the single most important constraint in the feature.
-- Multi-lesson authoring. A course with two or more lessons keeps the editor it
-  has today, unchanged.
-- Background or resumable video upload. This is the fourth feature file to say
-  so. It is real, it is queued, it changes the upload transport, and it is still
-  not this.
-- Bulk question import.
-- The development and review chain. Feature 021.
-- Credit calculation. Feature 022.
-- Certificate content or design. Feature 024.
-- Changing what `validate_for_publish` requires — with one exception, flagged in
-  Backend task 3, where a rule may turn out to demand a field the collapsed page
-  no longer shows. That is a genuine conflict, not a rule change for its own
-  sake.
+- The overdue-review dashboard. Feature 026. This feature stores the date and
+  the cycle; 026 reports on what has aged past it. Storing the inputs without
+  the report is the correct half to build first.
+- Instructor qualifications, 4.03. A self study program has no instructor. This
+  becomes real only if a group or blended program is ever offered.
+- Program evaluations, 4.04. Feature 025.
+- Purchased content review responsibilities, 4.06. Nothing is purchased.
+- Credit measurement. Feature 022.
+- An approval workflow — states, queues, notifications, a reviewer inbox. The
+  reviewer is a recorded fact on a course, not a role with a task list. Build
+  the record; the workflow can come later if two people are ever actually
+  passing courses back and forth.
+- The LLM content pipeline itself. But read the next section before deciding
+  this feature can wait for it.
 
-## Where this came from
-020c named it: "Collapsing single-lesson courses onto one page. That is the next
-feature and it is larger than this one."
+## The locators this feature is built against
+Read these in `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` before
+starting. Quote them into COMPLIANCE.md in the Standard's own words; do not work
+from this summary.
 
-Underneath that, the product's premise. abacadaba is a micro-learning platform.
-The overwhelmingly common shape is one video, one set of questions, one
-certificate. Feature 019 was right that credit attaches to a program rather than
-to a video, and it was right to make that structural before anything depended on
-it. The cost, unbudgeted at the time, is that the minimum path to publishing one
-video is now two pages, two editors, two Save buttons, and an understanding of
-the difference between a course and a lesson — which is precisely the knowledge
-020b set out to stop requiring, and the one instance of it 020b could not fix by
-relabelling.
+- **4.01** — activities, materials, and delivery systems that are current,
+  accurate, and effectively designed. Course documentation must contain the most
+  recent publication, revision, or review date. Subjects that undergo frequent
+  change must be reviewed and revised by a subject matter expert at least once a
+  year; other courses at least every two years.
+- **4.01.1** — learning activities must be developed by subject matter
+  expert(s), competent and current in the subject matter and skilled in the
+  appropriate instructional strategies and technology. **If technology is used
+  in the development of the program, the content developer is responsible for
+  reviewing the content for accuracy.**
+- **4.02** — learning activities must be reviewed by content reviewers other
+  than those who developed the program, to ensure it is accurate, current, and
+  addresses the stated learning objectives. These reviews must occur before the
+  first presentation and again after each significant revision. At least one
+  licensed CPA in good standing must participate in the development of every
+  program in accounting and auditing; at least one licensed CPA, tax attorney,
+  or IRS enrolled agent for every program in the field of study of taxes.
+- **4.02.1** — reviewers must be qualified in the subject matter. The review is
+  a quality control procedure. Where advance review is impractical in rare
+  circumstances, the basis for the lack of content review must be documented.
 
-## One rule, derived
-**A course renders collapsed when it has exactly one lesson.** That is the whole
-rule. It is computed from the lesson count on every render, in the admin and on
-the public side, and it is never stored.
+## Build this before the pipeline
+4.01.1's last sentence is the reason this feature is scheduled here rather than
+after the LLM work, and it is worth reading twice: if technology is used in
+developing the program, the content developer is responsible for reviewing the
+content for accuracy.
 
-Do not add a flag. A flag means two sources of truth for one fact, a course that
-can get stuck in expanded mode with one lesson in it, a migration to fix the
-ones that do, and a decision about what the flag means when a lesson is deleted.
-The derived rule answers all of that by not raising the question. If a task in
-this feature seems to need a stored mode, stop and say so rather than adding
-one.
+That sentence is about abacadaba specifically. A generation pipeline that exists
+first will be designed around one person clicking through a draft, and the
+second signature becomes something bolted on afterwards — at which point the
+honest answer to "who developed this" is a model, and there is no field to put
+it in. Building the chain first means the pipeline has to produce a course that
+already has a named human developer and a different named reviewer, because a
+course without them will not publish.
 
-The consequence is that the transition runs both ways and is not special: adding
-a second lesson expands, deleting back down to one collapses. Nothing is lost
-when a course collapses — hidden lesson fields keep their values in the
-database, they are simply not rendered.
+## Subject matter experts are not users
+The `subject_matter_experts` table has no foreign key to `users`, and should not
+grow one.
 
-## Part 1, creation makes a lesson
-`POST` course creation creates lesson 1 in the same transaction, at position 1,
-with its title set to the course title.
+Three reasons, in order of how much they will matter later:
 
-Do this on the server, not as two calls from the frontend. A failed second call
-leaves a course with zero lessons, which is a state nothing in the product can
-render and nothing can publish. Making it atomic means that state never exists.
+1. The reviewer on a real CPE program is frequently an outside CPA who has no
+   reason to ever log into the admin tool. Requiring an account to be recorded
+   as a reviewer means creating dormant accounts to satisfy a data model, which
+   is both a security posture problem and a lie about who has access.
+2. What the Standard wants documented is competence — credentials, license
+   status, jurisdiction. A `users` row carries none of that and should not start
+   to.
+3. The two records answer different questions with different lifetimes. Auth
+   answers "may this person edit this course today". The SME record answers "was
+   this person qualified to sign off on this course in August 2026", and it must
+   remain true and readable years after the person's account is gone.
 
-Multi-lesson courses get their first lesson this way too, which is correct — the
-author was going to create one anyway.
+A person can obviously have both records. The SME record is the one an audit
+reads.
 
-The lesson title is set once and never synchronised afterwards. Syncing means
-deciding what happens when the two diverge, and the value is invisible while the
-course is collapsed. On expansion the author sees it in the Lessons panel and
-can rename it there.
+## Data model
 
-## Part 2, the collapsed editor
-On a course with one lesson, one page shows:
+New `subject_matter_experts`:
+- id, name (not null)
+- credentials (string, not null) — the human-readable line, e.g.
+  "CPA, active, NH #12345"
+- affiliation (string, nullable), bio (text, nullable)
+- is_licensed_cpa (bool, not null, default false)
+- is_tax_attorney (bool, not null, default false)
+- is_enrolled_agent (bool, not null, default false)
+- license_jurisdiction (string, nullable)
+- created_at
 
-- Course title, slug, description, thumbnail
-- Learning objectives, program level, field of study, prerequisites, advance
-  preparation
-- Retake cooldown, max attempts
-- The video and its auto-filled duration
-- The questions editor
-- The publish panel
+The three booleans map one-to-one onto the sentence in 4.02 rather than onto a
+tidier abstraction. Accounting and auditing needs the first; taxes needs any of
+the three. A single enum would force a person who is both a CPA and an enrolled
+agent into one box, and a derived "is qualified" column would drift from the
+rule it was derived from.
 
-And hides, without deleting:
+New columns on `courses`:
+- developer_id (FK subject_matter_experts, nullable, indexed)
+- reviewer_id (FK subject_matter_experts, nullable, indexed)
+- reviewed_at (timestamptz, nullable)
+- review_notes (text, nullable)
+- content_updated_at (timestamptz, not null, server default now())
+- review_cycle (string, not null, default 'biennial', CHECK in
+  ('annual', 'biennial'))
 
-- Lesson title, lesson description, lesson thumbnail, lesson position
+Plus a CHECK that the two experts differ:
+`reviewer_id IS NULL OR developer_id IS NULL OR reviewer_id <> developer_id`.
+Autogenerate will not write it; add it by hand alongside the 020 constraints.
 
-This resolves the field pairs 020b Part 2 had to label its way around. On a
-collapsed course there is only one description and one thumbnail, so the helper
-text explaining which is which has nothing to disambiguate and should not
-render. Check that the labels 020b added are conditional rather than hardcoded
-into the shared components.
+New `sources`:
+- id, course_id (FK, ondelete CASCADE, indexed), position (int, unique per
+  course), citation (string, not null), url (string, nullable), retrieved_on
+  (date, nullable)
 
-There is no Lessons panel and no link to a lesson editor. The lesson editor
-route still exists and still works; nothing on a collapsed course links to it.
+Reuse the two-pass renumber already written for questions and objectives. This
+would be the third implementation of it; there should still be one.
 
-## Part 3, the transition
-The control is a single action at the bottom of the video and questions region,
-and **its label states the consequence before the click**:
+## Sources are recorded, not required
+Publish validation does not require a source. No locator demands a citation
+list, and 4.05.3 is about the opposite concern — that a program must be built on
+materials developed for instructional use rather than on third-party material.
 
-> Add a second segment — this course will split into a course page and a page
-> for each segment.
+But the source list renders in the review panel, directly beside the reviewer
+and review-date controls. A reviewer signing off on a draft that cites nothing
+should have to notice that this is what they are doing. That is a placement
+decision, not a validation rule, and it is the right shape for something the
+Standard leaves to the reviewer's judgment.
 
-That is the pattern 020d established. The author is told what will happen while
-they can still choose not to, rather than being shown an explanation after their
-page has been replaced.
+## content_updated_at, and the bug this feature will produce
+The interesting rule here is that a review is only meaningful if it happened
+after the content it reviewed. 4.02 says reviews must occur before the first
+presentation and again after each significant revision. So:
 
-On click: create lesson 2 and navigate to its editor, because filling it is the
-reason the control was pressed. The course editor behind it is now the
-two-level version, with a Lessons panel listing both.
+`content_updated_at` is bumped by every mutation that changes what a participant
+would see — course fields, objectives, lessons, questions, choices, video,
+thumbnail — through **one helper in `app/services/admin_content.py`**, called
+from each write path. Not sprinkled inline; one choke point, so the answer to
+"does this mutation count" is in one file.
 
-Collapsing back is the same rule in reverse and needs no control of its own.
-Deleting lesson 2 leaves one lesson and the course renders collapsed on the next
-load.
+It is **not** bumped by: setting the developer or reviewer, setting reviewed_at,
+writing review notes, adding or editing sources, publishing, or unpublishing.
 
-One edge worth writing down rather than discovering: an author who expands, puts
-content into lesson 2, then deletes lesson 1 ends up with a collapsed course
-whose visible content is lesson 2's, and whose lesson title, description, and
-thumbnail are the ones they set on lesson 2 and can no longer see. That is
-correct behaviour under the derived rule. No data is lost.
+That exclusion is the whole feature working or not working. If recording a
+review bumps the content timestamp, then `reviewed_at < content_updated_at` is
+true the instant after every review, publish refuses forever, and the failure
+looks like a validation bug rather than a design one. Write the test that
+asserts recording a review leaves `content_updated_at` untouched before writing
+the helper.
 
-## Part 4, the public page
-A participant on a one-lesson course sees one page: the disclosure block, then
-the player, then the assessment button with its gate.
+On "significant revision": the Standard says significant, and nothing here can
+judge significance. This feature treats every content edit as potentially
+significant. That is deliberately over-strict — re-recording a review is a few
+seconds of work, and a false positive costs nothing while a false negative is
+the thing the Standard exists to prevent.
 
-Order matters and is not negotiable. The objectives, program level, field of
-study, prerequisites, and advance preparation that feature 020 put on this page
-stay **above** the player. 8.01.1 asks for significant features to be disclosed
-in advance, and 020's changelog records that they were deliberately placed above
-the assessment button so they are pre-enrollment rather than something found
-after starting. Putting the player above them would move a decision the
-participant is supposed to make beforehand to after they have started watching.
+## Validation rules
+These join the 019 and 020 rules in `validate_for_publish`, which must keep
+returning every failure at once so feature 017's checklist still works.
 
-`/courses/:slug/lessons/:n` on a one-lesson course redirects to the course page
-rather than 404ing. Cheap, and certificates, bookmarks, or old links may point
-at it.
+1. `developer_id` set.
+2. `reviewer_id` set.
+3. `reviewer_id != developer_id` — 4.02, stated directly. The database CHECK is
+   a backstop; the validator produces the readable message.
+4. `reviewed_at` set.
+5. `reviewed_at >= content_updated_at`. Message: this course has changed since
+   it was reviewed.
+6. If `field_of_study` is tagged as accounting or auditing: the developer or the
+   reviewer must have `is_licensed_cpa`.
+7. If `field_of_study` is Taxes: the developer or the reviewer must have at
+   least one of the three credentials.
 
-**The watch gate does not change.** Feature 011's gate, its progress reporting,
-and the assessment button's locked state all behave exactly as they do now; the
-only difference is where the player element renders. The specific thing to
-verify is that progress still posts from the inline player, because if it does
-not, the gate never opens and the course becomes uncompletable — a failure that
-looks like a content problem rather than a layout one.
+Rules 6 and 7 need the fields-of-study constant from feature 020 to carry a
+credential tag. Put the tag next to the field in
+`app/constants/fields_of_study.py`, not in a second list keyed by field name —
+two lists NASBA controls will drift, which was already the reasoning behind
+020's `/meta/fields-of-study` endpoint.
 
-## The leak test
-The public course payload is fetchable signed out. The video URL is not, and
-must not become so.
+Note what rule 5 buys on the disclosure side: because publish refuses a review
+older than the content, `reviewed_at` on a published course is always the most
+recent of the two dates. So 4.01's "most recent publication, revision, or review
+date" is just `reviewed_at`, with no max() over three columns and no way for the
+displayed date to be wrong. The validation rule makes the disclosure trivially
+correct. Do not compute a separate documentation date.
 
-If the course payload grows the fields the inline player needs, the playable
-video URL is not one of them for an anonymous request. Serve it exactly as
-gated as the lesson segment endpoint serves it today. Feature 020's leak test
-exists for this; extend it to cover the new payload rather than assuming the
-existing assertion still covers the right surface.
+## The gap this feature does not close
+A published course that is then edited presents a real problem, and the answer
+here is partial.
+
+Editing a published course bumps `content_updated_at`, so re-publishing is
+blocked until it is reviewed again. But the course stays published and keeps
+serving in the meantime, because unpublishing it would pull a program out from
+under participants who are partway through it — which is worse for them and
+arguably worse for the sponsor.
+
+The consequence is that a published course can serve edited, unreviewed content
+until someone gets to it. The real fix is a draft-and-version model where edits
+land on an unpublished revision, and that is a larger feature than this one.
+
+**Record this in COMPLIANCE.md's Gap column against 4.02, explicitly, with the
+mitigation** — the admin surface flags the state, and 026's dashboard will
+report on it. Do not write a Gap column entry that implies it is handled. This
+is exactly the kind of thing abacadaba exists to find before superCPE has an
+audit.
 
 ## Backend tasks
-1. Course creation creates lesson 1 in the same transaction. Title from the
-   course title, position 1.
-2. `delete_lesson` refuses when the lesson is its course's only one. 409, with a
-   message saying to delete the course instead. This mirrors the existing 409 on
-   deleting a course with completed attempts.
-3. **Check before building:** read `validate_for_publish` and list every rule it
-   applies to a lesson. If any of them require a field the collapsed editor
-   hides — lesson description, lesson thumbnail — then a course authored on the
-   collapsed page cannot be published from it, which is worse than the problem
-   this feature is fixing. Resolve it explicitly: either the field stays visible
-   on the collapsed page, or the rule is scoped to courses with more than one
-   lesson. Say which you chose and why in the changelog. Do not discover this
-   during acceptance testing.
-4. Whatever the public course payload needs for the inline player, subject to
-   the leak test above.
-5. Tests:
-   - creating a course yields exactly one lesson, at position 1
-   - deleting the only lesson of a course is refused, and the course and lesson
-     both still exist afterwards
-   - deleting one of two lessons succeeds
-   - the anonymous course payload contains the 020 disclosures and no video URL
-   - a signed-in participant can play, and progress recorded from the course
-     page satisfies the gate
-   - the existing leak test still passes
+1. `app/models/subject_matter_expert.py`, `app/models/source.py`, and the six
+   columns on `Course`. Then autogenerate the migration and add the CHECK
+   constraints by hand. Verify `downgrade -1`.
+2. Unlike feature 019, the databases may have rows this time. `content_updated_at`
+   is not null — give it a server default in the migration so existing courses
+   get a value, and check whether any course is currently published. If one is,
+   it will fail rules 1–4 the next time anyone touches publish; say so in the
+   changelog rather than letting it surprise someone.
+3. SME CRUD under `require_admin`.
+4. Source CRUD nested under a course, reusing the existing renumber.
+5. The `content_updated_at` helper and its call sites.
+6. Credential tags on the fields-of-study constant, and whatever
+   `/meta/fields-of-study` needs to expose them.
+7. `validate_for_publish` rules 1–7.
+8. `GET /courses/{slug}` carries the review date and the developer's and
+   reviewer's names and credentials. 4.01 says course documentation rather than
+   descriptive materials, so the public page is a choice rather than a
+   requirement — make it, because it is a quality signal and the credential line
+   is the thing a participant would actually want to see. Bio and affiliation
+   are internal.
+9. Tests:
+   - publishing with no developer is refused, and the message says so
+   - publishing with the same person as developer and reviewer is refused
+   - publishing with a review older than the last content edit is refused
+   - recording a review does not change `content_updated_at`
+   - editing a question does change it
+   - adding a source does not change it
+   - an accounting course with no licensed CPA on either side is refused
+   - a taxes course with an enrolled agent as reviewer publishes
+   - a non-technical course with neither is unaffected by rules 6 and 7
+   - the public course payload carries the review date and both names
+   - sources come back in position order and reorder correctly
+   - the leak test still passes
 
 ## Frontend tasks
-1. `AdminCourseEditor` branches on lesson count: collapsed layout at exactly
-   one, existing layout otherwise. One branch, at the top, not scattered
-   conditionals through five components.
-2. The add-second-segment control, with the consequence in its label.
-3. Conditional field-pair helper text, per Part 2.
-4. `CourseDetail` renders the player inline when the course has one lesson.
-5. Redirect the segment route for one-lesson courses.
-6. Publish checklist entries for the single lesson drop their `Lesson 'X'`
-   prefix. On a collapsed course there is no second lesson to disambiguate from,
-   and the prefix names something the author cannot see. The 020b behaviour
-   where the entry links to that lesson's editor should also not fire — there is
-   nowhere else to go.
+1. An SME admin page: list, create, edit. Plain CRUD, no cleverness.
+2. A Review panel on the course editor — developer select, reviewer select,
+   review date, notes — with the source list rendered beside it per the
+   placement decision above.
+3. The stale-review state on a published course, stated where the author is
+   looking rather than only in the publish checklist.
+4. The publish checklist should pick up rules 1–7 automatically through its
+   existing `publishErrors` list. Verify that; do not build a second surface for
+   it. Feature 020 found the same thing and it held.
+5. Public course page renders the last-reviewed date and the two credited
+   experts.
 
 ## A thing to check rather than assume
-This feature sits on top of 020d's save model. The collapsed page holds course
-fields and lesson fields in one form, committed by one Save. Confirm that the
-batched save from 020b/020d can already commit to both a course and its lesson
-in one action, or that it can be extended to without a second save path. If
-020d has not shipped, stop — building the collapsed editor against a save model
-that is about to be replaced means doing it twice.
+The Review panel is a new panel on the course editor, and the course editor now
+has one save for the whole page. It must join that batch. Do not give it its own
+Save button — that reintroduces exactly the defect 020b spent a feature removing
+and 020d spent another feature making legible.
+
+If feature 019a has shipped, the collapsed single-lesson editor needs the panel
+too. It is a course-level fact, so it belongs on the course surface in both
+layouts.
 
 ## Acceptance criteria
-- creating a course lands the author on one page containing every field needed
-  to publish, with no link to a second editor
-- that page publishes a complete course without the author ever encountering the
-  word "lesson" as something they have to act on
-- adding a second segment states, before the click, that the page will split
-- after adding a second segment, the course editor shows a Lessons panel with
-  both segments and the first one carries the title it was created with
-- deleting the second segment returns the course to the one-page editor with all
-  of its content intact
-- deleting the only segment is refused, with a message that says what to do
-  instead
-- a signed-out visitor to a one-lesson course sees objectives, program level,
-  field of study, prerequisites, and advance preparation above the player
-- a signed-in participant plays the video on the course page, and the assessment
-  button unlocks on the same page without a navigation
-- `/courses/:slug/lessons/1` on a one-lesson course redirects rather than 404s
-- a two-lesson course behaves exactly as it does today, on both sides
+- a course cannot be published without a developer, a reviewer, and a review
+  date, and the checklist names which is missing
+- setting the same expert as both developer and reviewer is refused, in the API
+  and by the database
+- editing any question, objective, lesson, or course field after a review makes
+  publish refuse with a message about the course having changed
+- recording the review again clears it, and no other field had to be touched
+- an accounting or auditing course refuses to publish unless a licensed CPA is
+  named on one side of the chain
+- a taxes course accepts a CPA, a tax attorney, or an enrolled agent
+- the public course page shows the last-reviewed date, and that date is the
+  review date rather than anything computed
+- sources can be added, reordered, and deleted, and adding one does not make the
+  course's review stale
+- an already-published course that is edited shows the stale-review state in the
+  editor and keeps serving
 - `npm run lint` passes
 - pytest passes, with the new tests added
 
 ## When done
-Append an entry to CHANGELOG.md, including the answer to Backend task 3.
+Append an entry to CHANGELOG.md.
 
-Then check COMPLIANCE.md. The expectation is that it gains no row: this feature
-changes where disclosures render, not what is disclosed, and 020's 8.01.1 and
-3.02.1 mappings should still be accurate. Confirm that against
-`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` and say so explicitly
-rather than leaving it unstated — the mapping now points at a different page
-template than it did when it was written, so it is worth re-reading rather than
-re-assuming.
-
-If the disclosure block ended up below the player, that is a real gap and it
-goes in the Gap column rather than being quietly accepted.
+Then append to COMPLIANCE.md. This feature has real rows: 4.01, 4.01.1, 4.02,
+and 4.02.1, with the Requirement column in the PDF's own words rather than this
+file's paraphrase. One of them — 4.02 — carries a Gap, described above. Write it
+plainly.
 
 Then stop.

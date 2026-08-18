@@ -33,7 +33,12 @@ function AdminCourseList() {
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.heading}>Admin: courses</h1>
+      <div className={styles.headerRow}>
+        <h1 className={styles.heading}>Admin: courses</h1>
+        <Link to="/admin/smes" className={styles.smeLink}>
+          Subject matter experts
+        </Link>
+      </div>
 
       <form className={styles.createForm} onSubmit={handleCreate}>
         <input
