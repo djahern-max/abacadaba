@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createAdminChoice, deleteAdminQuestion, moveAdminQuestion, updateAdminQuestion } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import ChoiceRow from './ChoiceRow'
 import styles from './QuestionEditor.module.css'
 
@@ -73,22 +74,22 @@ const QuestionEditor = forwardRef(function QuestionEditor(
         <span className={styles.position}>{question.position}.</span>
         <textarea
           ref={promptRef}
-          className={styles.promptInput}
+          className={`${styles.promptInput} ${promptDirty ? styles.fieldDirty : ''}`}
           rows={2}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
         />
       </div>
       <div className={styles.questionActions}>
-        <button type="button" onClick={() => handleMove('up')} disabled={isFirst}>
+        <Button variant="secondary" onClick={() => handleMove('up')} disabled={isFirst}>
           Move up
-        </button>
-        <button type="button" onClick={() => handleMove('down')} disabled={isLast}>
+        </Button>
+        <Button variant="secondary" onClick={() => handleMove('down')} disabled={isLast}>
           Move down
-        </button>
-        <button type="button" className={styles.dangerButton} onClick={handleDeleteQuestion}>
+        </Button>
+        <Button variant="danger" onClick={handleDeleteQuestion}>
           Delete question
-        </button>
+        </Button>
       </div>
 
       <div className={styles.choicesBlock}>
@@ -116,7 +117,9 @@ const QuestionEditor = forwardRef(function QuestionEditor(
             value={newChoiceText}
             onChange={(event) => setNewChoiceText(event.target.value)}
           />
-          <button type="submit">Add choice</button>
+          <Button type="submit" variant="secondary">
+            Add choice
+          </Button>
         </form>
       </div>
     </div>

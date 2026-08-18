@@ -29,11 +29,16 @@
   padding: var(--space-sm);
   margin-bottom: var(--space-sm);
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   color: var(--color-text);
   font: inherit;
   resize: vertical;
+}
+
+.fieldDirty {
+  border-left-color: var(--color-accent);
 }
 
 .warning {

@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createAdminQuestion } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import QuestionEditor from './QuestionEditor'
 import styles from './QuestionsEditor.module.css'
 
@@ -78,9 +79,9 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
           onChange={(event) => setPrompt(event.target.value)}
           disabled={adding}
         />
-        <button type="submit" className={styles.button} disabled={adding || !prompt.trim()}>
+        <Button type="submit" variant="secondary" disabled={adding || !prompt.trim()}>
           Add question
-        </button>
+        </Button>
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
 

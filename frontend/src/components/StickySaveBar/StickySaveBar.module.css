@@ -11,15 +11,22 @@
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   box-shadow: var(--shadow-card);
+  transform: translateY(100%);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 180ms ease;
+  pointer-events: none;
 }
 
-.inert {
-  opacity: 0.7;
+.visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .status {
   font-size: 14px;
-  color: var(--color-text-muted);
+  font-weight: 600;
+  color: var(--color-warning);
 }
 
 .error {
@@ -29,17 +36,4 @@
 
 .button {
   margin-left: auto;
-  padding: var(--space-sm) var(--space-lg);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }

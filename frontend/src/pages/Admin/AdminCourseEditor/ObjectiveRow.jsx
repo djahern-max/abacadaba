@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { deleteAdminObjective, moveAdminObjective, updateAdminObjective } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import styles from '../AdminLessonEditor/QuestionEditor.module.css'
 
 const ObjectiveRow = forwardRef(function ObjectiveRow({ objective, isFirst, isLast, onDirtyChange, onChange }, ref) {
@@ -31,22 +32,22 @@ const ObjectiveRow = forwardRef(function ObjectiveRow({ objective, isFirst, isLa
       <div className={styles.promptRow}>
         <span className={styles.position}>{objective.position}.</span>
         <textarea
-          className={styles.promptInput}
+          className={`${styles.promptInput} ${dirty ? styles.fieldDirty : ''}`}
           rows={2}
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
       </div>
       <div className={styles.questionActions}>
-        <button type="button" onClick={() => handleMove('up')} disabled={isFirst}>
+        <Button variant="secondary" onClick={() => handleMove('up')} disabled={isFirst}>
           Move up
-        </button>
-        <button type="button" onClick={() => handleMove('down')} disabled={isLast}>
+        </Button>
+        <Button variant="secondary" onClick={() => handleMove('down')} disabled={isLast}>
           Move down
-        </button>
-        <button type="button" className={styles.dangerButton} onClick={handleDelete}>
+        </Button>
+        <Button variant="danger" onClick={handleDelete}>
           Delete objective
-        </button>
+        </Button>
       </div>
     </div>
   )

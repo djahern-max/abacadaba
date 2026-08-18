@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createAdminObjective } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import ObjectiveRow from './ObjectiveRow'
 import styles from '../AdminLessonEditor/QuestionsEditor.module.css'
 
@@ -82,9 +83,9 @@ const ObjectivesPanel = forwardRef(function ObjectivesPanel({ course, onDirtyCha
           onChange={(event) => setText(event.target.value)}
           disabled={adding}
         />
-        <button type="submit" className={styles.button} disabled={adding || !text.trim()}>
+        <Button type="submit" variant="secondary" disabled={adding || !text.trim()}>
           Add objective
-        </button>
+        </Button>
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
     </section>

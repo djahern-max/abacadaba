@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { publishAdminCourse, unpublishAdminCourse } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import styles from '../AdminLessonEditor/PublishPanel.module.css'
 
 const FIXED_CHECKS = [
@@ -83,14 +84,14 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
         )}
       </ul>
       {course.is_published ? (
-        <button type="button" className={styles.button} onClick={handleUnpublish}>
+        <Button variant="primary" onClick={handleUnpublish}>
           Unpublish
-        </button>
+        </Button>
       ) : (
         <>
-          <button type="button" className={styles.button} onClick={handlePublish} disabled={publishDisabled}>
+          <Button variant="primary" onClick={handlePublish} disabled={publishDisabled}>
             Publish
-          </button>
+          </Button>
           {hasUnsavedWork && <p className={styles.reason}>Save your changes first.</p>}
         </>
       )}

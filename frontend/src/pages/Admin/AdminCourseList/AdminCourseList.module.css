@@ -27,22 +27,6 @@
   font: inherit;
 }
 
-.button {
-  padding: var(--space-sm) var(--space-md);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .fieldError {
   margin: 0 0 var(--space-md);
   color: var(--color-danger);

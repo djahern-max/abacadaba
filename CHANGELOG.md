@@ -658,3 +658,35 @@ correctness with no Standards locator to map to — confirmed against
 Background/resumable upload, collapsing single-lesson courses, bulk question
 import, certificate design, and any schema change remain out of scope, as
 specified.
+
+## 2026-08-18, Feature 020d, The save affordance
+A shared `Button` component (`primary`/`secondary`/`danger`, plus a `disabled`
+modifier that wins over every variant via the native `disabled` attribute) now
+backs every button in the admin — no shared button module existed yet despite
+the feature assuming one, so this feature created it rather than editing one.
+The bottom save bar (`StickySaveBar`) is hidden when the page is clean and
+slides in under 200ms when it becomes dirty, with `aria-live="polite"`; a
+second Save button now sits in the page header next to the title, sharing the
+same dirty/saving state and handler as the bar so there is one source of
+truth. Course and lesson detail forms, and each objective/question/choice
+row, mark the individual field that changed with a left border accent, using
+the already-loaded server snapshot each form compares against (no new client
+state was needed — 020b's batched state already held per-field original
+values, not just a boolean). Cmd/Ctrl+S saves when dirty and is bound only on
+the two editor pages. Leaving an editor with unsaved changes now blocks
+in-app navigation via react-router's `useBlocker` (which required migrating
+`main.jsx` from `BrowserRouter` to `createBrowserRouter`/`RouterProvider`,
+since `useBlocker` only works under a data router) and `beforeunload` for tab
+close/reload, as before. Video and thumbnail uploads remain outside the
+batched save and do not dirty the bar. Verified in a live browser session
+(Playwright driving a dev server): disabled Save renders grey/`not-allowed`
+next to a light-purple enabled `Add lesson`, editing a field turns the header
+Save solid purple and marks the field, dismissing the nav-guard confirm
+keeps you on the page, Cmd+S saves and clears every marker, and the Publish
+checklist reflects the save on a fresh fetch. Backend untouched;
+`pytest` (185 tests) passes unchanged.
+COMPLIANCE.md gains no row: this is an authoring-tool rendering and
+interaction fix with no Standards locator to map to. Content silently
+failing to save would touch Section 9's documentation requirements, but
+that was never the defect here — the data was always saved correctly on
+click, the author just couldn't tell.

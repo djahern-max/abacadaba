@@ -21,16 +21,26 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
     getProgramLevels().then(setProgramLevels).catch(() => {})
   }, [])
 
+  const titleDirty = title !== course.title
+  const slugDirty = slug !== course.slug
+  const descriptionDirty = description !== course.description
+  const cooldownDirty = Number(cooldownMinutes) !== course.retake_cooldown_minutes
+  const maxAttemptsDirty = String(maxAttempts) !== String(course.max_attempts ?? '')
+  const programLevelDirty = programLevel !== course.program_level
+  const fieldOfStudyDirty = fieldOfStudy !== course.field_of_study
+  const prerequisitesDirty = prerequisites !== (course.prerequisites ?? '')
+  const advancePreparationDirty = advancePreparation !== (course.advance_preparation ?? '')
+
   const dirty =
-    title !== course.title ||
-    slug !== course.slug ||
-    description !== course.description ||
-    Number(cooldownMinutes) !== course.retake_cooldown_minutes ||
-    String(maxAttempts) !== String(course.max_attempts ?? '') ||
-    programLevel !== course.program_level ||
-    fieldOfStudy !== course.field_of_study ||
-    prerequisites !== (course.prerequisites ?? '') ||
-    advancePreparation !== (course.advance_preparation ?? '')
+    titleDirty ||
+    slugDirty ||
+    descriptionDirty ||
+    cooldownDirty ||
+    maxAttemptsDirty ||
+    programLevelDirty ||
+    fieldOfStudyDirty ||
+    prerequisitesDirty ||
+    advancePreparationDirty
 
   useEffect(() => {
     onDirtyChange?.(dirty ? 1 : 0)
@@ -60,7 +70,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <input
           id="course-title"
-          className={styles.input}
+          className={`${styles.input} ${titleDirty ? styles.fieldDirty : ''}`}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
@@ -70,7 +80,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <input
           id="course-slug"
-          className={styles.input}
+          className={`${styles.input} ${slugDirty ? styles.fieldDirty : ''}`}
           value={slug}
           onChange={(event) => setSlug(event.target.value)}
         />
@@ -85,7 +95,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <textarea
           id="course-description"
-          className={styles.textarea}
+          className={`${styles.textarea} ${descriptionDirty ? styles.fieldDirty : ''}`}
           rows={4}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
@@ -100,7 +110,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <select
           id="course-program-level"
-          className={styles.input}
+          className={`${styles.input} ${programLevelDirty ? styles.fieldDirty : ''}`}
           value={programLevel}
           onChange={(event) => setProgramLevel(event.target.value)}
         >
@@ -116,7 +126,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <select
           id="course-field-of-study"
-          className={styles.input}
+          className={`${styles.input} ${fieldOfStudyDirty ? styles.fieldDirty : ''}`}
           value={fieldOfStudy}
           onChange={(event) => setFieldOfStudy(event.target.value)}
         >
@@ -148,7 +158,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <textarea
           id="course-prerequisites"
-          className={styles.textarea}
+          className={`${styles.textarea} ${prerequisitesDirty ? styles.fieldDirty : ''}`}
           rows={2}
           value={prerequisites}
           onChange={(event) => setPrerequisites(event.target.value)}
@@ -159,7 +169,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <textarea
           id="course-advance-preparation"
-          className={styles.textarea}
+          className={`${styles.textarea} ${advancePreparationDirty ? styles.fieldDirty : ''}`}
           rows={2}
           value={advancePreparation}
           onChange={(event) => setAdvancePreparation(event.target.value)}
@@ -174,7 +184,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <input
           id="course-cooldown-minutes"
-          className={styles.input}
+          className={`${styles.input} ${cooldownDirty ? styles.fieldDirty : ''}`}
           type="number"
           min="0"
           value={cooldownMinutes}
@@ -187,7 +197,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         </label>
         <input
           id="course-max-attempts"
-          className={styles.input}
+          className={`${styles.input} ${maxAttemptsDirty ? styles.fieldDirty : ''}`}
           type="number"
           min="1"
           value={maxAttempts}

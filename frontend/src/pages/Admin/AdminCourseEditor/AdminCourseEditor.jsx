@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom'
 import { checkAdminCoursePublish, deleteAdminCourse, getAdminCourse, uploadAdminCourseThumbnail } from '../../../api/admin'
 import { getCourseThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
 import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
+import Button from '../../../components/Button/Button'
 import CourseDetailsForm from './CourseDetailsForm'
 import ObjectivesPanel from './ObjectivesPanel'
 import LessonsPanel from './LessonsPanel'
@@ -52,11 +53,20 @@ function AdminCourseEditor() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [hasUnsavedWork])
 
-  function handleBackClick(event) {
-    if (hasUnsavedWork && !window.confirm('You have unsaved changes. Leave this page?')) {
-      event.preventDefault()
+  const shouldBlock = useCallback(
+    ({ currentLocation, nextLocation }) => hasUnsavedWork && currentLocation.pathname !== nextLocation.pathname,
+    [hasUnsavedWork],
+  )
+  const blocker = useBlocker(shouldBlock)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('You have unsaved changes. Leave this page?')) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
     }
-  }
+  }, [blocker])
 
   async function handleSaveAll() {
     setSaveError('')
@@ -73,6 +83,17 @@ function AdminCourseEditor() {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const key = event.key.toLowerCase()
+      if (!(event.metaKey || event.ctrlKey) || key !== 's') return
+      event.preventDefault()
+      if (totalDirty > 0 && !saving) handleSaveAll()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [totalDirty, saving, handleSaveAll])
 
   async function handleDelete() {
     if (!window.confirm(`Delete "${state.course.title}"? This cannot be undone.`)) return
@@ -97,7 +118,7 @@ function AdminCourseEditor() {
 
   return (
     <div className={styles.page}>
-      <Link to="/admin" className={styles.back} onClick={handleBackClick}>
+      <Link to="/admin" className={styles.back}>
         &larr; All courses
       </Link>
       <div className={styles.headerRow}>
@@ -108,6 +129,14 @@ function AdminCourseEditor() {
         <Link to={`/admin/courses/${course.id}/stats`} className={styles.statsLink}>
           View stats
         </Link>
+        <Button
+          variant="primary"
+          className={styles.headerSaveButton}
+          onClick={handleSaveAll}
+          disabled={totalDirty === 0 || saving}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
       </div>
 
       <CourseDetailsForm ref={detailsRef} course={course} onDirtyChange={setDetailsDirty} />
@@ -131,9 +160,9 @@ function AdminCourseEditor() {
       />
 
       <section className={styles.dangerZone}>
-        <button type="button" className={styles.deleteButton} onClick={handleDelete}>
+        <Button variant="danger" onClick={handleDelete}>
           Delete course
-        </button>
+        </Button>
         {deleteError && <p className={styles.fieldError}>{deleteError}</p>}
       </section>
 

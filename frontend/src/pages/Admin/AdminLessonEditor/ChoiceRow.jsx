@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { deleteAdminChoice, moveAdminChoice, setCorrectChoice, updateAdminChoice } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import styles from './ChoiceRow.module.css'
 
 const ChoiceRow = forwardRef(function ChoiceRow({ choice, questionId, onDirtyChange, onChange }, ref) {
@@ -41,20 +42,20 @@ const ChoiceRow = forwardRef(function ChoiceRow({ choice, questionId, onDirtyCha
         aria-label="Correct choice"
       />
       <input
-        className={styles.textInput}
+        className={`${styles.textInput} ${dirty ? styles.fieldDirty : ''}`}
         type="text"
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
-      <button type="button" onClick={() => handleMove('up')}>
+      <Button variant="secondary" onClick={() => handleMove('up')}>
         Up
-      </button>
-      <button type="button" onClick={() => handleMove('down')}>
+      </Button>
+      <Button variant="secondary" onClick={() => handleMove('down')}>
         Down
-      </button>
-      <button type="button" className={styles.dangerButton} onClick={handleDelete}>
+      </Button>
+      <Button variant="danger" onClick={handleDelete}>
         Delete
-      </button>
+      </Button>
     </li>
   )
 })

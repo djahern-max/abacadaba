@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { createAdminCourse, getAdminCourses } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import styles from './AdminCourseList.module.css'
 
 function AdminCourseList() {
@@ -43,9 +44,9 @@ function AdminCourseList() {
           onChange={(event) => setTitle(event.target.value)}
           disabled={creating}
         />
-        <button type="submit" className={styles.button} disabled={creating || !title.trim()}>
+        <Button type="submit" variant="secondary" disabled={creating || !title.trim()}>
           {creating ? 'Creating…' : 'Create course'}
-        </button>
+        </Button>
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
 

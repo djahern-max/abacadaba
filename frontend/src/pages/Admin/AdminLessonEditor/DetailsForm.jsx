@@ -10,12 +10,13 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
   const [durationAutoFilled, setDurationAutoFilled] = useState(false)
   const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
 
-  const dirty =
-    title !== lesson.title ||
-    slug !== lesson.slug ||
-    description !== lesson.description ||
-    String(duration) !== String(lesson.duration_seconds ?? '') ||
-    Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
+  const titleDirty = title !== lesson.title
+  const slugDirty = slug !== lesson.slug
+  const descriptionDirty = description !== lesson.description
+  const durationDirty = String(duration) !== String(lesson.duration_seconds ?? '')
+  const watchPercentDirty = Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
+
+  const dirty = titleDirty || slugDirty || descriptionDirty || durationDirty || watchPercentDirty
 
   useEffect(() => {
     onDirtyChange?.(dirty ? 1 : 0)
@@ -47,7 +48,7 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         </label>
         <input
           id="title"
-          className={styles.input}
+          className={`${styles.input} ${titleDirty ? styles.fieldDirty : ''}`}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
@@ -57,7 +58,7 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         </label>
         <input
           id="slug"
-          className={styles.input}
+          className={`${styles.input} ${slugDirty ? styles.fieldDirty : ''}`}
           value={slug}
           onChange={(event) => setSlug(event.target.value)}
         />
@@ -72,7 +73,7 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         </label>
         <textarea
           id="description"
-          className={styles.textarea}
+          className={`${styles.textarea} ${descriptionDirty ? styles.fieldDirty : ''}`}
           rows={4}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
@@ -84,7 +85,7 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         </label>
         <input
           id="duration"
-          className={styles.input}
+          className={`${styles.input} ${durationDirty ? styles.fieldDirty : ''}`}
           type="number"
           min="0"
           value={duration}
@@ -107,7 +108,7 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         </label>
         <input
           id="watch-percent"
-          className={styles.input}
+          className={`${styles.input} ${watchPercentDirty ? styles.fieldDirty : ''}`}
           type="number"
           min="0"
           max="100"

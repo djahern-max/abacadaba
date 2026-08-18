@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createAdminLesson, moveAdminLesson } from '../../../api/admin'
+import Button from '../../../components/Button/Button'
 import styles from './LessonsPanel.module.css'
 
 function LessonsPanel({ course, onChange }) {
@@ -55,22 +56,22 @@ function LessonsPanel({ course, onChange }) {
               <span>{lesson.questions.length} question(s)</span>
               <span>{lesson.video_key ? 'Has video' : 'No video'}</span>
               <div className={styles.moveButtons}>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   onClick={() => handleMove(lesson.id, 'up')}
                   disabled={index === 0}
                   aria-label="Move lesson up"
                 >
                   &uarr;
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
                   onClick={() => handleMove(lesson.id, 'down')}
                   disabled={index === course.lessons.length - 1}
                   aria-label="Move lesson down"
                 >
                   &darr;
-                </button>
+                </Button>
               </div>
             </div>
           </li>
@@ -86,9 +87,9 @@ function LessonsPanel({ course, onChange }) {
           onChange={(event) => setTitle(event.target.value)}
           disabled={creating}
         />
-        <button type="submit" className={styles.button} disabled={creating || !title.trim()}>
+        <Button type="submit" variant="secondary" disabled={creating || !title.trim()}>
           {creating ? 'Adding…' : 'Add lesson'}
-        </button>
+        </Button>
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
     </section>

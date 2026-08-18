@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom'
 import { checkAdminCoursePublish, deleteAdminLesson, getAdminLesson, uploadAdminThumbnail } from '../../../api/admin'
 import { getLessonThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
 import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
+import Button from '../../../components/Button/Button'
 import DetailsForm from './DetailsForm'
 import VideoUploader from './VideoUploader'
 import QuestionsEditor from './QuestionsEditor'
@@ -62,11 +63,20 @@ function AdminLessonEditor() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [hasUnsavedWork])
 
-  function handleBackClick(event) {
-    if (hasUnsavedWork && !window.confirm('You have unsaved changes. Leave this page?')) {
-      event.preventDefault()
+  const shouldBlock = useCallback(
+    ({ currentLocation, nextLocation }) => hasUnsavedWork && currentLocation.pathname !== nextLocation.pathname,
+    [hasUnsavedWork],
+  )
+  const blocker = useBlocker(shouldBlock)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('You have unsaved changes. Leave this page?')) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
     }
-  }
+  }, [blocker])
 
   async function handleSaveAll() {
     setSaveError('')
@@ -83,6 +93,17 @@ function AdminLessonEditor() {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const key = event.key.toLowerCase()
+      if (!(event.metaKey || event.ctrlKey) || key !== 's') return
+      event.preventDefault()
+      if (totalDirty > 0 && !saving) handleSaveAll()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [totalDirty, saving, handleSaveAll])
 
   async function handleDelete() {
     if (!window.confirm(`Delete "${state.lesson.title}"? This cannot be undone.`)) return
@@ -108,7 +129,7 @@ function AdminLessonEditor() {
 
   return (
     <div className={styles.page}>
-      <Link to={backTo} className={styles.back} onClick={handleBackClick}>
+      <Link to={backTo} className={styles.back}>
         &larr; Back to course
       </Link>
       <div className={styles.headerRow}>
@@ -116,6 +137,14 @@ function AdminLessonEditor() {
         <span className={`${styles.badge} ${lesson.is_published ? styles.published : styles.draft}`}>
           {lesson.is_published ? 'Published' : 'Draft'}
         </span>
+        <Button
+          variant="primary"
+          className={styles.headerSaveButton}
+          onClick={handleSaveAll}
+          disabled={totalDirty === 0 || saving}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
       </div>
       <p className={styles.message}>
         Publishing happens for the whole course. Once every lesson is complete, publish the course from{' '}
@@ -161,15 +190,15 @@ function AdminLessonEditor() {
             </ul>
           </>
         )}
-        <Link to={backTo} className={styles.nextStepLink} onClick={handleBackClick}>
+        <Link to={backTo} className={styles.nextStepLink}>
           &larr; Back to course
         </Link>
       </section>
 
       <section className={styles.dangerZone}>
-        <button type="button" className={styles.deleteButton} onClick={handleDelete}>
+        <Button variant="danger" onClick={handleDelete}>
           Delete lesson
-        </button>
+        </Button>
         {deleteError && <p className={styles.fieldError}>{deleteError}</p>}
       </section>
 
