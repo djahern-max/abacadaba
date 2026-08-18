@@ -1,198 +1,163 @@
 # Current Feature
 
-## Feature 020b, Authoring workflow
+## Feature 020c, Authoring hotfix
 
 ## Goal
-Authoring a course stops requiring knowledge of the data model. One save model
-instead of four, fields that say what they are for, a control that cannot be
-mistaken for a different control, and a visible next step at every point.
+Four defects found by authoring a course after 020a and 020b shipped. One of
+them destroys work every time it fires. One of them is a fix that 020a claimed
+to make and did not. Fix all four and nothing else.
 
 ## In scope
-- One save model across both editors
-- Labelling the course/lesson field pairs that currently look duplicated
-- Separating the add-question control from the add-choice control
-- A next step at the bottom of every editor, not only a link at the top
-- Orienting a new author on an empty course
+- Course description not persisting
+- Quiz question numbering, reopened from 020a
+- Add-question control disorients the author
+- Publish checklist shows a green check for a rule with nothing to check
 
 ## Out of scope
-- The three defects in 020a. Run that first; this feature assumes it shipped.
-- Background or resumable video upload. Real, scheduled, not here — it changes
-  the upload transport and this feature only changes the page around it.
-- Bulk question import from a template. Also real, also not here, and it wants
-  the feature 023 review/assessment split to exist first so the template does
-  not need versioning three weeks in.
-- Certificate content or design. Feature 024.
-- Any schema change. This is entirely presentation and client state.
-- Changing what publish validation requires. 020a adjusts the rules; this
-  feature only changes how they are surfaced.
+- Background or resumable video upload. Real, acknowledged three times now,
+  deliberately queued as its own feature. Do not start it here.
+- Collapsing single-lesson courses onto one page. That is the next feature and
+  it is larger than this one.
+- Bulk question import. Certificate design (feature 024). Any schema change.
+- Any further layout work beyond the specific items below. This is a hotfix.
 
-## Where this came from
-One authoring session, start to finish, by the person who commissioned every
-feature in the sequence. The verdict was "I am building the thing and I don't
-even understand the way it is supposed to work." Every item below is something
-that happened in that session, not something anticipated.
+## Bug 1, the course description does not persist
 
-Features 010 through 020 were each specified and built in isolation, and each is
-internally coherent. The path across them is not. That is the defect.
+**This is the priority. It silently discards content the author typed.**
 
-## Part 1, one save model
+**Reproduce:** open a course editor, type into Course description, save, reload
+or navigate back to the course.
+**Observed:** the field is empty. Retyping and saving again does not help.
+**Expected:** it persists like every other field on the page.
 
-Right now the lesson and course editors use four different rules on one page:
+Do not start from the hypothesis below — reproduce it first and confirm the
+mechanism. But the evidence points somewhere specific, so start looking there.
 
-- Details: one Save button for the whole section
-- Learning objectives: a Save button per row
-- Questions: a Save per question, plus a Save per choice
-- Video and thumbnail: no save at all, upload begins on file selection
+The smoking gun is that the publish checklist read `○ Description` at the same
+moment the textarea on screen was full of text. The checklist renders from
+server state and the textarea renders from client state. They disagreed, which
+means the value was never persisted, rather than persisted and then lost on
+read. That rules out a load or hydration problem and points at the save.
 
-There is nothing to learn here, because it is not a rule. An author who has
-internalised "Save is per row" then loses a details edit, and one who has
-internalised "it saves itself" loses a question prompt — which is exactly what
-020a is fixing the consequences of.
+020b replaced per-section saves with one batched save for the page. The most
+likely mechanism is that the batch is assembled from fields that registered a
+change through the new dirty-tracking path, and the description textarea is not
+wired into it — so it is typed, looks correct, and is dropped when the payload
+is built.
 
-**Decision: keep explicit save, make it one per editor page.**
+Whatever the mechanism turns out to be, check every field on both editors for
+the same defect rather than fixing only the one that was reported. If the
+description fell out of the batch, ask what else did. Prerequisites, advance
+preparation, retake cooldown, and max attempts are all on that form and none of
+them were exercised in the failing session.
 
-Explicit save is right and should not become autosave. A published course is a
-document participants are working through and that a sponsor has to be able to
-produce on audit; edits landing on it keystroke by keystroke is the wrong
-behaviour for that object regardless of how convenient it feels in the editor.
-The problem was never that saving is explicit. It is that "explicit" was
-implemented at four different granularities.
+Add a test that saves every field on the course editor in one batch and asserts
+each one round-trips. A test for the description alone would not have caught the
+class of bug and will not catch the next one.
 
-So:
-- Edits to details, objectives, questions, and choices are held in client state
-  and committed by one Save action for the page.
-- A sticky bar at the bottom of the editor is the only Save control. It shows a
-  count of unsaved changes and is inert when there are none.
-- Every per-row Save button is removed. Row-level Delete, Move up, and Move down
-  stay immediate — they are actions, not field edits, and batching a delete
-  behind a save is worse than not batching it.
-- Uploads stay immediate. They are file transfers, not form fields, and holding
-  a 200 MB file in client state until a Save click would be a lie about what is
-  happening. Say so in the section: the upload section explicitly states that
-  video and thumbnail save on selection, unlike everything else on the page.
+## Bug 2, quiz numbering, reopened
 
-Keep 020a's dirty tracking as the mechanism. This feature changes what the
-author does with it, not how it is computed.
+020a specified this and the changelog should say it shipped. It did not.
 
-If batching question and choice edits turns out to need a new bulk endpoint,
-stop and say so before building one — that is a backend change this feature
-claims not to need, and it is worth a decision rather than a quiet migration.
+**Observed:** the assessment shows `Question 1 of 5` in the progress line above a
+card headed `5. Why can some volcanic eruptions be highly explosive?`
 
-## Part 2, the duplicated-looking fields
+The diagnosis in 020a stands and is unchanged: the shuffle is correct and
+deliberate, and the card is printing the authored `position` instead of the
+index within the shuffled run.
 
-A course has a thumbnail and a description. Each lesson inside it also has a
-thumbnail and a description. The author's reaction on hitting the second pair
-was "What happens with the first thumbnail??"
+Find out why the fix did not take before making it again. Either it was applied
+to a component the quiz page does not use, or the number is composed somewhere
+shared — a prompt string built as `${position}. ${text}` upstream of the card
+would survive a change to the card itself.
 
-Nothing happens to it. All four are used and none overwrite each other. But
-nothing on either page says so, and the fields are labelled identically.
+Then add a regression test that fails against the current build. 020a passed its
+acceptance criteria without this working, which means it was checked by reading
+the code rather than by running the quiz.
 
-Label each with where it appears:
-- Course thumbnail: shown on the course card in the catalog.
-- Course description: shown on the public course page before enrollment. This is
-  the pre-enrollment disclosure required by 8.01.1, so it is the one that
-  matters most and should read as the more consequential of the two.
-- Lesson thumbnail: the poster frame shown before this segment's video plays.
-- Lesson description: a short blurb for this segment in the course's lesson list.
+## Bug 3, questions are added at the top and appear at the bottom
 
-Helper text under the field, in the same style as the existing "Blank means
-unlimited attempts." lines. Not a tooltip.
+020b moved the add-question control above the list, outside the question cards,
+to stop it being mistaken for the add-choice input. That worked — the mis-entry
+that produced a question called "Lava" has not recurred.
 
-## Part 3, the add-question control
+It also created a new problem: the author types a question at the top of the
+section, the question is appended to the end of the list, and nothing indicates
+anything happened. With four questions authored, the new one is off screen.
 
-`New choice text` / `Add choice` sits directly above `New question prompt` /
-`Add question`. Same width, same shape, a few pixels apart. The author put an
-answer into the question box three times in three attempts.
+**Keep the control where it is.** Moving it back below the last question would
+put it directly under that question's `New choice text` input again, which is
+the exact adjacency that caused the original defect. Do not undo 020b to fix
+this.
 
-That is a control problem, not an attention problem. Fix it structurally:
+Instead, make the result visible:
+- After adding, scroll the new question into view and focus its prompt textarea.
+- The section heading count updates, which it already does.
 
-- Choices are visually nested inside their question — indented, with a rule or
-  background distinguishing the question's block from the page.
-- The add-question control moves out of the flow of the last question's choices.
-  Put it in the Questions section header, or make it a full-width button clearly
-  outside every question block. It must not be the next thing under a choice
-  input.
-- The two inputs get different shapes. A question prompt is a textarea, a choice
-  is a single-line input; make that visible rather than rendering both as
-  same-sized boxes.
+If scroll-into-view proves awkward inside the page's scroll container, say so
+rather than working around it by relocating the control.
 
-Same treatment for objectives if the equivalent adjacency exists there.
+## Bug 4, a green check for a rule with nothing to check
 
-## Part 4, the next step
+With `Lessons (0)`, the publish checklist renders `✓ Every lesson has a video,
+at least one question, and each question has exactly one correct choice` in
+green, directly under `○ At least one lesson`.
 
-Finishing a lesson leaves the author at the bottom of the page with a Delete
-lesson button and nothing else. The only route onward is scrolling to the top
-and finding a hyperlink inside a sentence.
+The rule is vacuously true — there are no lessons, so no lesson fails it. But a
+green check tells the author that part is done.
 
-- Both editors end with an explicit next action, below the content and above the
-  danger zone. In a lesson: back to its course, plus what is still outstanding on
-  this lesson. In a course: publish, or what is blocking it.
-- The course publish checklist's per-lesson failures become links to that
-  lesson's editor. "Lesson 'X' must have a video" should be clickable.
-- The danger zone stays last and stays visually separate. Delete is not a next
-  step.
-
-## Part 5, the empty course
-
-A new course opens on an empty editor with eight fields and `Lessons (0)`, and
-does not say that lessons are where video and questions live. The author went
-looking for the question editor on the course page.
-
-When a course has no lessons, the Lessons panel says what a lesson is: one video
-segment plus its questions, and a course is one or more of them in order. One or
-two sentences in the panel, replaced by the list once a lesson exists. Not a
-modal, not a dismissible tour.
+A rule whose subject set is empty renders neutral, not satisfied. Apply that as
+a rule rather than special-casing this one line: any per-lesson check with zero
+lessons is `○`, not `✓`.
 
 ## Compliance
-This feature changes how existing disclosures are labelled in the admin tool. It
-does not change what is disclosed to a participant, so the expectation is that
-COMPLIANCE.md gains no row — the 8.01.1 and 3.02.1 mappings from feature 020 are
-unchanged and still accurate. Confirm that against
-`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` and say so explicitly
-rather than leaving it unstated.
+Bug 1 destroys the course description, which is the pre-enrollment disclosure
+mapped to 8.01.1 in COMPLIANCE.md. That mapping currently claims a satisfied
+requirement that the application does not actually deliver.
 
-If Part 2's relabelling reveals that a field mapped in 020 is not actually
-rendered where COMPLIANCE.md claims, that is a real gap and it goes in the Gap
-column. Check it while you are in there.
+Check whether the existing 8.01.1 row needs its Gap column updated to record
+that this was broken between 020b and 020c, or whether the row is fine now that
+it works. Say which you concluded. Do not add a new row for a fix that restores
+intended behaviour.
+
+The other three bugs are expected to map to no locator. Confirm rather than
+assume, and say so explicitly.
 
 ## Backend tasks
-None expected. If a task appears to need one, stop and check whether existing
-endpoints can carry it before adding anything.
+1. Only if bug 1 turns out to be server-side. Diagnose first.
+2. `tests/`: a test that saves every field on the course editor's details form in
+   one request and asserts each round-trips.
+3. `tests/`: a regression test for quiz question numbering that fails against the
+   current build.
 
 ## Frontend tasks
-1. One sticky Save per editor page; per-row Save buttons removed; uploads
-   exempted and labelled as such.
-2. Helper text on both thumbnail and both description fields.
-3. Questions restructured: choices nested, add-question moved out of the choice
-   flow, textarea vs input distinction.
-4. Next-step block at the bottom of both editors; publish checklist lesson
-   failures link to their lesson.
-5. Empty-state text in the Lessons panel.
+1. Fix whatever drops the description from the batched save; audit every other
+   field on both editors for the same defect.
+2. Number quiz questions by index within the served order, everywhere the number
+   is composed.
+3. Scroll to and focus a newly added question.
+4. Per-lesson publish checks render neutral when there are no lessons.
 
 ## A thing to check rather than assume
-020a wires dirty tracking through the questions and objectives editors. This
-feature depends on that being in place and correct. Confirm it before starting;
-if 020a has not shipped, stop rather than building a second dirty-tracking path
-that will have to be reconciled.
+020a's acceptance criteria included "the assessment's card number matches its
+progress counter on every question" and that criterion was reported met while
+the bug was live. Before closing this feature, take the quiz in a browser as a
+non-admin user and look at the screen. Do not report bug 2 fixed on the strength
+of a passing test alone.
 
 ## Acceptance criteria
-- there is exactly one Save control per editor page, and it reports how many
-  unsaved changes it will commit
-- editing a question, an objective, and a details field, then saving once,
-  persists all three
-- the upload sections state that they save on selection
-- each thumbnail and description field says where it appears
-- adding a choice and adding a question are visibly different actions in
-  different places, and choices read as belonging to their question
-- the bottom of a lesson editor offers a route back to its course and says what
-  is outstanding
-- a publish checklist entry naming a lesson navigates to that lesson
-- a course with no lessons explains what a lesson is
-- authoring a complete course start to finish requires no scrolling back to the
-  top to find the way forward, and no prior knowledge of the data model
+- a course description survives save, reload, and navigating away and back
+- every other field on the course details form survives the same round trip
+- the assessment's card number matches its progress counter, verified by taking
+  the quiz in a browser, not only by test
+- retaking still produces a different order than the first attempt
+- adding a question brings it into view with its prompt focused
+- adding a question is still not confusable with adding a choice
+- a course with no lessons shows no green checks for per-lesson rules
 - `npm run lint` passes
-- pytest passes, unchanged
+- pytest passes
 
 ## When done
-Append an entry to CHANGELOG.md. Append to COMPLIANCE.md only if a locator
-genuinely applies, and say explicitly in your summary if none does. Then stop.
+Append an entry to CHANGELOG.md, including a note that bug 2 was reported fixed
+in 020a and was not. Update COMPLIANCE.md only per the Compliance section above,
+and say explicitly what you concluded. Then stop.

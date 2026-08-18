@@ -52,7 +52,14 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
             </li>
           )
         })}
-        {lessonErrors.length === 0 ? (
+        {course.lessons.length === 0 ? (
+          // A per-lesson rule has nothing to check against zero lessons — vacuously
+          // true is not the same as satisfied, so this renders neutral, not met.
+          <li className={styles.checklistItem}>
+            <span aria-hidden="true">○</span> Every lesson has a video, at least one question, and each
+            question has exactly one correct choice
+          </li>
+        ) : lessonErrors.length === 0 ? (
           <li className={styles.checklistItemMet}>
             <span aria-hidden="true">✓</span> Every lesson has a video, at least one question, and each
             question has exactly one correct choice

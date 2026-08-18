@@ -11,6 +11,7 @@ const QuestionEditor = forwardRef(function QuestionEditor(
   const [newChoiceText, setNewChoiceText] = useState('')
   const [dirtyChoiceCounts, setDirtyChoiceCounts] = useState(() => new Map())
   const choiceRefs = useRef(new Map())
+  const promptRef = useRef(null)
 
   const promptDirty = prompt !== question.prompt
   const choicesDirtyTotal = [...dirtyChoiceCounts.values()].reduce((sum, count) => sum + count, 0)
@@ -42,6 +43,10 @@ const QuestionEditor = forwardRef(function QuestionEditor(
       }
       await Promise.all(tasks)
     },
+    focusPrompt: () => {
+      promptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      promptRef.current?.focus()
+    },
   }))
 
   async function handleMove(direction) {
@@ -67,6 +72,7 @@ const QuestionEditor = forwardRef(function QuestionEditor(
       <div className={styles.promptRow}>
         <span className={styles.position}>{question.position}.</span>
         <textarea
+          ref={promptRef}
           className={styles.promptInput}
           rows={2}
           value={prompt}

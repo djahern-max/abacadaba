@@ -191,6 +191,29 @@ def test_reordering_lessons_produces_contiguous_positions():
     assert [lesson_id for lesson_id, _ in positions] == [l3["id"], l1["id"], l2["id"]]
 
 
+def test_update_course_round_trips_every_field_on_the_details_form_in_one_batch():
+    login_admin()
+    course = create_course("details-round-trip", description="original description")
+
+    payload = {
+        "title": "Renamed Title",
+        "slug": f"{SLUG_PREFIX}-details-round-trip-renamed",
+        "description": "Updated course description.",
+        "retake_cooldown_minutes": 30,
+        "max_attempts": 2,
+        "program_level": "intermediate",
+        "field_of_study": NON_CPE,
+        "prerequisites": "Some prerequisite text.",
+        "advance_preparation": "Some advance preparation text.",
+    }
+    response = client.patch(f"/api/v1/admin/courses/{course['id']}", json=payload)
+    assert response.status_code == 200, response.text
+
+    reloaded = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    for field, value in payload.items():
+        assert reloaded[field] == value, f"{field} did not round-trip: {reloaded[field]!r} != {value!r}"
+
+
 def test_publish_with_no_lessons_returns_422():
     login_admin()
     course = create_course("no-lessons")

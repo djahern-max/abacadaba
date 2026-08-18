@@ -9,12 +9,22 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
   const [error, setError] = useState('')
   const [dirtyCounts, setDirtyCounts] = useState(() => new Map())
   const questionRefs = useRef(new Map())
+  const pendingFocusIdRef = useRef(null)
 
   const totalDirty = [...dirtyCounts.values()].reduce((sum, count) => sum + count, 0)
 
   useEffect(() => {
     onDirtyChange?.(totalDirty)
   }, [totalDirty, onDirtyChange])
+
+  useEffect(() => {
+    const pendingId = pendingFocusIdRef.current
+    if (pendingId == null) return
+    const questionRef = questionRefs.current.get(pendingId)
+    if (!questionRef) return
+    questionRef.focusPrompt()
+    pendingFocusIdRef.current = null
+  }, [lesson.questions])
 
   const handleQuestionDirtyChange = useCallback((questionId, count) => {
     setDirtyCounts((prev) => {
@@ -44,7 +54,8 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
     setError('')
     setAdding(true)
     try {
-      await createAdminQuestion(lesson.id, prompt.trim())
+      const created = await createAdminQuestion(lesson.id, prompt.trim())
+      pendingFocusIdRef.current = created.id
       setPrompt('')
       await onChange()
     } catch {

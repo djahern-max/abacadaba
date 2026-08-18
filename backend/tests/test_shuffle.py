@@ -137,6 +137,22 @@ def test_shuffle_drops_nothing_and_duplicates_nothing():
         assert len(question["choices"]) == len(matching["choices"])
 
 
+def test_shuffled_question_position_matches_served_order_not_authored_order():
+    # Seed 7 is known to reorder these five questions (authored order 1..5
+    # becomes id order [4, 1, 3, 5, 2]) — a real shuffle, not a no-op.
+    attempt_id = make_attempt(7)
+    quiz = get_quiz(attempt_id)
+
+    ids_in_served_order = [q["id"] for q in quiz["questions"]]
+    assert ids_in_served_order != sorted(ids_in_served_order), "seed 7 should reorder these questions"
+
+    # The progress bar counts through served order, so `position` (what the
+    # question card prints) must match a question's place in that order,
+    # not the authored `Question.position` it shuffled away from.
+    positions = [q["position"] for q in quiz["questions"]]
+    assert positions == list(range(1, len(positions) + 1))
+
+
 def test_unknown_attempt_id_returns_404():
     response = client.get(f"/api/v1/courses/{COURSE_SLUG}/quiz", params={"attempt_id": str(uuid.uuid4())})
     assert response.status_code == 404

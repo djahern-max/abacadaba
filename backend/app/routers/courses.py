@@ -190,12 +190,15 @@ def get_quiz(slug: str, attempt_id: uuid.UUID | None = None, db: Session = Depen
         questions = quiz_service.shuffle_questions(questions, seed)
 
     question_payloads = []
-    for question in questions:
+    for index, question in enumerate(questions, start=1):
         choices = question.choices
         if seed is not None:
             choices = quiz_service.shuffle_choices(choices, seed, question.id)
+        # `position` here is the question's 1-based place in the served
+        # (possibly shuffled) order, not its authored `Question.position` —
+        # the progress bar counts through served order, so the two must match.
         question_payloads.append(
-            QuestionPublic(id=question.id, prompt=question.prompt, position=question.position, choices=choices)
+            QuestionPublic(id=question.id, prompt=question.prompt, position=index, choices=choices)
         )
 
     return QuizPublic(

@@ -587,3 +587,74 @@ relabelling did not surface any field mapped in 020 that turned out to be
 unrendered. 020a's three dirty-tracking defects, background/resumable
 upload, bulk question import, and certificate design remain out of scope, as
 specified.
+
+## 2026-08-18, Feature 020c, Authoring hotfix
+Three of the four defects reported after 020a/020b were real; the fourth —
+"the course description does not persist" — was not reproducible against the
+shipped code and nothing changed for it beyond a regression test. Before
+touching anything, the described mechanism (batched save assembling its
+payload from a dirty-tracking path that skips the description textarea) was
+checked directly: `CourseDetailsForm`'s `dirty` computation and its `save()`
+already include `description` unconditionally, and a live round trip — API
+calls straight against `TestClient` and a full scripted Playwright session
+against the real dev server (fresh course creation, a second edit on an
+existing course, human-paced typing, SPA back-navigation instead of a hard
+reload, an objective added mid-edit, a hard reload) — persisted the field
+correctly every time, for every field on both the course and lesson details
+forms. `tests/test_admin_content.py` gained
+`test_update_course_round_trips_every_field_on_the_details_form_in_one_batch`
+as the regression guard the feature asked for regardless. COMPLIANCE.md's
+8.01.1 row needs no Gap update: the pre-enrollment disclosure it points at
+works, and nothing suggests it stopped working between 020b and this feature.
+
+Bug 2, quiz numbering, was real and was never fixed despite 020a's changelog
+entry implying otherwise — 020a's actual entry (see above) covers only the
+dirty-tracking defects, not this. The mechanism was exactly as suspected but
+in a different layer than the hypothesis in this file guessed: `GET
+/courses/{slug}/quiz` (`app/routers/courses.py`) built each `QuestionPublic`
+with `position=question.position`, the question's authored/DB position,
+even though the *list* it was iterating had already been reordered by
+`shuffle_questions` — so `QuestionCard.jsx`, which has always rendered
+`question.position` faithfully, was correctly displaying an incorrect number.
+Fixed by numbering from the served order instead:
+`enumerate(questions, start=1)` supplies `position` now, so it's 1..N in
+whatever order (shuffled or not) the questions actually went out in — no
+frontend change needed. `tests/test_shuffle.py` gained
+`test_shuffled_question_position_matches_served_order_not_authored_order`,
+using seed 7 (confirmed to reorder these five questions) as a regression
+guard that fails against the pre-fix code. Verified in a browser as a signed
+in non-admin: took a five-question quiz end to end, and the card's leading
+number matched the progress bar's "Question N of 5" on every question.
+
+Bug 3, the add-question control: kept it above the list (020b's fix for the
+"Lava" mis-entry adjacency stands, unmoved). `QuestionEditor` now exposes
+`focusPrompt()` via its imperative handle — scrolls its prompt textarea into
+view and focuses it — and `QuestionsEditor` remembers the id `createAdminQuestion`
+just returned, then calls that method once the refreshed `lesson.questions`
+prop actually contains it. No workaround was needed for the page's scroll
+container; plain `scrollIntoView` was sufficient. Verified in a browser:
+adding a fifth question to a lesson that already had four scrolled the page
+and left the new question's prompt textarea focused.
+
+Bug 4, the vacuous publish check: `CoursePublishPanel` rendered its one
+per-lesson rule ("every lesson has a video, at least one question...") as a
+green check whenever `course.lessons` produced no per-lesson error messages —
+true both when every lesson actually passed and when there were no lessons to
+fail. Now branches on `course.lessons.length === 0` first and renders that
+line `○` (neutral) in that case, `✓` only when there's at least one lesson and
+none of them produced an error. Verified in a browser against a freshly
+created, lesson-less course: the checklist showed `○` for both "at least one
+lesson" and the per-lesson rule, no green check on either.
+
+Backend: `app/routers/courses.py` (quiz numbering).
+Frontend: `QuestionEditor.jsx`, `QuestionsEditor.jsx` (scroll/focus),
+`CoursePublishPanel.jsx` (neutral checklist state). Tests:
+`tests/test_admin_content.py`, `tests/test_shuffle.py`. `npm run lint` and
+the full backend `pytest` suite (185 tests: 183 unchanged + 2 new) both pass.
+COMPLIANCE.md gains no row and no Gap update: bug 1 turned out not to be a
+defect, and bugs 2 through 4 are assessment-taking and admin-tool display/UX
+correctness with no Standards locator to map to — confirmed against
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`, not assumed.
+Background/resumable upload, collapsing single-lesson courses, bulk question
+import, certificate design, and any schema change remain out of scope, as
+specified.
