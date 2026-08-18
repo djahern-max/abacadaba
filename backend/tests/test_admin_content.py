@@ -160,35 +160,44 @@ def test_create_course_is_unpublished():
     login_admin()
     course = create_course("create")
     assert course["is_published"] is False
-    assert course["lessons"] == []
+
+
+def test_create_course_creates_first_lesson_in_the_same_transaction():
+    login_admin()
+    course = create_course("create-first-lesson")
+    assert len(course["lessons"]) == 1
+    lesson = course["lessons"][0]
+    assert lesson["position"] == 1
+    assert lesson["title"] == course["title"]
 
 
 def test_create_lesson_adds_it_to_the_course_in_order():
     login_admin()
     course = create_course("lesson-order")
+    auto_lesson = course["lessons"][0]
     lesson_a = create_lesson(course["id"], "a")
     lesson_b = create_lesson(course["id"], "b")
 
     detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
-    assert [lesson["id"] for lesson in detail["lessons"]] == [lesson_a["id"], lesson_b["id"]]
-    assert [lesson["position"] for lesson in detail["lessons"]] == [1, 2]
+    assert [lesson["id"] for lesson in detail["lessons"]] == [auto_lesson["id"], lesson_a["id"], lesson_b["id"]]
+    assert [lesson["position"] for lesson in detail["lessons"]] == [1, 2, 3]
 
 
 def test_reordering_lessons_produces_contiguous_positions():
     login_admin()
     course = create_course("lesson-reorder")
+    l0 = course["lessons"][0]
     l1 = create_lesson(course["id"], "1")
     l2 = create_lesson(course["id"], "2")
-    l3 = create_lesson(course["id"], "3")
 
-    # l1, l2, l3 -> move l3 up -> l1, l3, l2 -> move l3 up again -> l3, l1, l2
-    assert client.post(f"/api/v1/admin/lessons/{l3['id']}/move", json={"direction": "up"}).status_code == 204
-    assert client.post(f"/api/v1/admin/lessons/{l3['id']}/move", json={"direction": "up"}).status_code == 204
+    # l0, l1, l2 -> move l2 up -> l0, l2, l1 -> move l2 up again -> l2, l0, l1
+    assert client.post(f"/api/v1/admin/lessons/{l2['id']}/move", json={"direction": "up"}).status_code == 204
+    assert client.post(f"/api/v1/admin/lessons/{l2['id']}/move", json={"direction": "up"}).status_code == 204
 
     detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     positions = [(lesson["id"], lesson["position"]) for lesson in detail["lessons"]]
     assert [position for _, position in positions] == [1, 2, 3]
-    assert [lesson_id for lesson_id, _ in positions] == [l3["id"], l1["id"], l2["id"]]
+    assert [lesson_id for lesson_id, _ in positions] == [l2["id"], l0["id"], l1["id"]]
 
 
 def test_update_course_round_trips_every_field_on_the_details_form_in_one_batch():
@@ -215,8 +224,17 @@ def test_update_course_round_trips_every_field_on_the_details_form_in_one_batch(
 
 
 def test_publish_with_no_lessons_returns_422():
+    # Course creation always creates lesson 1 now (feature 019a), so a
+    # zero-lesson course can no longer be reached through the API. This
+    # exercises validate_for_publish's defensive rule directly by deleting
+    # the auto-created lesson underneath the course.
     login_admin()
     course = create_course("no-lessons")
+
+    db = SessionLocal()
+    db.execute(delete(Lesson).where(Lesson.course_id == course["id"]))
+    db.commit()
+    db.close()
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 422
@@ -227,7 +245,7 @@ def test_publish_with_no_lessons_returns_422():
 def test_publish_with_a_lesson_missing_a_video_names_that_lesson():
     login_admin()
     course = create_course("missing-video")
-    lesson = create_lesson(course["id"], "missing-video", description="A lesson without a video.")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
@@ -239,7 +257,7 @@ def test_publish_with_a_lesson_missing_a_video_names_that_lesson():
 def test_publish_with_a_lesson_missing_questions_names_that_lesson(monkeypatch):
     login_admin()
     course = create_course("missing-questions")
-    lesson = create_lesson(course["id"], "missing-questions", description="A lesson without questions.")
+    lesson = course["lessons"][0]
     upload_video(lesson["slug"], monkeypatch)
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
@@ -251,7 +269,7 @@ def test_publish_with_a_lesson_missing_questions_names_that_lesson(monkeypatch):
 def test_publish_with_missing_correct_choice_returns_422(monkeypatch):
     login_admin()
     course = create_course("no-correct-choice")
-    lesson = create_lesson(course["id"], "no-correct-choice", description="d")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
 
@@ -273,7 +291,7 @@ def test_dry_run_publish_reports_errors_without_publishing():
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
     errors = response.json()["errors"]
-    assert any("at least one lesson" in error for error in errors)
+    assert any("video" in error for error in errors)
 
     detail = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     assert detail["is_published"] is False
@@ -282,7 +300,7 @@ def test_dry_run_publish_reports_errors_without_publishing():
 def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
     login_admin()
     course = create_course("dry-run-complete", description="A complete test course.")
-    lesson = create_lesson(course["id"], "dry-run-complete", description="A complete test lesson.")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
@@ -298,7 +316,7 @@ def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
 def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch):
     login_admin()
     course = create_course("complete", description="A complete test course.")
-    lesson = create_lesson(course["id"], "complete", description="A complete test lesson.")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
@@ -314,7 +332,7 @@ def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch
 def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monkeypatch):
     login_admin()
     course = create_course("publish-cascades", description="A complete test course.")
-    lesson = create_lesson(course["id"], "publish-cascades", description="d")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
@@ -336,7 +354,7 @@ def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monke
 def test_unpublish_removes_from_public_list(monkeypatch):
     login_admin()
     course = create_course("unpublish", description="A course to unpublish.")
-    lesson = create_lesson(course["id"], "unpublish", description="d")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     client.post(f"/api/v1/admin/courses/{course['id']}/publish")
@@ -427,6 +445,34 @@ def test_delete_lesson_whose_course_has_a_completed_attempt_returns_409():
     assert response.status_code == 409
 
 
+def test_deleting_the_only_lesson_of_a_course_is_refused():
+    login_admin()
+    course = create_course("delete-only-lesson")
+    lesson = course["lessons"][0]
+
+    response = client.delete(f"/api/v1/admin/lessons/{lesson['id']}")
+    assert response.status_code == 409
+    assert "delete the course instead" in response.json()["detail"].lower()
+
+    course_after = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert len(course_after["lessons"]) == 1
+    lesson_after = client.get(f"/api/v1/admin/lessons/{lesson['id']}")
+    assert lesson_after.status_code == 200
+
+
+def test_deleting_one_of_two_lessons_succeeds():
+    login_admin()
+    course = create_course("delete-one-of-two")
+    second = create_lesson(course["id"], "second")
+
+    response = client.delete(f"/api/v1/admin/lessons/{second['id']}")
+    assert response.status_code == 204
+
+    course_after = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    assert len(course_after["lessons"]) == 1
+    assert course_after["lessons"][0]["id"] == course["lessons"][0]["id"]
+
+
 # --- learning objectives, program metadata (feature 020) --------------------
 
 
@@ -436,7 +482,7 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
         response = client.patch(f"/api/v1/admin/courses/{course['id']}", json=course_overrides)
         assert response.status_code == 200, response.text
         course = response.json()
-    lesson = create_lesson(course["id"], slug_suffix, description="A complete test lesson.")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
@@ -454,7 +500,7 @@ def test_create_course_defaults_to_basic_level_and_non_cpe_field():
 def test_publish_with_no_objectives_returns_422(monkeypatch):
     login_admin()
     course = create_course("no-objectives")
-    lesson = create_lesson(course["id"], "no-objectives", description="d")
+    lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
 

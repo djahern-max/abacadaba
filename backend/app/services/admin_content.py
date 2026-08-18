@@ -47,6 +47,10 @@ class LessonHasAttemptsError(Exception):
     """Raised when deleting a lesson whose course has completed attempts."""
 
 
+class LastLessonError(Exception):
+    """Raised when deleting the only remaining lesson of a course."""
+
+
 class PublishValidationError(Exception):
     """Raised when publishing a course that fails validate_for_publish."""
 
@@ -75,6 +79,18 @@ def _check_slug_available(db: Session, model, slug: str, exclude_id: int | None 
         stmt = stmt.where(model.id != exclude_id)
     if db.execute(stmt).scalar_one_or_none() is not None:
         raise SlugTakenError(f"Slug '{slug}' is already in use")
+
+
+def _unique_slug(db: Session, model, base_slug: str) -> str:
+    # For the lesson a course creates for itself: the author never picks this
+    # slug, so a collision must be resolved automatically rather than surfaced
+    # as a 409 for something they didn't type.
+    slug = base_slug
+    suffix = 2
+    while db.execute(select(model.id).where(model.slug == slug)).scalar_one_or_none() is not None:
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+    return slug
 
 
 def _renumber(db: Session, items: list) -> None:
@@ -138,6 +154,14 @@ def create_course(db: Session, title: str, slug: str | None, description: str) -
 
     course = Course(title=title, slug=final_slug, description=description)
     db.add(course)
+    db.flush()
+
+    # Every course gets its first lesson here, in the same transaction, so a
+    # course with zero lessons - a state nothing in the product can render or
+    # publish - never exists. See feature 019a.
+    lesson_slug = _unique_slug(db, Lesson, slugify(title))
+    db.add(Lesson(course_id=course.id, position=1, title=title, slug=lesson_slug, description=""))
+
     db.commit()
     db.refresh(course)
     return course
@@ -341,6 +365,12 @@ def update_lesson(db: Session, lesson_id: int, updates: dict) -> Lesson:
 
 def delete_lesson(db: Session, lesson_id: int) -> None:
     lesson = _lesson_or_404(db, lesson_id)
+
+    sibling_count = db.execute(
+        select(func.count()).select_from(Lesson).where(Lesson.course_id == lesson.course_id)
+    ).scalar_one()
+    if sibling_count <= 1:
+        raise LastLessonError("This is the only lesson in its course. Delete the course instead.")
 
     completed_count = db.execute(
         select(func.count())

@@ -246,6 +246,8 @@ def delete_lesson(lesson_id: int, db: Session = Depends(get_db)):
         admin_content.delete_lesson(db, lesson_id)
     except admin_content.LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lesson not found") from exc
+    except admin_content.LastLessonError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except admin_content.LessonHasAttemptsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

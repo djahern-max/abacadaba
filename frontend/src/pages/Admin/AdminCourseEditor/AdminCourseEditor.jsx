@@ -8,6 +8,7 @@ import Button from '../../../components/Button/Button'
 import CourseDetailsForm from './CourseDetailsForm'
 import ObjectivesPanel from './ObjectivesPanel'
 import LessonsPanel from './LessonsPanel'
+import CollapsedLessonEditor from './CollapsedLessonEditor'
 import CoursePublishPanel from './CoursePublishPanel'
 import styles from '../AdminLessonEditor/AdminLessonEditor.module.css'
 
@@ -19,14 +20,16 @@ function AdminCourseEditor() {
   const [deleteError, setDeleteError] = useState('')
   const [detailsDirty, setDetailsDirty] = useState(0)
   const [objectivesDirty, setObjectivesDirty] = useState(0)
+  const [collapsedDirty, setCollapsedDirty] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
   const detailsRef = useRef(null)
   const objectivesRef = useRef(null)
+  const collapsedRef = useRef(null)
 
-  const totalDirty = detailsDirty + objectivesDirty
+  const totalDirty = detailsDirty + objectivesDirty + collapsedDirty
   const hasUnsavedWork = totalDirty > 0 || uploading
 
   const refresh = useCallback(() => {
@@ -75,6 +78,7 @@ function AdminCourseEditor() {
       const tasks = []
       if (detailsDirty > 0) tasks.push(detailsRef.current.save())
       if (objectivesDirty > 0) tasks.push(objectivesRef.current.save())
+      if (collapsedDirty > 0) tasks.push(collapsedRef.current.save())
       await Promise.all(tasks)
       await refresh()
     } catch {
@@ -115,6 +119,10 @@ function AdminCourseEditor() {
   }
 
   const { course } = state
+  // The one branch: a course with exactly one lesson renders collapsed onto
+  // this single page. It is derived from the lesson count on every render,
+  // never stored - see current-feature.md, "One rule, derived".
+  const singleLesson = course.lessons.length === 1 ? course.lessons[0] : null
 
   return (
     <div className={styles.page}>
@@ -139,7 +147,12 @@ function AdminCourseEditor() {
         </Button>
       </div>
 
-      <CourseDetailsForm ref={detailsRef} course={course} onDirtyChange={setDetailsDirty} />
+      <CourseDetailsForm
+        ref={detailsRef}
+        course={course}
+        collapsed={Boolean(singleLesson)}
+        onDirtyChange={setDetailsDirty}
+      />
       <ThumbnailUploader
         item={course}
         label="Course thumbnail"
@@ -150,7 +163,18 @@ function AdminCourseEditor() {
         onChange={refresh}
       />
       <ObjectivesPanel ref={objectivesRef} course={course} onDirtyChange={setObjectivesDirty} onChange={refresh} />
-      <LessonsPanel course={course} onChange={refresh} />
+      {singleLesson ? (
+        <CollapsedLessonEditor
+          ref={collapsedRef}
+          course={course}
+          lesson={singleLesson}
+          onDirtyChange={setCollapsedDirty}
+          onUploadingChange={setUploading}
+          onChange={refresh}
+        />
+      ) : (
+        <LessonsPanel course={course} onChange={refresh} />
+      )}
       <CoursePublishPanel
         course={course}
         publishErrors={publishErrors}

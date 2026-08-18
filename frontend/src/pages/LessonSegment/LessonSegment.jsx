@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { getLessonSegment } from '../../api/courses'
+import { Link, Navigate, useParams } from 'react-router-dom'
+import { getCourse, getLessonSegment } from '../../api/courses'
 import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
 import styles from './LessonSegment.module.css'
 
@@ -15,8 +15,17 @@ function LessonSegment() {
 
   useEffect(() => {
     setState({ status: 'loading', segment: null })
-    getLessonSegment(slug, lessonSlug)
-      .then((segment) => setState({ status: 'loaded', segment }))
+    // A one-lesson course has no segment page of its own - its content lives
+    // on the course page now, so old links and bookmarks here redirect there
+    // rather than 404ing. Cheap: one extra fetch on a rarely-hit route.
+    getCourse(slug)
+      .then((course) => {
+        if (course.lessons.length === 1) {
+          setState({ status: 'redirect', segment: null })
+          return undefined
+        }
+        return getLessonSegment(slug, lessonSlug).then((segment) => setState({ status: 'loaded', segment }))
+      })
       .catch((error) => {
         setState({ status: error.status === 404 ? 'not-found' : 'error', segment: null })
       })
@@ -24,6 +33,10 @@ function LessonSegment() {
 
   if (state.status === 'loading') {
     return <p className={styles.message}>Loading segment&hellip;</p>
+  }
+
+  if (state.status === 'redirect') {
+    return <Navigate to={`/courses/${slug}`} replace />
   }
 
   if (state.status === 'not-found') {

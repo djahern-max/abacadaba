@@ -11,6 +11,7 @@ const FIXED_CHECKS = [
 ]
 
 const LESSON_MESSAGE_PATTERN = /^Lesson '(.+?)'/
+const LESSON_MESSAGE_PREFIX = /^Lesson '.+?'\s*/
 
 function lessonForMessage(course, message) {
   const match = message.match(LESSON_MESSAGE_PATTERN)
@@ -40,6 +41,10 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
   const fixedMessages = new Set(FIXED_CHECKS.map((check) => check.message))
   const lessonErrors = publishErrors.filter((message) => !fixedMessages.has(message))
   const publishDisabled = hasUnsavedWork || publishErrors.length > 0
+  // A collapsed (single-lesson) course has no second lesson to disambiguate
+  // from, so the "Lesson 'X'" prefix names a field the author can't even
+  // see, and the link to that lesson's editor has nowhere useful to go.
+  const singleLesson = course.lessons.length === 1
 
   return (
     <section className={styles.section}>
@@ -68,15 +73,16 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
         ) : (
           lessonErrors.map((message) => {
             const lesson = lessonForMessage(course, message)
+            const display = singleLesson ? message.replace(LESSON_MESSAGE_PREFIX, '') : message
             return (
               <li key={message} className={styles.checklistItem}>
                 <span aria-hidden="true">○</span>{' '}
-                {lesson ? (
+                {lesson && !singleLesson ? (
                   <Link to={`/admin/lessons/${lesson.id}`} className={styles.lessonLink}>
-                    {message}
+                    {display}
                   </Link>
                 ) : (
-                  message
+                  display
                 )}
               </li>
             )

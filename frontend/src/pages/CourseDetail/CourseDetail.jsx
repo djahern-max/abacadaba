@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getCourse, getCourseWatchStatus } from '../../api/courses'
 import LessonCard from '../../components/LessonCard/LessonCard'
+import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
 import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './CourseDetail.module.css'
 
@@ -10,10 +11,12 @@ function CourseDetail() {
   const { user, loading: authLoading } = useAuth()
   const [state, setState] = useState({ status: 'loading', course: null })
   const [watchStatus, setWatchStatus] = useState(null)
+  const [singleLessonProgress, setSingleLessonProgress] = useState(null)
 
   useEffect(() => {
     setState({ status: 'loading', course: null })
     setWatchStatus(null)
+    setSingleLessonProgress(null)
     getCourse(slug)
       .then((course) => setState({ status: 'loaded', course }))
       .catch((error) => {
@@ -46,11 +49,16 @@ function CourseDetail() {
   }
 
   const { course } = state
+  // A course renders collapsed when it has exactly one lesson - derived on
+  // every render, never stored. See current-feature.md, "One rule, derived".
+  const singleLesson = course.lessons.length === 1 ? course.lessons[0] : null
   const watchedBySlug = Object.fromEntries(
     (watchStatus?.lessons ?? []).map((item) => [item.lesson_slug, item.progress.unlocked]),
   )
   const outstanding = watchStatus?.lessons.find((item) => !item.progress.unlocked)
-  const gateMet = user?.is_admin || watchStatus?.gate_met === true
+  const gateMet =
+    user?.is_admin ||
+    (singleLesson ? singleLessonProgress?.unlocked === true : watchStatus?.gate_met === true)
   const levelLabel = course.program_level.charAt(0).toUpperCase() + course.program_level.slice(1)
 
   return (
@@ -91,17 +99,25 @@ function CourseDetail() {
         </div>
       </dl>
 
-      <ol className={styles.lessonList}>
-        {course.lessons.map((lesson) => (
-          <li key={lesson.id}>
-            <LessonCard
-              courseSlug={course.slug}
-              lesson={lesson}
-              watched={watchStatus ? watchedBySlug[lesson.slug] : undefined}
-            />
-          </li>
-        ))}
-      </ol>
+      {singleLesson ? (
+        <VideoPlayer
+          courseSlug={course.slug}
+          lessonSlug={singleLesson.slug}
+          onProgressChange={setSingleLessonProgress}
+        />
+      ) : (
+        <ol className={styles.lessonList}>
+          {course.lessons.map((lesson) => (
+            <li key={lesson.id}>
+              <LessonCard
+                courseSlug={course.slug}
+                lesson={lesson}
+                watched={watchStatus ? watchedBySlug[lesson.slug] : undefined}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
 
       {authLoading ? (
         <span className={styles.assessmentButtonDisabled}>Checking your watch progress&hellip;</span>
@@ -115,9 +131,11 @@ function CourseDetail() {
         </Link>
       ) : (
         <span className={styles.assessmentButtonDisabled}>
-          {outstanding
-            ? `Watch "${outstanding.lesson_title}" to unlock the assessment`
-            : 'Checking your watch progress…'}
+          {singleLesson
+            ? 'Watch the video to unlock the assessment'
+            : outstanding
+              ? `Watch "${outstanding.lesson_title}" to unlock the assessment`
+              : 'Checking your watch progress…'}
         </span>
       )}
     </article>

@@ -3,7 +3,7 @@ import { updateAdminCourse } from '../../../api/admin'
 import { getFieldsOfStudy, getProgramLevels } from '../../../api/meta'
 import styles from '../AdminLessonEditor/DetailsForm.module.css'
 
-const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirtyChange }, ref) {
+const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collapsed, onDirtyChange }, ref) {
   const [title, setTitle] = useState(course.title)
   const [slug, setSlug] = useState(course.slug)
   const [description, setDescription] = useState(course.description)
@@ -91,7 +91,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, onDirt
         )}
 
         <label className={styles.label} htmlFor="course-description">
-          Course description
+          {collapsed ? 'Description' : 'Course description'}
         </label>
         <textarea
           id="course-description"
