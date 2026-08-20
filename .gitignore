@@ -20,3 +20,5 @@ dist/
 notes.txtvideo/node_modules/
 video/out/
 notes.txt
+
+video/.env

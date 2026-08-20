@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Sequence, Audio, staticFile } from "remotion";
-import { blocks, durationOf } from "./lesson-01";
+import { blocks, durationOf, revealsOf, hasAudio } from "./lesson-01";
 import { Sheet } from "./Sheet";
 import { SLIDES } from "./slides";
 import { seconds } from "./theme";
@@ -15,11 +15,6 @@ import { seconds } from "./theme";
  * Audio is optional per block. A block with no audio file renders silent,
  * which is what lets you judge the visuals before generating narration.
  */
-
-const AUDIO_PRESENT: Record<string, boolean> = {
-  // Flip to true as each block's mp3 lands in public/audio/.
-  // `npm run measure` prints the exact lines to paste here.
-};
 
 export const Lesson: React.FC = () => {
   let cursor = 0;
@@ -41,9 +36,9 @@ export const Lesson: React.FC = () => {
             name={`${block.sheet} ${block.slide}`}
           >
             <Sheet sheet={block.sheet} citation={block.citation}>
-              <Slide reveals={block.reveals} />
+              <Slide reveals={revealsOf(block)} />
             </Sheet>
-            {AUDIO_PRESENT[block.id] ? (
+            {hasAudio(block) ? (
               <Audio src={staticFile(`audio/${block.id}.mp3`)} />
             ) : null}
           </Sequence>

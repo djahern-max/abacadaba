@@ -17,7 +17,7 @@ if (usingEstimates) {
     `\n[abacadaba] Rendering with ESTIMATED block durations.\n` +
       `  Runtime: ${Math.floor(totalSeconds / 60)}m ${Math.round(totalSeconds % 60)}s (estimated)\n` +
       `  Do not use this figure for the CPE credit calculation.\n` +
-      `  Generate the narration audio, run \`npm run measure\`, then re-render.\n`
+      `  Run \`npm run generate\` to produce the narration audio, then re-render.\n`
   );
 }
 

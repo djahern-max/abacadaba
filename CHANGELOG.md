@@ -899,3 +899,21 @@ The overdue-review dashboard (feature 026), instructor qualifications
 (4.04, feature 025), purchased-content review (4.06, nothing is purchased),
 credit measurement (feature 022), and an approval workflow beyond the
 recorded developer/reviewer fact remain out of scope, as specified.
+
+## 2026-08-20, Video pipeline 01, Narration generation with measured reveals
+`video/scripts/generate-audio.ts` is now wired in as `npm run generate`,
+replacing the manual ElevenLabs-plus-`npm run measure` flow. Narration may
+contain `[[r]]` reveal markers, stripped before TTS and located in
+ElevenLabs' character-level alignment data to produce exact reveal seconds.
+`video/src/audio-meta.json` (replacing `durations.json`) carries measured
+duration, reveals, and a content hash per block; `lesson-01.ts`'s
+`durationOf`/`revealsOf` fall back to the hand-written estimate/`reveals`
+array until a block has been generated. Fixed a bug where `usingEstimates`
+counted the narration-less title sheet, which made the estimated-duration
+warning in `Root.tsx` permanently unable to clear. `AUDIO_PRESENT`
+(`Lesson.tsx`'s hand-maintained map) and `measure-audio.mjs` are retired.
+Only block-01 is marked up with markers, as a proof of the approach; blocks
+02-07 are unchanged, deliberately. This is build tooling in `video/`, not
+an app feature — it produces the accurate A/V runtime that feature 022's
+credit calculation will eventually consume, but does not compute or store
+credit itself.

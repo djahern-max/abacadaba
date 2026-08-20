@@ -1,311 +1,203 @@
 # Current Feature
 
-## Feature 021, Development and review chain
+## Video pipeline 01, Narration generation with measured reveals
 
 ## Goal
-Every published course names the subject matter expert who developed it, a
-different one who reviewed it, and the date the review happened. A course whose
-content has changed since its review cannot be published until it is reviewed
-again. The review date appears on the course documentation, where 4.01 requires
-it.
+`npm run generate` produces narration audio for a lesson, measures its real
+duration, and derives reveal timings from the audio itself rather than from
+hand-written guesses. After this feature, no timing number in the video package
+is estimated once audio exists.
+
+## Numbering note, read this first
+This is not feature 022. Feature 022 is credit measurement in the app, and it
+lives in `backend/` and `frontend/`. This work is in `video/`, which is a build
+tool, not application code, and nothing in the app imports from it.
+
+The two are related in one direction only: this feature produces the accurate
+A/V runtime that 022 will eventually take as an input. It does not compute or
+store credit, and it must not start doing so.
+
+If the `current-feature_NN.md` numbering is meant to describe app features, give
+the video package its own track rather than consuming a number from the app's
+sequence. That is the assumption this file makes.
 
 ## In scope
-- A `subject_matter_experts` table, deliberately not tied to `users`
-- Developer, reviewer, review date, and review notes on a course
-- A `sources` table for the references a course was built from
-- `content_updated_at`, and publish refusing a review that predates it
-- The licensed-CPA participation rule for accounting, auditing, and tax fields
-- The most recent publication, revision, or review date, disclosed
-- The review cycle: annual for frequently-changing subjects, biennial otherwise
+- Wiring `scripts/generate-audio.ts` into the package
+- Replacing `durations.json` with `audio-meta.json`, which carries duration,
+  measured reveals, and a content hash per block
+- Reveal markers in narration text, and the helpers that strip them
+- Retiring `scripts/measure-audio.mjs` and the manual `AUDIO_PRESENT` map
+- Marking up block-01 only, as a proof of the approach
 
 ## Out of scope
-- The overdue-review dashboard. Feature 026. This feature stores the date and
-  the cycle; 026 reports on what has aged past it. Storing the inputs without
-  the report is the correct half to build first.
-- Instructor qualifications, 4.03. A self study program has no instructor. This
-  becomes real only if a group or blended program is ever offered.
-- Program evaluations, 4.04. Feature 025.
-- Purchased content review responsibilities, 4.06. Nothing is purchased.
-- Credit measurement. Feature 022.
-- An approval workflow — states, queues, notifications, a reviewer inbox. The
-  reviewer is a recorded fact on a course, not a role with a task list. Build
-  the record; the workflow can come later if two people are ever actually
-  passing courses back and forth.
-- The LLM content pipeline itself. But read the next section before deciding
-  this feature can wait for it.
+- Marking up blocks 02 through 07. Deliberate: block-01 gets listened to and
+  judged before spending marker effort on six more sheets.
+- Pronunciation dictionaries. Nothing gets written until we have heard which
+  words are actually wrong.
+- Any change to slide components in `slides.tsx`.
+- Anything in `backend/` or `frontend/`.
 
-## The locators this feature is built against
-Read these in `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` before
-starting. Quote them into COMPLIANCE.md in the Standard's own words; do not work
-from this summary.
+## Read this before starting
 
-- **4.01** — activities, materials, and delivery systems that are current,
-  accurate, and effectively designed. Course documentation must contain the most
-  recent publication, revision, or review date. Subjects that undergo frequent
-  change must be reviewed and revised by a subject matter expert at least once a
-  year; other courses at least every two years.
-- **4.01.1** — learning activities must be developed by subject matter
-  expert(s), competent and current in the subject matter and skilled in the
-  appropriate instructional strategies and technology. **If technology is used
-  in the development of the program, the content developer is responsible for
-  reviewing the content for accuracy.**
-- **4.02** — learning activities must be reviewed by content reviewers other
-  than those who developed the program, to ensure it is accurate, current, and
-  addresses the stated learning objectives. These reviews must occur before the
-  first presentation and again after each significant revision. At least one
-  licensed CPA in good standing must participate in the development of every
-  program in accounting and auditing; at least one licensed CPA, tax attorney,
-  or IRS enrolled agent for every program in the field of study of taxes.
-- **4.02.1** — reviewers must be qualified in the subject matter. The review is
-  a quality control procedure. Where advance review is impractical in rare
-  circumstances, the basis for the lack of content review must be documented.
+**There is a misplaced file.** `audio-meta.json` was created at
+`frontend/src/audio-meta.json`. It does not belong there and `frontend/` must
+not be touched by this feature. Delete it and create the file at
+`video/src/audio-meta.json` instead. Confirm `frontend/` is clean afterward.
 
-## Build this before the pipeline
-4.01.1's last sentence is the reason this feature is scheduled here rather than
-after the LLM work, and it is worth reading twice: if technology is used in
-developing the program, the content developer is responsible for reviewing the
-content for accuracy.
+**`lesson-01.ts` is currently in a broken intermediate state.** It imports
+`audioMeta` at the top but the bottom of the file still references `measured`,
+which was the old `durations.json` import and no longer exists. Do not try to
+preserve both. The bottom of the file is being replaced wholesale.
 
-That sentence is about abacadaba specifically. A generation pipeline that exists
-first will be designed around one person clicking through a draft, and the
-second signature becomes something bolted on afterwards — at which point the
-honest answer to "who developed this" is a model, and there is no field to put
-it in. Building the chain first means the pipeline has to produce a course that
-already has a named human developer and a different named reviewer, because a
-course without them will not publish.
+**Estimated durations must never reach a credit calculation.** This is the
+constraint the whole package is shaped around, under Standards paragraph 7.02.7.
+`usingEstimates` is what enforces it, and it currently has a bug: it counts the
+title sheet, which has no narration and will never have audio, so it can never
+become false. Fix it as specified below. Do not remove the warning in `Root.tsx`.
 
-## Subject matter experts are not users
-The `subject_matter_experts` table has no foreign key to `users`, and should not
-grow one.
+## Reveal markers
+Narration text may contain `[[r]]` markers. Each marks a point where a slide
+element should appear. Markers are stripped before the text is sent to
+ElevenLabs; their positions are then located in the returned character-level
+alignment data to produce exact seconds.
 
-Three reasons, in order of how much they will matter later:
+The number of markers in a block must equal the length of that block's
+`reveals` array, because the slide components index into it positionally. If
+they disagree, the slide will read `undefined` and elements will never appear.
 
-1. The reviewer on a real CPE program is frequently an outside CPA who has no
-   reason to ever log into the admin tool. Requiring an account to be recorded
-   as a reviewer means creating dormant accounts to satisfy a data model, which
-   is both a security posture problem and a lie about who has access.
-2. What the Standard wants documented is competence — credentials, license
-   status, jurisdiction. A `users` row carries none of that and should not start
-   to.
-3. The two records answer different questions with different lifetimes. Auth
-   answers "may this person edit this course today". The SME record answers "was
-   this person qualified to sign off on this course in August 2026", and it must
-   remain true and readable years after the person's account is gone.
+`narration` remains the transcript of record. Markers live inside it, and
+`transcriptOf()` strips them. There is deliberately no second copy of the
+narration text to drift out of sync.
 
-A person can obviously have both records. The SME record is the one an audit
-reads.
+## Tasks
 
-## Data model
+### 1. Fix the misplaced file
+- Delete `frontend/src/audio-meta.json`
+- Create `video/src/audio-meta.json` containing exactly `{}`
+- Verify `git status` shows no changes under `frontend/`
 
-New `subject_matter_experts`:
-- id, name (not null)
-- credentials (string, not null) — the human-readable line, e.g.
-  "CPA, active, NH #12345"
-- affiliation (string, nullable), bio (text, nullable)
-- is_licensed_cpa (bool, not null, default false)
-- is_tax_attorney (bool, not null, default false)
-- is_enrolled_agent (bool, not null, default false)
-- license_jurisdiction (string, nullable)
-- created_at
+### 2. `video/package.json`
+- Add to scripts: `"generate": "tsx scripts/generate-audio.ts"`
+- Remove the `"measure"` script
+- `tsx` is already in devDependencies; leave it
 
-The three booleans map one-to-one onto the sentence in 4.02 rather than onto a
-tidier abstraction. Accounting and auditing needs the first; taxes needs any of
-the three. A single enum would force a person who is both a CPA and an enrolled
-agent into one box, and a derived "is qualified" column would drift from the
-rule it was derived from.
+### 3. `video/scripts/generate-audio.ts`
+Already present. Do not modify it. It is the reference for what the rest of the
+package must expose — if something does not compile, the fix goes in
+`lesson-01.ts`, not here.
 
-New columns on `courses`:
-- developer_id (FK subject_matter_experts, nullable, indexed)
-- reviewer_id (FK subject_matter_experts, nullable, indexed)
-- reviewed_at (timestamptz, nullable)
-- review_notes (text, nullable)
-- content_updated_at (timestamptz, not null, server default now())
-- review_cycle (string, not null, default 'biennial', CHECK in
-  ('annual', 'biennial'))
+### 4. `video/src/lesson-01.ts`
 
-Plus a CHECK that the two experts differ:
-`reviewer_id IS NULL OR developer_id IS NULL OR reviewer_id <> developer_id`.
-Autogenerate will not write it; add it by hand alongside the 020 constraints.
+Update the file-level doc comment: the duration resolution order is now
+`audio-meta.json` first, `estimatedSeconds` second. It currently names
+`durations.json` and `npm run measure`, both of which are being retired.
 
-New `sources`:
-- id, course_id (FK, ondelete CASCADE, indexed), position (int, unique per
-  course), citation (string, not null), url (string, nullable), retrieved_on
-  (date, nullable)
+In the `Block` type, restore the misplaced comment and add the optional field:
 
-Reuse the two-pass renumber already written for questions and objectives. This
-would be the third implementation of it; there should still be one.
+```ts
+  narration: string;      // transcript of record, may contain [[r]] markers
+  reveals: number[];      // fallback seconds from block start, used until measured
+  speech?: string;        // overrides narration for TTS only; rarely needed
+```
 
-## Sources are recorded, not required
-Publish validation does not require a source. No locator demands a citation
-list, and 4.05.3 is about the opposite concern — that a program must be built on
-materials developed for instructional use rather than on third-party material.
+Replace everything from `const measuredMap` to the end of the file with:
 
-But the source list renders in the review panel, directly beside the reviewer
-and review-date controls. A reviewer signing off on a draft that cites nothing
-should have to notice that this is what they are doing. That is a placement
-decision, not a validation rule, and it is the right shape for something the
-Standard leaves to the reviewer's judgment.
+```ts
+type BlockMeta = { durationSeconds: number; reveals: number[]; hash: string };
+const audio = audioMeta as Record<string, BlockMeta>;
 
-## content_updated_at, and the bug this feature will produce
-The interesting rule here is that a review is only meaningful if it happened
-after the content it reviewed. 4.02 says reviews must occur before the first
-presentation and again after each significant revision. So:
+/** The transcript of record: markers stripped, nothing else changed. */
+export const transcriptOf = (b: Block): string =>
+  b.narration.replace(/\s*\[\[r\]\]\s*/g, " ").replace(/\s+/g, " ").trim();
 
-`content_updated_at` is bumped by every mutation that changes what a participant
-would see — course fields, objectives, lessons, questions, choices, video,
-thumbnail — through **one helper in `app/services/admin_content.py`**, called
-from each write path. Not sprinkled inline; one choke point, so the answer to
-"does this mutation count" is in one file.
+/** What gets sent to ElevenLabs. Markers intact; the script strips them. */
+export const speechOf = (b: Block): string => b.speech ?? b.narration;
 
-It is **not** bumped by: setting the developer or reviewer, setting reviewed_at,
-writing review notes, adding or editing sources, publishing, or unpublishing.
+export const hasAudio = (b: Block): boolean => audio[b.id] !== undefined;
 
-That exclusion is the whole feature working or not working. If recording a
-review bumps the content timestamp, then `reviewed_at < content_updated_at` is
-true the instant after every review, publish refuses forever, and the failure
-looks like a validation bug rather than a design one. Write the test that
-asserts recording a review leaves `content_updated_at` untouched before writing
-the helper.
+export const durationOf = (b: Block): number =>
+  audio[b.id]?.durationSeconds ?? b.estimatedSeconds;
 
-On "significant revision": the Standard says significant, and nothing here can
-judge significance. This feature treats every content edit as potentially
-significant. That is deliberately over-strict — re-recording a review is a few
-seconds of work, and a false positive costs nothing while a false negative is
-the thing the Standard exists to prevent.
+/** Measured reveals when we have them, hand-written estimates when we do not. */
+export const revealsOf = (b: Block): number[] =>
+  audio[b.id]?.reveals ?? b.reveals;
 
-## Validation rules
-These join the 019 and 020 rules in `validate_for_publish`, which must keep
-returning every failure at once so feature 017's checklist still works.
+/**
+ * Blocks with empty narration have no audio by design — the title sheet is the
+ * only one. Counting it here would make this permanently true and the warning
+ * in Root.tsx permanently useless.
+ */
+export const usingEstimates = blocks.some(
+  (b) => b.narration.trim().length > 0 && !hasAudio(b)
+);
 
-1. `developer_id` set.
-2. `reviewer_id` set.
-3. `reviewer_id != developer_id` — 4.02, stated directly. The database CHECK is
-   a backstop; the validator produces the readable message.
-4. `reviewed_at` set.
-5. `reviewed_at >= content_updated_at`. Message: this course has changed since
-   it was reviewed.
-6. If `field_of_study` is tagged as accounting or auditing: the developer or the
-   reviewer must have `is_licensed_cpa`.
-7. If `field_of_study` is Taxes: the developer or the reviewer must have at
-   least one of the three credentials.
+export const totalSeconds = blocks.reduce((sum, b) => sum + durationOf(b), 0);
+```
 
-Rules 6 and 7 need the fields-of-study constant from feature 020 to carry a
-credential tag. Put the tag next to the field in
-`app/constants/fields_of_study.py`, not in a second list keyed by field name —
-two lists NASBA controls will drift, which was already the reasoning behind
-020's `/meta/fields-of-study` endpoint.
+Then add markers to block-01's narration, and only block-01. Three markers, to
+match its three-entry `reveals` array. Insert them exactly here, changing no
+other character of the text:
 
-Note what rule 5 buys on the disclosure side: because publish refuses a review
-older than the content, `reviewed_at` on a published course is always the most
-recent of the two dates. So 4.01's "most recent publication, revision, or review
-date" is just `reviewed_at`, with no max() over three columns and no way for the
-displayed date to be wrong. The validation rule makes the disclosure trivially
-correct. Do not compute a separate documentation date.
+- Before `you have said the phrase percentage of completion` — the eyebrow and
+  headline appear as the narrator names the phrase.
+- Before `method. It stopped being one.` — note this is mid-sentence, before
+  the word `method` rather than at the start of the sentence. The visual is a
+  strikethrough drawing across that specific word, so it fires as the word is
+  spoken.
+- Before `What replaced it is a sequence of separate judgments` — the third
+  element.
 
-## The gap this feature does not close
-A published course that is then edited presents a real problem, and the answer
-here is partial.
+Leave `reveals: [1, 14, 26]` in place. It is the fallback until audio exists.
 
-Editing a published course bumps `content_updated_at`, so re-publishing is
-blocked until it is reviewed again. But the course stays published and keeps
-serving in the meantime, because unpublishing it would pull a program out from
-under participants who are partway through it — which is worse for them and
-arguably worse for the sponsor.
+### 5. `video/src/Lesson.tsx`
+- Import `revealsOf` and `hasAudio` from `./lesson-01`
+- Delete the `AUDIO_PRESENT` constant entirely, and its comment
+- `<Slide reveals={revealsOf(block)} />`
+- `{hasAudio(block) ? <Audio src={staticFile(...)} /> : null}`
 
-The consequence is that a published course can serve edited, unreviewed content
-until someone gets to it. The real fix is a draft-and-version model where edits
-land on an unpublished revision, and that is a larger feature than this one.
+`AUDIO_PRESENT` was a hand-maintained map that had to be pasted in after every
+generation run. `audio-meta.json` already knows, so the manual step goes away.
+Do not replace it with anything.
 
-**Record this in COMPLIANCE.md's Gap column against 4.02, explicitly, with the
-mitigation** — the admin surface flags the state, and 026's dashboard will
-report on it. Do not write a Gap column entry that implies it is handled. This
-is exactly the kind of thing abacadaba exists to find before superCPE has an
-audit.
+### 6. Retire the old measurement path
+- Delete `video/scripts/measure-audio.mjs`
+- Delete `video/src/durations.json`
+- Confirm nothing imports either. `Root.tsx` imports only `durationOf`,
+  `totalSeconds`, and `usingEstimates`, all of which still exist.
 
-## Backend tasks
-1. `app/models/subject_matter_expert.py`, `app/models/source.py`, and the six
-   columns on `Course`. Then autogenerate the migration and add the CHECK
-   constraints by hand. Verify `downgrade -1`.
-2. Unlike feature 019, the databases may have rows this time. `content_updated_at`
-   is not null — give it a server default in the migration so existing courses
-   get a value, and check whether any course is currently published. If one is,
-   it will fail rules 1–4 the next time anyone touches publish; say so in the
-   changelog rather than letting it surprise someone.
-3. SME CRUD under `require_admin`.
-4. Source CRUD nested under a course, reusing the existing renumber.
-5. The `content_updated_at` helper and its call sites.
-6. Credential tags on the fields-of-study constant, and whatever
-   `/meta/fields-of-study` needs to expose them.
-7. `validate_for_publish` rules 1–7.
-8. `GET /courses/{slug}` carries the review date and the developer's and
-   reviewer's names and credentials. 4.01 says course documentation rather than
-   descriptive materials, so the public page is a choice rather than a
-   requirement — make it, because it is a quality signal and the credential line
-   is the thing a participant would actually want to see. Bio and affiliation
-   are internal.
-9. Tests:
-   - publishing with no developer is refused, and the message says so
-   - publishing with the same person as developer and reviewer is refused
-   - publishing with a review older than the last content edit is refused
-   - recording a review does not change `content_updated_at`
-   - editing a question does change it
-   - adding a source does not change it
-   - an accounting course with no licensed CPA on either side is refused
-   - a taxes course with an enrolled agent as reviewer publishes
-   - a non-technical course with neither is unaffected by rules 6 and 7
-   - the public course payload carries the review date and both names
-   - sources come back in position order and reorder correctly
-   - the leak test still passes
+### 7. `video/tsconfig.json`
+Add `scripts` to `include` if it is not already covered, so the editor does not
+report phantom errors in `generate-audio.ts`. `resolveJsonModule` must stay on;
+`audio-meta.json` depends on it exactly as `durations.json` did.
 
-## Frontend tasks
-1. An SME admin page: list, create, edit. Plain CRUD, no cleverness.
-2. A Review panel on the course editor — developer select, reviewer select,
-   review date, notes — with the source list rendered beside it per the
-   placement decision above.
-3. The stale-review state on a published course, stated where the author is
-   looking rather than only in the publish checklist.
-4. The publish checklist should pick up rules 1–7 automatically through its
-   existing `publishErrors` list. Verify that; do not build a second surface for
-   it. Feature 020 found the same thing and it held.
-5. Public course page renders the last-reviewed date and the two credited
-   experts.
+### 8. `video/README.md`
+The build order section describes a four-step manual flow that no longer exists.
+Rewrite steps 2 and 3 as one step: `npm run generate`. Keep the two compliance
+notes at the bottom unchanged — the estimated-durations rule and the
+transcript-is-a-supplement rule are both still true and both still matter.
 
-## A thing to check rather than assume
-The Review panel is a new panel on the course editor, and the course editor now
-has one save for the whole page. It must join that batch. Do not give it its own
-Save button — that reintroduces exactly the defect 020b spent a feature removing
-and 020d spent another feature making legible.
+Document the marker convention in the structure section.
 
-If feature 019a has shipped, the collapsed single-lesson editor needs the panel
-too. It is a course-level fact, so it belongs on the course surface in both
-layouts.
+## Acceptance
+Run these in order. Each must pass before moving on.
 
-## Acceptance criteria
-- a course cannot be published without a developer, a reviewer, and a review
-  date, and the checklist names which is missing
-- setting the same expert as both developer and reviewer is refused, in the API
-  and by the database
-- editing any question, objective, lesson, or course field after a review makes
-  publish refuse with a message about the course having changed
-- recording the review again clears it, and no other field had to be touched
-- an accounting or auditing course refuses to publish unless a licensed CPA is
-  named on one side of the chain
-- a taxes course accepts a CPA, a tax attorney, or an enrolled agent
-- the public course page shows the last-reviewed date, and that date is the
-  review date rather than anything computed
-- sources can be added, reordered, and deleted, and adding one does not make the
-  course's review stale
-- an already-published course that is edited shows the stale-review state in the
-  editor and keeps serving
-- `npm run lint` passes
-- pytest passes, with the new tests added
+1. `npx tsc --noEmit` — clean. No reference to `measured` or `durations.json`
+   survives anywhere.
+2. `npm run generate -- --dry-run` — lists seven blocks, `block-01` through
+   `block-07`. The title sheet is absent, which is correct. `block-01` reports
+   3 reveals; every other block reports 0.
+3. `npm run dev` — Remotion Studio opens, the composition is its full estimated
+   length, all eight sheets render, and the console shows the estimated-duration
+   warning from `Root.tsx`.
 
-## When done
-Append an entry to CHANGELOG.md.
+Do not run `npm run generate` for real. That spends API credits and is the
+human's step, not yours.
 
-Then append to COMPLIANCE.md. This feature has real rows: 4.01, 4.01.1, 4.02,
-and 4.02.1, with the Requirement column in the PDF's own words rather than this
-file's paraphrase. One of them — 4.02 — carries a Gap, described above. Write it
-plainly.
-
-Then stop.
+## Do not
+- Touch `backend/` or `frontend/`
+- Modify `slides.tsx`
+- Add markers to blocks 02 through 07
+- Compute, store, or print anything described as a course credit. The sanity
+  check already in `generate-audio.ts` is labelled as such and is the only
+  credit arithmetic permitted in this package.
+- Commit `.env`. Verify it is still ignored before finishing.

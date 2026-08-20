@@ -23,31 +23,31 @@ The order matters, and it is not the obvious one.
 estimates at ~145 wpm, so you can see the whole lesson before spending a single
 ElevenLabs credit. Scrub through Studio. Fix what reads badly.
 
-**2. Generate narration.** Take `narration` from each block in
-`src/lesson-01.ts`. Generate one file per block, not one file for the lesson —
-when the SME corrects one sentence on sheet S-05, you regenerate S-05 and
-nothing else.
-
-Write numbers the way you want them *said* before sending to ElevenLabs. The
-narration in `lesson-01.ts` is the transcript of record and is written normally;
-"ASC 606" will come out as "ASC six hundred six" unless you spell it "ASC
-six-oh-six" in what you actually submit. Keep the two versions distinct — the
-ugly one is for the API, the clean one is the transcript.
-
-Save output as `public/audio/block-01.mp3` … `block-07.mp3`. The title sheet has
-no narration.
-
-**3. Measure.**
+**2. Generate narration.**
 
 ```bash
-npm run measure
+npm run generate
 ```
 
-Writes `src/durations.json` from the real audio, prints the runtime and the
-credit calculation, and prints the `AUDIO_PRESENT` block to paste into
-`src/Lesson.tsx`.
+Reads `narration` from each block in `src/lesson-01.ts`, strips `[[r]]` reveal
+markers, and sends one API call per block to ElevenLabs — one file per block,
+not one file for the lesson, so when the SME corrects one sentence on sheet
+S-05 you regenerate S-05 and nothing else. Unchanged blocks are skipped
+automatically; add `-- --only block-05` to force a single block, `-- --force`
+to regenerate everything, or `-- --dry-run` to see what would be sent without
+spending anything.
 
-**4. Render.**
+Writes:
+- `public/audio/<block-id>.mp3`
+- `src/audio-meta.json` — measured duration, measured reveal seconds, and a
+  content hash, per block
+
+If a block needs to be *said* differently than it reads — "ASC 606" as "ASC
+six-oh-six" rather than "ASC six hundred six" — set `speech` on that block
+instead of editing `narration`. `narration` stays the transcript of record;
+`speech`, when present, is what actually goes to the API.
+
+**3. Render.**
 
 ```bash
 npm run render
@@ -71,20 +71,27 @@ labelled as an accessibility aid.
 ```
 src/
   lesson-01.ts    content as data — the handoff point from the writing pipeline
-  durations.json  measured audio lengths, written by npm run measure
+  audio-meta.json measured durations and reveals, written by npm run generate
   theme.ts        palette, type, layout tokens
   Sheet.tsx       drawing border + title block, wraps every slide
   slides.tsx      the seven slide components
   Lesson.tsx      sequences blocks; contains no timing numbers
   Root.tsx        composition registration, duration derived from content
 scripts/
-  measure-audio.mjs
+  generate-audio.ts
 public/audio/     narration, one file per block
 ```
 
 `lesson-01.ts` is deliberately free of React. When script generation is
 automated, that file's shape is what the pipeline emits — so a new lesson is a
 new data file plus, at most, a new slide component.
+
+Narration text may contain `[[r]]` markers, one per element in that block's
+`reveals` array — a marker is where a slide element should appear. `npm run
+generate` strips them before sending text to ElevenLabs, then uses the
+character-level alignment ElevenLabs returns to record the exact second each
+marker was spoken, in `audio-meta.json`. Until a block has been generated, its
+hand-written `reveals` array is the fallback.
 
 ## Design notes
 

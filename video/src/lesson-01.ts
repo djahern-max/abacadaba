@@ -1,4 +1,4 @@
-import measured from "./durations.json";
+import audioMeta from "./audio-meta.json";
 
 /**
  * Lesson content as data, not as markup.
@@ -8,7 +8,7 @@ import measured from "./durations.json";
  * so keep it free of anything React-specific.
  *
  * durationSeconds resolution order:
- *   1. durations.json, written by `npm run measure` from the real audio files
+ *   1. audio-meta.json, written by `npm run generate` from the real audio files
  *   2. estimatedSeconds, from word count at ~145 wpm
  *
  * Estimates let you render and judge the visuals before spending TTS credits.
@@ -23,8 +23,9 @@ export type Block = {
   slide: string;          // which slide component renders this block
   estimatedSeconds: number;
   wordCount: number;
-  narration: string;      // transcript of record — plain, for the record
-  reveals: number[];      // seconds from block start at which items appear
+  narration: string;      // transcript of record, may contain [[r]] markers
+  reveals: number[];      // fallback seconds from block start, used until measured
+  speech?: string;        // overrides narration for TTS only; rarely needed
 };
 
 export const meta = {
@@ -55,7 +56,7 @@ export const blocks: Block[] = [
     estimatedSeconds: 43,
     wordCount: 105,
     narration:
-      "If you work with construction contractors, you have said the phrase percentage of completion a thousand times. Your clients say it. Their bonding companies say it. It shows up in loan covenants and on the face of financial statements. Here is the problem. Under ASC 606, percentage of completion is not an accounting method. It stopped being one. That is not a technicality, and it is not a name change. The old method was a single decision — use it, or use completed contract. What replaced it is a sequence of separate judgments, and each one can go a different way than you expect. Let me show you where the judgments are.",
+      "If you work with construction contractors, [[r]] you have said the phrase percentage of completion a thousand times. Your clients say it. Their bonding companies say it. It shows up in loan covenants and on the face of financial statements. Here is the problem. Under ASC 606, percentage of completion is not an accounting [[r]] method. It stopped being one. That is not a technicality, and it is not a name change. The old method was a single decision — use it, or use completed contract. [[r]] What replaced it is a sequence of separate judgments, and each one can go a different way than you expect. Let me show you where the judgments are.",
     reveals: [1, 14, 26],
   },
   {
@@ -126,11 +127,32 @@ export const blocks: Block[] = [
   },
 ];
 
-const measuredMap = measured as Record<string, number>;
+type BlockMeta = { durationSeconds: number; reveals: number[]; hash: string };
+const audio = audioMeta as Record<string, BlockMeta>;
 
-export const durationOf = (block: Block): number =>
-  measuredMap[block.id] ?? block.estimatedSeconds;
+/** The transcript of record: markers stripped, nothing else changed. */
+export const transcriptOf = (b: Block): string =>
+  b.narration.replace(/\s*\[\[r\]\]\s*/g, " ").replace(/\s+/g, " ").trim();
 
-export const usingEstimates = blocks.some((b) => measuredMap[b.id] === undefined);
+/** What gets sent to ElevenLabs. Markers intact; the script strips them. */
+export const speechOf = (b: Block): string => b.speech ?? b.narration;
+
+export const hasAudio = (b: Block): boolean => audio[b.id] !== undefined;
+
+export const durationOf = (b: Block): number =>
+  audio[b.id]?.durationSeconds ?? b.estimatedSeconds;
+
+/** Measured reveals when we have them, hand-written estimates when we do not. */
+export const revealsOf = (b: Block): number[] =>
+  audio[b.id]?.reveals ?? b.reveals;
+
+/**
+ * Blocks with empty narration have no audio by design — the title sheet is the
+ * only one. Counting it here would make this permanently true and the warning
+ * in Root.tsx permanently useless.
+ */
+export const usingEstimates = blocks.some(
+  (b) => b.narration.trim().length > 0 && !hasAudio(b)
+);
 
 export const totalSeconds = blocks.reduce((sum, b) => sum + durationOf(b), 0);
