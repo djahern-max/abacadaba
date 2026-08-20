@@ -319,8 +319,8 @@ const main = async () => {
       result[block.id] = blockMeta;
       console.log(
         `${blockMeta.durationSeconds.toFixed(1)}s  ` +
-          `est ${block.estimatedSeconds}s  ` +
-          `reveals [${blockMeta.reveals.map((r) => r.toFixed(1)).join(", ")}]`
+        `est ${block.estimatedSeconds}s  ` +
+        `reveals [${blockMeta.reveals.map((r) => r.toFixed(1)).join(", ")}]`
       );
       generated += 1;
     } catch (error) {
@@ -350,7 +350,7 @@ const main = async () => {
   console.log(`\n  generated ${generated}, skipped ${skipped}`);
   console.log(
     `  runtime ${Math.floor(totalSeconds / 60)}m ${Math.round(totalSeconds % 60)}s` +
-      (missing.length ? `  (${missing.length} block(s) still estimated)` : "")
+    (missing.length ? `  (${missing.length} block(s) still estimated)` : "")
   );
 
   if (missing.length === 0) {
