@@ -1,0 +1,112 @@
+{
+  "block-04": {
+    "durationSeconds": 7.798,
+    "reveals": [
+      1.045
+    ],
+    "hash": "45f71360d535",
+    "generatedAt": "2026-08-21T09:06:10.833Z"
+  },
+  "block-05": {
+    "durationSeconds": 33.108,
+    "reveals": [
+      9.601,
+      11.865
+    ],
+    "hash": "795621cf2f8a",
+    "generatedAt": "2026-08-21T09:06:16.591Z"
+  },
+  "block-01": {
+    "durationSeconds": 27.117,
+    "reveals": [
+      3.843,
+      6.235,
+      9.613,
+      13.235
+    ],
+    "hash": "d3c302ff1d54",
+    "generatedAt": "2026-08-21T09:05:59.642Z"
+  },
+  "block-02": {
+    "durationSeconds": 23.681,
+    "reveals": [
+      1.324,
+      11.703,
+      20.631
+    ],
+    "hash": "3321fa37ab0b",
+    "generatedAt": "2026-08-21T09:06:03.732Z"
+  },
+  "block-03": {
+    "durationSeconds": 28.464,
+    "reveals": [
+      2.833,
+      6.536,
+      10.286,
+      14.187,
+      16.022,
+      18.854
+    ],
+    "hash": "6dd264add8d2",
+    "generatedAt": "2026-08-21T09:06:09.073Z"
+  },
+  "block-06": {
+    "durationSeconds": 25.817,
+    "reveals": [
+      17.136,
+      20.016
+    ],
+    "hash": "4ef638035cfc",
+    "generatedAt": "2026-08-21T09:06:21.005Z"
+  },
+  "block-07": {
+    "durationSeconds": 26.049,
+    "reveals": [
+      4.145,
+      7.14,
+      12.724,
+      16.625
+    ],
+    "hash": "c64e2bd912ce",
+    "generatedAt": "2026-08-21T09:06:25.576Z"
+  },
+  "block-08": {
+    "durationSeconds": 21.359,
+    "reveals": [
+      1.544,
+      7.14,
+      13.154,
+      16.591
+    ],
+    "hash": "cafe0fdefe9b",
+    "generatedAt": "2026-08-21T09:06:29.586Z"
+  },
+  "block-09": {
+    "durationSeconds": 25.77,
+    "reveals": [
+      2.508,
+      11.726,
+      16.242,
+      22.523
+    ],
+    "hash": "e323899852e6",
+    "generatedAt": "2026-08-21T09:06:34.196Z"
+  },
+  "block-10": {
+    "durationSeconds": 23.774,
+    "reveals": [
+      0,
+      1.753
+    ],
+    "hash": "315348f59b4c",
+    "generatedAt": "2026-08-21T09:06:38.022Z"
+  },
+  "block-11": {
+    "durationSeconds": 26.885,
+    "reveals": [
+      15.581
+    ],
+    "hash": "9c07ebec44c9",
+    "generatedAt": "2026-08-21T09:06:42.133Z"
+  }
+}

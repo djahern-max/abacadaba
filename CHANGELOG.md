@@ -917,3 +917,72 @@ Only block-01 is marked up with markers, as a proof of the approach; blocks
 an app feature — it produces the accurate A/V runtime that feature 022's
 credit calculation will eventually consume, but does not compute or store
 credit itself.
+
+## 2026-08-21, Video pipeline 02, Multi-lesson support and data-driven slides
+The `video/` package renders more than one lesson now. `video/src/lessons.ts`
+maps a lesson id to its module (`{ "01": lesson01, "02": lesson02 }`);
+`Lesson.tsx` takes `lessonId` as a prop and resolves through that map instead
+of importing `lesson-01` by name, `Root.tsx` registers `Lesson01` and
+`Lesson02` as separate compositions with durations derived from each lesson's
+own `totalSeconds`, and `npm run render:02`/`generate:02` drive lesson 02
+the same way the existing scripts drive lesson 01. `generate-audio.ts` gained
+`--lesson <id>` (default `01`), selecting which module's blocks to read,
+which `audio-meta*.json` to write, and which `public/audio/<id>/` directory
+to write into; lesson 01's seven existing mp3s moved to `public/audio/01/`
+via `git mv` (renames, not delete-plus-add) and lesson 02 gets its own
+`audio-meta-02.json` (currently `{}` — one file per lesson, not a nesting
+level inside the existing one).
+
+`slides.tsx` gained six generic, data-driven components — `Statement`,
+`Facts`, `Calc`, `List`, `Compare`, plus `Title` extended to take `meta` as a
+prop instead of importing lesson-01's — each reading a `figure` payload off
+its block and revealing its elements one per `reveals` entry via the existing
+`revealAt` helper; a row or item past the end of the marker count reveals
+alongside the last one that has its own marker, rather than needing a marker
+per row. `Sheet.tsx` also takes `meta` as a prop now instead of importing it.
+**Lesson 01's own slide components (`Misconception`, `LegacyBranch`,
+`FiveSteps`, `Fork`, `Criteria`, `Methods`, `Summary`) were deliberately not
+migrated onto the generic set** — their reveals are indexed positionally
+against measured audio already captured in `audio-meta.json`, and
+re-rendering lesson 01 against different components would invalidate that
+timing and change a video that is already correct. Both sets of components
+live side by side in `SLIDES`. No lesson-01 audio was regenerated.
+
+`lesson-02.ts`, committed earlier but wrong in four ways, is fixed: the
+separate `speech` field is gone (`narration` is now the only copy of the
+transcript and carries the `[[r]]` markers, moved over at the same word
+positions), every block gained a `reveals` fallback array sized to its
+marker count and evenly distributed across `estimatedSeconds` as a preview
+placeholder only, `estimatedSeconds` is recomputed at 130 wpm (the constant
+`lesson-01.ts` documents; these blocks were originally written at 145), and
+the file exports `transcriptOf`/`speechOf`/`hasAudio`/`durationOf`/
+`revealsOf`/`usingEstimates`/`totalSeconds` reading from a new
+`audio-meta-02.json`, matching lesson-01's module shape closely enough for
+`Lesson.tsx`/`Root.tsx`/`generate-audio.ts` to treat either lesson
+generically. `lesson-02.ts` stays `DRAFT — NOT REVIEWED`; its audio was not
+generated as part of this feature, pending a licensed CPA's read of the
+narration and arithmetic (4.01.1, 4.02).
+
+Verified: `npx tsc --noEmit` clean; `npm run generate -- --dry-run` reports
+7 unchanged blocks for lesson 01; `npm run generate:02 -- --dry-run` reports
+11 narrated blocks (title has no narration) and spends nothing; `npm run
+render` was diffed frame-by-frame against the pre-feature `out/lesson-01.mp4`
+at eleven timestamps spanning S-01 through S-07 (`ffmpeg`'s `ssim` filter,
+`All:1.000000` at every sample — pixel-identical, matching frame count and
+duration) rather than judged by reading the diff; `npm run render:02`
+produces a silent twelve-sheet MP4 with every figure element visible by the
+end of its block; `npx remotion compositions` shows the estimated-duration
+warning firing for `Lesson02` and not `Lesson01`; `git status` shows the
+seven moved lesson-01 audio files as renames.
+
+Out of scope, flagged rather than built: the `Title` slide's "LESSON 1 OF 5"
+caption is still a hardcoded string (no lesson-number field exists in
+`meta`), so it reads the same on lesson 02's title card — neither
+`current-feature.md` nor lesson-01's `meta` shape asked for one, so no field
+was invented for it here.
+
+COMPLIANCE.md gains no row: this is build tooling (lesson selection,
+generic slide rendering, script plumbing), and the 7.02.7 mapping recorded
+under Video pipeline 01 is unchanged — `durationOf`/`totalSeconds` still
+measure real narration length ahead of the estimate, per lesson, and
+`Root.tsx` still warns per composition rather than gating render or publish.

@@ -1,12 +1,12 @@
 import React from "react";
 import { AbsoluteFill, Sequence, Audio, staticFile } from "remotion";
-import { blocks, durationOf, revealsOf, hasAudio } from "./lesson-01";
+import { LESSONS, type LessonId } from "./lessons";
 import { Sheet } from "./Sheet";
 import { SLIDES } from "./slides";
 import { seconds } from "./theme";
 
 /**
- * Sequences the blocks back to back.
+ * Sequences the blocks of one lesson back to back.
  *
  * Every duration comes from the data file, so there is no timing number in
  * this component. When measured audio replaces the estimates, this file does
@@ -16,14 +16,28 @@ import { seconds } from "./theme";
  * which is what lets you judge the visuals before generating narration.
  */
 
-export const Lesson: React.FC = () => {
+export const Lesson: React.FC<{ lessonId: LessonId }> = ({ lessonId }) => {
+  const mod = LESSONS[lessonId] as unknown as {
+    blocks: {
+      id: string;
+      sheet: string;
+      citation: string;
+      slide: string;
+      figure?: unknown;
+    }[];
+    meta: import("./slides").LessonMeta;
+    durationOf: (b: never) => number;
+    revealsOf: (b: never) => number[];
+    hasAudio: (b: never) => boolean;
+  };
+
   let cursor = 0;
 
   return (
     <AbsoluteFill>
-      {blocks.map((block) => {
+      {mod.blocks.map((block) => {
         const from = cursor;
-        const durationInFrames = seconds(durationOf(block));
+        const durationInFrames = seconds(mod.durationOf(block as never));
         cursor += durationInFrames;
 
         const Slide = SLIDES[block.slide as keyof typeof SLIDES];
@@ -35,11 +49,15 @@ export const Lesson: React.FC = () => {
             durationInFrames={durationInFrames}
             name={`${block.sheet} ${block.slide}`}
           >
-            <Sheet sheet={block.sheet} citation={block.citation}>
-              <Slide reveals={revealsOf(block)} />
+            <Sheet sheet={block.sheet} citation={block.citation} meta={mod.meta}>
+              <Slide
+                reveals={mod.revealsOf(block as never)}
+                figure={block.figure as never}
+                meta={mod.meta}
+              />
             </Sheet>
-            {hasAudio(block) ? (
-              <Audio src={staticFile(`audio/${block.id}.mp3`)} />
+            {mod.hasAudio(block as never) ? (
+              <Audio src={staticFile(`audio/${lessonId}/${block.id}.mp3`)} />
             ) : null}
           </Sequence>
         );

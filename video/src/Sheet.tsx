@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill } from "remotion";
 import { theme, WIDTH, HEIGHT } from "./theme";
-import { meta } from "./lesson-01";
+import type { LessonMeta } from "./slides";
 
 /**
  * The sheet chrome that every slide sits inside.
@@ -48,8 +48,9 @@ const Tick: React.FC<{ x: number; y: number; rx: number; ry: number }> = ({
 export const Sheet: React.FC<{
   sheet: string;
   citation: string;
+  meta: LessonMeta;
   children: React.ReactNode;
-}> = ({ sheet, citation, children }) => {
+}> = ({ sheet, citation, meta, children }) => {
   const m = theme.margin;
 
   return (

@@ -14,14 +14,16 @@
  * stop being a number you tune and become a measurement.
  *
  * Usage:
- *   npm run generate                  # every block whose text has changed
+ *   npm run generate                  # lesson 01, every block whose text changed
+ *   npm run generate -- --lesson 02   # lesson 02 instead
  *   npm run generate -- --only block-05
  *   npm run generate -- --force       # regenerate everything
  *   npm run generate -- --dry-run     # show what would be sent, spend nothing
  *
  * Writes:
- *   public/audio/<block-id>.mp3
- *   src/audio-meta.json   durations, measured reveals, and a text hash per block
+ *   public/audio/<lesson-id>/<block-id>.mp3
+ *   src/audio-meta.json          lesson 01's durations, measured reveals, text hash
+ *   src/audio-meta-<id>.json     the same, for every other lesson
  *
  * Requires ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in video/.env
  */
@@ -31,12 +33,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { blocks, meta, transcriptOf, speechOf, type Block } from "../src/lesson-01";
+import { LESSONS, type LessonId } from "../src/lessons";
+
+type Block = {
+  id: string;
+  sheet: string;
+  estimatedSeconds: number;
+  narration: string;
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const audioDir = join(root, "public", "audio");
-const metaPath = join(root, "src", "audio-meta.json");
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -61,6 +68,7 @@ const VOICE_SETTINGS = {
   similarity_boost: 0.8,
   style: 0.0,
   use_speaker_boost: true,
+  speed: 1.08,
 };
 
 /**
@@ -190,6 +198,10 @@ type BlockMeta = {
 const hashOf = (text: string) =>
   createHash("sha256").update(text).digest("hex").slice(0, 12);
 
+// Set by main() once the --lesson argument is parsed and the module resolved.
+let audioDir: string;
+let speechOf: (b: Block) => string;
+
 const generate = async (
   block: Block,
   previousText: string,
@@ -266,6 +278,23 @@ const main = async () => {
   const dryRun = args.includes("--dry-run");
   const onlyIndex = args.indexOf("--only");
   const only = onlyIndex !== -1 ? args[onlyIndex + 1] : null;
+  const lessonIndex = args.indexOf("--lesson");
+  const lessonId = (lessonIndex !== -1 ? args[lessonIndex + 1] : "01") as LessonId;
+
+  if (!(lessonId in LESSONS)) {
+    fail(`No lesson "${lessonId}". Ids: ${Object.keys(LESSONS).join(", ")}`);
+  }
+  const lesson = LESSONS[lessonId];
+  const blocks = lesson.blocks as unknown as Block[];
+  const meta = lesson.meta;
+  const transcriptOf = lesson.transcriptOf as unknown as (b: Block) => string;
+  speechOf = lesson.speechOf as unknown as (b: Block) => string;
+
+  audioDir = join(root, "public", "audio", lessonId);
+  const metaPath =
+    lessonId === "01"
+      ? join(root, "src", "audio-meta.json")
+      : join(root, "src", `audio-meta-${lessonId}.json`);
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
