@@ -176,11 +176,13 @@ def get_published_lesson(db: Session, course_slug: str, lesson_slug: str) -> Les
     return db.execute(stmt).scalar_one_or_none()
 
 
-def published_question_count(db: Session, course_id: int) -> int:
+def published_question_count(db: Session, course_id: int, kind: str | None = None) -> int:
     stmt = (
         select(func.count(Question.id))
         .select_from(Question)
         .join(Lesson, Lesson.id == Question.lesson_id)
         .where(Lesson.course_id == course_id, Lesson.is_published.is_(True))
     )
+    if kind is not None:
+        stmt = stmt.where(Question.kind == kind)
     return db.execute(stmt).scalar_one()

@@ -60,6 +60,12 @@ class Course(Base):
     credit_question_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credit_formula_version: Mapped[str | None] = mapped_column(String, nullable=True)
     credit_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Feature 023: the qualified assessment's minimum passing grade (6.01.2
+    # sets 70 percent as a floor, not a default a sponsor may relax - the
+    # CHECK constraint is the enforcement, not just this default).
+    pass_ratio: Mapped[Decimal] = mapped_column(
+        Numeric(3, 2), nullable=False, default=Decimal("0.70"), server_default="0.70"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

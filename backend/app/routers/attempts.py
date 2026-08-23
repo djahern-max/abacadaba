@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import require_user
 from app.models.user import User
-from app.schemas.attempt import AttemptAnswerRequest, AttemptAnswerResponse, AttemptResult, UserAttempt
+from app.schemas.attempt import (
+    AnsweredQuestion,
+    AttemptAnswerRequest,
+    AttemptAnswerResponse,
+    AttemptResult,
+    UserAttempt,
+)
 from app.services import attempts as attempts_service
 
 router = APIRouter()
@@ -28,8 +34,6 @@ def answer_attempt(attempt_id: uuid.UUID, answer: AttemptAnswerRequest, db: Sess
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return AttemptAnswerResponse(
-        correct=result.correct,
-        correct_choice_id=result.correct_choice_id,
         answered_count=result.answered_count,
         question_count=result.question_count,
     )
@@ -53,6 +57,9 @@ def get_attempt_result(attempt_id: uuid.UUID, db: Session = Depends(get_db)):
         passed=result.passed,
         completed_at=result.completed_at,
         certificate_code=result.certificate_code,
+        answers=[AnsweredQuestion.model_validate(answer) for answer in result.answers]
+        if result.answers is not None
+        else None,
     )
 
 

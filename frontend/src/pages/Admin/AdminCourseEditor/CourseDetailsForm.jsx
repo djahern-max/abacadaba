@@ -9,6 +9,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const [description, setDescription] = useState(course.description)
   const [cooldownMinutes, setCooldownMinutes] = useState(course.retake_cooldown_minutes)
   const [maxAttempts, setMaxAttempts] = useState(course.max_attempts ?? '')
+  const [passPercent, setPassPercent] = useState(Math.round(Number(course.pass_ratio) * 100))
   const [programLevel, setProgramLevel] = useState(course.program_level)
   const [fieldOfStudy, setFieldOfStudy] = useState(course.field_of_study)
   const [prerequisites, setPrerequisites] = useState(course.prerequisites ?? '')
@@ -26,6 +27,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const descriptionDirty = description !== course.description
   const cooldownDirty = Number(cooldownMinutes) !== course.retake_cooldown_minutes
   const maxAttemptsDirty = String(maxAttempts) !== String(course.max_attempts ?? '')
+  const passPercentDirty = Number(passPercent) !== Math.round(Number(course.pass_ratio) * 100)
   const programLevelDirty = programLevel !== course.program_level
   const fieldOfStudyDirty = fieldOfStudy !== course.field_of_study
   const prerequisitesDirty = prerequisites !== (course.prerequisites ?? '')
@@ -40,7 +42,8 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
     programLevelDirty ||
     fieldOfStudyDirty ||
     prerequisitesDirty ||
-    advancePreparationDirty
+    advancePreparationDirty ||
+    passPercentDirty
 
   useEffect(() => {
     onDirtyChange?.(dirty ? 1 : 0)
@@ -58,6 +61,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
         field_of_study: fieldOfStudy,
         prerequisites: prerequisites === '' ? null : prerequisites,
         advance_preparation: advancePreparation === '' ? null : advancePreparation,
+        pass_ratio: Number(passPercent) / 100,
       }),
   }))
 
@@ -204,6 +208,23 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
           onChange={(event) => setMaxAttempts(event.target.value)}
         />
         <p className={styles.hint}>Blank means unlimited attempts.</p>
+
+        <label className={styles.label} htmlFor="course-pass-percent">
+          Pass threshold (percent of assessment questions)
+        </label>
+        <input
+          id="course-pass-percent"
+          className={`${styles.input} ${passPercentDirty ? styles.fieldDirty : ''}`}
+          type="number"
+          min="70"
+          max="100"
+          value={passPercent}
+          onChange={(event) => setPassPercent(event.target.value)}
+        />
+        <p className={styles.hint}>
+          6.01.2 sets 70 percent as a floor for the qualified assessment - it cannot be set lower, only
+          stricter.
+        </p>
       </div>
     </section>
   )

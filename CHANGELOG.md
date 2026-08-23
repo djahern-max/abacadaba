@@ -1075,3 +1075,128 @@ deliberately counts every question, and the call site carries a comment
 warning against narrowing that when 023 lands), certificate content (024),
 and reading the technical/non-technical field-of-study tag for a per-state
 cap remain out of scope, as specified.
+
+## 2026-08-23, Feature 023, Review questions, assessment questions, and thresholds
+Questions now come in two kinds. `questions.kind` (migration `19665ec864ab`,
+hand-added CHECK `ck_questions_kind_valid`, default `'assessment'`) and a
+nullable `questions.feedback` (shown only after a review question is
+answered) join a new `courses.pass_ratio` column (`numeric(3,2)`, default
+`0.70`, floored by CHECK `ck_courses_pass_ratio_floor` at `>= 0.70` — 6.01.2's
+minimum, not a default a sponsor can relax below). The migration backfills
+existing rows with `kind = 'review' WHERE position <= 3`, the exact
+convention both seed scripts in `backend/scripts/` were written to; the real
+database had zero rows in `questions` at migration time, so the backfill
+typed nothing and the position convention's fitness was never actually
+exercised against live data — `tests/test_question_kind_backfill.py`
+verifies the backfill SQL itself against a synthetic 8-question lesson
+shaped like `seed_asc606_construction_intro.sql`. `downgrade -1` verified
+both on an empty database and one with rows. A new `review_responses` table
+records a participant's review answers, keyed by the same
+(`viewer_id`, `user_id`) identity pair `watch_progress` uses; that
+resolution rule (`app/services/identity.py`) was pulled out of
+`app/services/watch.py`'s previously-private `_identity_filter`
+into a small shared, column-parameterized helper so `app/services/review.py`
+reuses it instead of writing a second one, with `watch.py`'s own call sites
+unchanged.
+
+`app/services/quiz.py` filters to `kind='assessment'` questions only.
+`app/services/attempts.py` lost the module-level `PASS_RATIO` constant
+entirely; `_pass_threshold` now takes the course's own `pass_ratio` and is
+applied to an assessment-only question count (`courses_service
+.published_question_count` gained an optional `kind` filter, used here and
+in `certificates.py` — `credit.py`'s own count is deliberately untouched,
+per the comment 022 left there, and `tests/test_credit.py`'s new
+`test_credit_is_unchanged_by_the_review_assessment_type_split` pins that).
+An in-attempt answer response now carries only `answered_count` and
+`question_count` — no `correct` or `correct_choice_id` — because the
+application cannot know mid-attempt whether the participant will pass, and
+6.01.2's no-test-bank arm forbids feedback on a failed assessment. On
+completion, `AttemptResultData.answers` is populated only when the attempt
+passed; a failed attempt never even builds the per-question data, so there
+is nothing to leak by omission. This is the no-test-bank arm of 6.01.2
+specifically — a future test-bank feature would need to revisit this branch,
+since that arm of the Standard allows feedback either way, gated on bank
+size rather than on pass/fail; the branch carries that comment.
+
+`app/services/review.py` and `app/routers/review.py` serve and grade review
+questions: `GET /courses/{slug}/lessons/{lessonSlug}/review` returns the
+segment's review questions with choices and no `is_correct`, no `feedback`
+(both withheld until answered, and the feature 015/006 leak-test pattern was
+extended to cover them — `tests/test_review.py`);
+`POST .../review/{question_id}` grades server-side and returns the verdict
+plus feedback, writes to `review_responses` only, and re-answering
+overwrites rather than accumulating (no minimum passing rate applies here,
+unlike the assessment's replay guard). The leak test carried forward from
+015: two users sharing a browser get two separate `review_responses` rows,
+and neither overwrites the other's.
+
+`app/constants/question_minimums.py` transcribes both 5.01.2.1's and
+6.01.2's one-fifth-credit charts from the PDF (not from current-feature.md)
+and implements the above-one-credit case as
+`whole * PER_CREDIT + CHART[remainder]` — an interpretation of "additional
+questions ... required based on the chart above," not a quoted rule, but one
+that reproduces 6.01.2's own worked examples exactly
+(`test_five_credit_worked_example_requires_25_assessment_questions`,
+`test_five_and_a_half_credit_worked_example_requires_29_assessment_questions`).
+`validate_for_publish` (`app/services/admin_content.py`) gained: the review
+and assessment floors for the course's computed credit (skipped entirely
+when credit hasn't been computed yet, rather than enforced against zero);
+`MIN_CHOICES_ASSESSMENT = 3` beside the existing global
+`MIN_CHOICES_PER_QUESTION = 2`, since forced-choice (two-option) responses
+are not permissible on the qualified assessment; and a same-course exact
+duplicate-prompt check between a review and an assessment question
+(whitespace/case normalized, exact matches only — the message says so
+explicitly, since near-duplicates stay 021's reviewer-judgment territory).
+A two-choice question is valid content but does not count toward the review
+floor, proven by
+`test_two_choice_review_question_is_allowed_but_does_not_count_toward_the_floor`.
+
+Frontend: `QuestionsEditor.jsx` groups questions into "Review questions" and
+"Assessment questions" sections instead of interleaving them by position,
+each question gaining a type selector and (for review questions) a feedback
+textarea, both joining the existing batched save. A new `ReviewPanel.jsx`
+component appears on `LessonSegment.jsx` once that segment's watch gate
+closes, reusing the progress state `VideoPlayer.jsx`'s `onProgressChange`
+already produces rather than fetching watch status a second time (and, for
+symmetry, on `CourseDetail.jsx`'s collapsed single-lesson rendering too,
+since 019a made that a real code path). `QuestionCard.jsx`/`Quiz.jsx` no
+longer render or track per-answer correctness. `Result.jsx` shows a new
+`AnswerBreakdown.jsx` component on a pass and an explicit "answers aren't
+shown" line on a fail, instead of an empty area. `CourseDetailsForm.jsx`
+gained a pass-threshold percentage input with helper text naming the 70
+percent floor.
+
+**The placement gap this feature does not close:** 5.01.2.1 requires review
+questions "placed throughout the program in sufficient intervals," which
+segment-boundary placement satisfies for a multi-segment course but cannot
+for a one-lesson course above the 0.2-credit tier — a single lesson has
+exactly one seam, and it is the end. This collides with feature 019a's
+collapsed single-lesson editor. No publish warning was added for this case
+(current-feature.md phrased it as "consider," not "build"); the gap is
+recorded in COMPLIANCE.md's Gap column for 5.01.2.1 instead, with the
+one-lesson case named explicitly rather than implied.
+
+Verified end to end against the real dev database in a browser
+(Playwright): authored a two-lesson course with a review and an assessment
+question per lesson, published it, answered a review question and saw the
+verdict and feedback render immediately, took the assessment and confirmed
+no correctness of any kind appeared between questions, and confirmed the
+Result page showed the certificate plus a per-question breakdown on a pass
+and an explicit no-breakdown message with a 0-of-2 score on a fail. Backend:
+261 tests pass, including the new `tests/test_review.py`,
+`tests/test_question_minimums.py`, `tests/test_question_kind_backfill.py`,
+and the extended `tests/test_attempts.py`,
+`tests/test_admin_content.py`/`tests/test_credit.py` publish-floor and
+credit-unchanged cases. Two pre-existing tests changed for the right
+reason, not the wrong one: the fifteen-question pass-mark boundary moved
+from 12 to 11 (`ceil(0.70 * 15)`, not the old hardcoded `ceil(0.80 * 15)`),
+and `_make_publishable_course`/`_publishable_course`'s fixture courses
+needed enough review/assessment questions to clear the new floors, which
+they didn't before. `npm run lint` and `npm run build` pass.
+
+Mid-video review cues, question banks with randomized selection, simulations
+as content-reinforcement tools, and exercises as a type distinct from
+questions all remain out of scope, as specified — each is left named at its
+relevant call site (`quiz.py`'s no-test-bank branch, `admin_content.py`'s
+duplicate check) so the feature that eventually builds it knows what to
+revisit.

@@ -1,5 +1,6 @@
 import io
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -147,6 +148,22 @@ def add_complete_questions(lesson_id, count=1):
                 json={"text": f"Choice {j}", "is_correct": j == 0},
             )
             assert choice.status_code == 201, choice.text
+
+
+def add_question(lesson_id, prompt, kind="assessment", choice_count=4):
+    question = client.post(f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": prompt})
+    assert question.status_code == 201, question.text
+    question_id = question.json()["id"]
+    if kind != "assessment":
+        update = client.patch(f"/api/v1/admin/questions/{question_id}", json={"kind": kind})
+        assert update.status_code == 200, update.text
+    for j in range(choice_count):
+        choice = client.post(
+            f"/api/v1/admin/questions/{question_id}/choices",
+            json={"text": f"Choice {j}", "is_correct": j == 0},
+        )
+        assert choice.status_code == 201, choice.text
+    return question_id
 
 
 def upload_video(slug, monkeypatch):
@@ -388,7 +405,7 @@ def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monke
 
     quiz = client.get(f"/api/v1/courses/{course['slug']}/quiz")
     assert quiz.status_code == 200
-    assert quiz.json()["question_count"] == 1
+    assert quiz.json()["question_count"] == 2
 
 
 def test_unpublish_removes_from_public_list(monkeypatch):
@@ -525,12 +542,19 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
         assert response.status_code == 200, response.text
         course = response.json()
     lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=1)
+    # Feature 023: 6.01.2 requires at least 2 qualified assessment questions
+    # even at the smallest (0.2 credit) tier - one question is no longer a
+    # publishable course. add_complete_questions defaults every question to
+    # kind='assessment' and 4 choices, clearing MIN_CHOICES_ASSESSMENT too.
+    add_complete_questions(lesson["id"], count=2)
     upload_video(lesson["slug"], monkeypatch)
     # Feature 022: enough runtime for credit >= 0.2, the minimum awardable
-    # increment (7.01). 1800s A/V + 1 question x 1.85 min = 31.85 min / 50
-    # -> 0.6 credit, with margin above the 0.2 boundary.
-    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1800})
+    # increment (7.01). 600s A/V + 2 questions x 1.85 min = 13.7 min / 50 =
+    # 0.274 -> floor(1.37)/5 -> 0.2 credit, with margin from both the 0.2 and
+    # 0.4 tier boundaries. At 0.2 credit, 5.01.2.1 requires 0 review
+    # questions and 6.01.2 requires 2 assessment questions - exactly what's
+    # seeded above.
+    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
     assert response.status_code == 200, response.text
     add_objective(course["id"])
     add_review_chain(course["id"], slug_suffix)
@@ -868,11 +892,11 @@ def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
     login_admin()
     course = create_course("taxes-enrolled-agent", description="A complete test course.")
     lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=1)
+    add_complete_questions(lesson["id"], count=2)
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
     client.patch(f"/api/v1/admin/courses/{course['id']}", json={"field_of_study": "Taxes"})
-    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1800})
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
 
     developer = create_sme("taxes-ea-dev")
     reviewer = create_sme("taxes-ea-rev", is_enrolled_agent=True)
@@ -997,3 +1021,103 @@ def test_deleting_an_sme_in_use_as_developer_or_reviewer_is_refused(monkeypatch)
 
     response = client.delete(f"/api/v1/admin/smes/{developer_id}")
     assert response.status_code == 409
+
+
+# --- feature 023: review/assessment question types and floors --------------
+
+
+def test_publish_refuses_at_0_4_credit_naming_both_review_and_assessment_shortfalls(monkeypatch):
+    login_admin()
+    course = create_course("floor-both-shortfalls")
+    lesson = course["lessons"][0]
+    # Two review questions with exactly two choices don't count toward the
+    # 0.4-credit review floor of 1 (5.01.2.1 - "true or false" style
+    # questions don't count); two assessment questions fall short of the
+    # 0.4-credit assessment floor of 3 (6.01.2).
+    add_question(lesson["id"], "Review one?", kind="review", choice_count=2)
+    add_question(lesson["id"], "Review two?", kind="review", choice_count=2)
+    add_question(lesson["id"], "Assessment one?", kind="assessment", choice_count=4)
+    add_question(lesson["id"], "Assessment two?", kind="assessment", choice_count=4)
+    upload_video(lesson["slug"], monkeypatch)
+    # (1000/60 + 4*1.85) / 50 = 0.481 -> floor(2.405)/5 -> 0.4 credit.
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1000})
+    add_objective(course["id"])
+    add_review_chain(course["id"], "floor-both-shortfalls")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+    award = Decimal(str(client.get(f"/api/v1/admin/courses/{course['id']}").json()["credit_award"]))
+    assert award == Decimal("0.4")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("review question(s)" in error and "it has 0" in error for error in errors)
+    assert any("qualified assessment question(s)" in error and "it has 2" in error for error in errors)
+
+
+def test_publish_with_a_two_choice_assessment_question_is_refused(monkeypatch):
+    login_admin()
+    course = create_course("two-choice-assessment")
+    lesson = course["lessons"][0]
+    add_question(lesson["id"], "Forced choice?", kind="assessment", choice_count=2)
+    upload_video(lesson["slug"], monkeypatch)
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "at least 3 choices" in error and "qualified assessment" in error for error in errors
+    )
+
+
+def test_two_choice_review_question_is_allowed_but_does_not_count_toward_the_floor(monkeypatch):
+    login_admin()
+    course = create_course("uncounted-review")
+    lesson = course["lessons"][0]
+    add_question(lesson["id"], "True or false review?", kind="review", choice_count=2)
+    add_question(lesson["id"], "Assessment one?", kind="assessment", choice_count=4)
+    add_question(lesson["id"], "Assessment two?", kind="assessment", choice_count=4)
+    add_question(lesson["id"], "Assessment three?", kind="assessment", choice_count=4)
+    upload_video(lesson["slug"], monkeypatch)
+    # Same arithmetic as the both-shortfalls test above: 0.4 credit, which
+    # requires 1 review question and 3 assessment questions.
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1000})
+    add_objective(course["id"])
+    add_review_chain(course["id"], "uncounted-review")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    # The two-choice review question is valid content (>= the global
+    # MIN_CHOICES_PER_QUESTION floor of 2) - it just isn't counted, so the
+    # only failure is the review floor itself, not a choice-count error and
+    # not the (already-satisfied) assessment floor.
+    assert any("review question(s)" in error and "it has 0" in error for error in errors)
+    assert not any("qualified assessment question(s)" in error for error in errors)
+    assert not any("needs at least" in error and "choices" in error for error in errors)
+
+
+def test_publish_refuses_exact_duplicate_prompt_between_review_and_assessment(monkeypatch):
+    login_admin()
+    course = create_course("duplicate-prompt")
+    lesson = course["lessons"][0]
+    add_question(lesson["id"], "  What is  Recognition?  ", kind="review", choice_count=4)
+    add_question(lesson["id"], "what is recognition?", kind="assessment", choice_count=4)
+    add_question(lesson["id"], "Second assessment question?", kind="assessment", choice_count=4)
+    add_question(lesson["id"], "Third assessment question?", kind="assessment", choice_count=4)
+    upload_video(lesson["slug"], monkeypatch)
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1000})
+    add_objective(course["id"])
+    add_review_chain(course["id"], "duplicate-prompt")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "exact same prompt" in error and "recall of information" in error and "exact matches only" in error
+        for error in errors
+    )

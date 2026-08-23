@@ -9,7 +9,7 @@ from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.course import Course
 from app.models.lesson import Lesson
-from app.models.question import Question
+from app.models.question import QUESTION_KIND_ASSESSMENT, Question
 
 
 @dataclass
@@ -31,9 +31,15 @@ def get_quiz_for_course(db: Session, slug: str) -> CourseQuiz | None:
 
     # course.lessons is ordered by Lesson.position and each lesson's questions
     # by Question.position, so this comprehension already yields lesson-then-
-    # question order without an extra sort.
+    # question order without an extra sort. Feature 023: the qualified
+    # assessment serves assessment questions only - review questions are
+    # served separately, at segment boundaries (app/services/review.py).
     questions = [
-        question for lesson in course.lessons if lesson.is_published for question in lesson.questions
+        question
+        for lesson in course.lessons
+        if lesson.is_published
+        for question in lesson.questions
+        if question.kind == QUESTION_KIND_ASSESSMENT
     ]
     if not questions:
         return None

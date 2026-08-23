@@ -157,8 +157,8 @@ export function createAdminQuestion(lessonId, prompt) {
   })
 }
 
-export function updateAdminQuestion(id, prompt) {
-  return apiFetch(`/api/v1/admin/questions/${id}`, { method: 'PATCH', body: JSON.stringify({ prompt }) })
+export function updateAdminQuestion(id, updates) {
+  return apiFetch(`/api/v1/admin/questions/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
 }
 
 export function deleteAdminQuestion(id) {

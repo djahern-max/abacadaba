@@ -1,238 +1,313 @@
 # Current Feature
 
-## Feature 022, Credit measurement
+## Feature 023, Review questions, assessment questions, and thresholds
 
 ## Goal
-A course knows how many CPE credits it is worth, how that number was arrived
-at, and whether the number is still true. The arithmetic is visible in the
-admin, disclosed to the participant before they enrol, and refuses to publish
-when it is stale.
+The application stops having one kind of question. Review questions reinforce
+learning during the program and give feedback; the qualified assessment gates
+credit and gives none until it is passed. Both floors derive from the course's
+computed credit rather than from a hardcoded five.
 
 ## In scope
-- The word count formula and its all-video variant, as stored inputs plus a
-  computed result
-- A per-segment flag deciding whether that segment's runtime counts as A/V time
-  or its words count as text
-- Rounding to a legal increment
-- Recomputation, staleness, and a publish rule
-- The arithmetic rendered in the admin editor, and the credit disclosed on the
-  public course page
+- A question type, with a backfill
+- Review questions served at segment boundaries, with feedback
+- The assessment serving assessment questions only
+- A per-course pass threshold column, floored at 70 percent
+- Credit-derived minimums for both kinds
+- Removing per-question feedback from the assessment itself
 
 ## Out of scope
-- Pilot testing (7.02.1 through 7.02.4). Method 1 is a separate path from the
-  word count formula and abacadaba is not using it. Do not build a half version.
-- Adaptive learning path averaging (7.02.6, second paragraph). No adaptive
-  program exists.
-- Splitting review from assessment questions. Feature 023. **This feature counts
-  every question on a course, which is correct under the formula and must stay
-  correct after 023 splits the type.** See the note in Backend task 4.
-- Certificate content. Feature 024 consumes the credit this feature produces.
-- Per-state non-technical credit caps. The technical/non-technical tag exists on
-  the field of study constant from 020; nothing reads it yet and nothing should
-  start here.
+- Mid-video review cues. Real, and the honest reading of "throughout the
+  program" — see "The placement gap this feature does not close". Not here; it
+  touches the player, the heartbeat cadence, and the anti-skip rules in
+  `app/services/watch.py` all at once and deserves its own feature.
+- Question banks and randomised selection from a bank. The feedback rules in
+  6.01.2 branch on whether a test bank exists, and this feature takes the
+  no-test-bank branch throughout. Note where that branch is taken so the bank
+  feature knows what to revisit.
+- Simulations or other content reinforcement tools. The Standards permit them in
+  lieu of review questions; nothing here should pretend to support them.
+- Exercises as a distinct type. They count in the credit formula the same way
+  questions do; a separate type buys nothing yet.
 
 ## Read this before starting
-The formula is in Section 7 Paragraph 7.02.6, with the all-video variant in
-7.02.7 and the rounding guidance in 7.01. Read all three in
-`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` before writing any
-code. Do not implement from the summary below; the summary exists to tell you
-which paragraphs matter, not to replace them.
+**Feature 022 must have shipped.** Both floors in this feature are per credit,
+and a floor enforced against a credit that does not exist is a floor enforced
+against zero. If 022 is not in, stop and say so rather than hardcoding a credit.
 
-The general formula:
+The governing paragraphs are 5.01.2.1 and 5.01.2.2 for review questions, and
+6.01.2 for the qualified assessment. Read them in
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`. Three rules in them are
+counterintuitive enough to state up front:
 
-```
-[(# of words / 180) + actual audio/video duration + (# of questions x 1.85)] / 50
-```
+- **Forced-choice responses are not permissible on the qualified assessment**,
+  and true/false items do not count toward the review question minimum either.
+- **Duplicate review and assessment questions are not allowed**, except in
+  courses where recall of information is the learning strategy.
+- **With no test bank, no feedback may be provided on a failed assessment.**
+  Feedback on a passed one is optional and at the sponsor's discretion. There is
+  no exception for feedback given question-by-question as the participant goes.
 
-The all-video variant, when the entire program is video and there is no text
-learning material, drops the word term entirely.
+That third rule is the one that costs real work, because the application
+currently breaks it. See Part 4.
 
-Three things about that formula are easy to get wrong and expensive to get wrong
-late:
+## Part 1, the type
 
-1. **The A/V duration must be the real one.** Not an estimate, not a target
-   length. `video/` already enforces this on its own side — `usingEstimates` in
-   each lesson module flags any block still running on a word-count estimate,
-   and `Root.tsx` warns. The app has no way to know whether the number in
-   `lessons.duration_seconds` came from a measured render or a silent preview,
-   so the only defence here is that the duration is auto-filled from the actual
-   uploaded file rather than typed. Confirm feature 017's auto-fill is what
-   populates it, and say so in the changelog.
+Add to `questions`:
+- `kind`: string, not null, CHECK in `('review', 'assessment')`, default
+  `'assessment'`.
+- `feedback`: text, nullable. Shown after a review question is answered.
 
-2. **The question count includes review questions above the minimum, exercises,
-   and qualified assessment questions.** All of them. A question you added
-   because it was good, not because a floor required it, still counts. This is
-   why the count must not become "assessment questions only" when 023 lands.
+Backfill in the migration: `kind = 'review'` where `position <= 3`, else
+`'assessment'`. That is the convention both seed scripts in `backend/scripts/`
+were written to, precisely so this migration would be a `WHERE` clause and not a
+judgment call. Read the header comment in `seed_asc606_construction_intro.sql`
+before writing it — it says so explicitly.
 
-3. **Narration of the text is not additional learning.** If a segment's audio is
-   somebody reading the on-screen text aloud, its runtime does not enter the
-   formula — the words do instead. That is a per-segment editorial judgment and
-   it needs somewhere to live.
-
-## Data model
-
-Add to `lessons`:
-- `av_is_additional_learning`: bool, not null, default true. When true, this
-  segment's `duration_seconds` enters the A/V term. When false, it does not, and
-  `word_count` enters the word term instead.
-- `word_count`: int, not null, default 0. The words of text learning material in
-  this segment. For a pure video segment this is 0 and stays 0.
+Confirm the convention actually holds in the database before relying on it. If
+any lesson has questions that do not follow it, the backfill is wrong for that
+lesson and you should say which, not quietly mis-type them.
 
 Add to `courses`:
-- `credit_award`: numeric(4,1), nullable. The rounded, awardable credit.
-- `credit_raw_minutes`: numeric(8,2), nullable. The numerator before dividing by
-  50, kept because it is the number a reviewer will want to see.
-- `credit_word_count`: int, nullable
-- `credit_av_seconds`: int, nullable
-- `credit_question_count`: int, nullable
-- `credit_formula_version`: string, nullable
-- `credit_computed_at`: timezone-aware timestamp, nullable
+- `pass_ratio`: numeric(3,2), not null, default 0.70, CHECK `>= 0.70 AND <= 1.00`.
 
-Store the inputs, not just the answer. On audit, "0.4 credits" is not a defence;
-"0.4 credits from 486 seconds of A/V, 0 words, and 8 questions, under the 2026
-7.02.6 formula, computed on this date" is. Six nullable columns is a cheap price
-for that.
+The floor is in the constraint, not only in validation. 6.01.2 sets 70 percent
+as a minimum for the qualified assessment; a sponsor may be stricter and may not
+be laxer, and a CHECK is the cheapest way to make the laxer case unrepresentable.
 
-**Do not add a `credit_is_stale` boolean.** Staleness is derived, exactly as
-019a derived collapsed-course mode and 021 derived review staleness:
+## Part 2, what the assessment serves
+
+`app/services/quiz.py` currently builds a course's quiz from every question of
+every published lesson. It now filters to `kind = 'assessment'`, still ordered by
+lesson position then question position, still shuffled per attempt from
+`shuffle_seed`. Nothing about feature 012's shuffle changes.
+
+`app/services/attempts.py::_pass_threshold` currently reads a module-level
+`PASS_RATIO` and applies it to `courses_service.published_question_count`, which
+counts everything. Both halves are now wrong:
+
+- the ratio comes from `course.pass_ratio`
+- the denominator is the count of **assessment questions only**
+
+Get one of those and not the other and you ship a course whose pass mark is
+computed partly off questions that legally cannot count toward it. Change them
+in the same commit and test the boundary.
+
+Delete the `PASS_RATIO` module constant outright. Leaving it as a default that
+nothing reads is how it comes back.
+
+**Do not point feature 022's credit calculation at the filtered count.** The
+formula counts review questions, exercises, and assessment questions alike. 022
+left a comment at that call site warning about exactly this. Read it, leave it
+there, and add a test asserting the credit for a course is unchanged by the type
+split.
+
+## Part 3, review questions and where they are served
+
+Review questions are served at the end of the segment they belong to, once that
+segment's watch gate is met, before the participant moves to the next one. The
+data model already implies this shape: questions belong to lessons, lessons are
+ordered within a course. That is an interval structure you got for free in 019
+and have not used.
+
+New `review_responses` table:
+- id, question_id (FK, ondelete CASCADE, indexed)
+- viewer_id (UUID, not null, indexed), user_id (FK users, nullable, indexed,
+  SET NULL) — the same identity pair `watch_progress` uses
+- choice_id (FK, ondelete CASCADE), is_correct (bool), answered_at
+
+**This table must not touch `attempts`.** Review questions carry no minimum
+passing rate and no bearing on credit; recording them against the credit-bearing
+attempt is how they end up in a score. Resolve identity the way feature 015
+resolved it for `watch_progress` — read that function rather than writing a
+second one, and carry its leak test forward: two users, one browser, no
+cross-contamination.
+
+Endpoints:
+- `GET /courses/{slug}/lessons/{lessonSlug}/review` — the segment's review
+  questions and their choices. `is_correct` appears nowhere in this payload; the
+  feature 015 leak test covers the whole public surface and must keep passing.
+- `POST /courses/{slug}/lessons/{lessonSlug}/review/{question_id}` — takes a
+  choice, returns correct or incorrect plus the question's `feedback`.
+
+Grade on submit. Do not ship the answer key with the question and grade in the
+browser; that is the feature 005 hole, and feature 006's replay test exists
+because it was already made once here.
+
+5.01.2.2 sets the feedback minimum at indicating correct or incorrect, with the
+goal of reinforcing understanding, highlighting knowledge gaps, and pointing at
+resources. The verdict is therefore mandatory and the `feedback` text is
+optional. Render the verdict always; render the text when present.
+
+Re-answering a review question is allowed and overwrites. There is no score to
+protect.
+
+## Part 4, the assessment stops giving feedback
+
+`AttemptAnswerResponse` currently returns `correct` and `correct_choice_id` on
+every answer during an attempt. Under 6.01.2, with no test bank, feedback on a
+failed assessment is not permitted — and the application cannot know whether an
+attempt will pass while it is still in progress, so per-question feedback during
+the assessment is feedback on a failed assessment roughly half the time.
+
+Change it:
+- during an attempt, an answer response carries the answered count and the
+  question count, and nothing about correctness
+- on completion, the result page shows the score and pass or fail
+- on a **pass**, per-question correctness may be shown, at the sponsor's
+  discretion. Show it; it is the more useful product and it is permitted.
+- on a **fail**, show the score and nothing else. No per-question breakdown, no
+  correct answers, no "you missed question 3".
+
+Check the Quiz page, the Result page, and any per-question review view for
+places that assume correctness is available mid-attempt. Feature 020a found the
+same class of bug in question numbering by taking the quiz in a browser rather
+than by reading a diff; do that here too.
+
+Leave a comment at the branch saying it is the no-test-bank arm of 6.01.2 and
+that a bank feature would revisit it.
+
+## Part 5, the floors
+
+5.01.2.1 and 6.01.2 each carry a chart keyed to one-fifth credit increments:
+
+| Credit | Review questions | Assessment questions |
+| --- | --- | --- |
+| 0.2 | 0 | 2 |
+| 0.4 | 1 | 3 |
+| 0.5 | 2 | 4 |
+| 0.6 | 2 | 4 |
+| 0.8 | 3 | 5 |
+| 1.0 | 3 | 5 |
+
+Transcribe both charts into `app/constants/question_minimums.py` from the PDF,
+not from this file. Above one full credit, the Standards require the per-credit
+minimum plus additional questions per the chart for each remaining one-fifth
+increment. Implement that as:
 
 ```
-stale = credit_computed_at is None or credit_computed_at < content_updated_at
+whole, remainder = divmod(credit, 1)
+required = whole * PER_CREDIT + CHART[remainder]
 ```
 
-`content_updated_at` already bumps on every participant-visible write through
-`touch_content_invited_at`'s single choke point in `app/services/admin_content.py`
-— read that function before assuming it covers the inputs this feature needs.
-Duration and word count are lesson fields; the video upload route writes
-directly and already calls the choke point. Verify rather than assume, and if
-`av_is_additional_learning` or `word_count` can be written on a path that does
-not bump, that is a bug in this feature, not an acceptable edge.
+**That decomposition is an interpretation.** It is a reasonable one and it
+matches the worked example in 6.01.2 for a 5½ credit course, but it is a reading
+of prose, not a quoted rule. Say so in a comment, verify it against that worked
+example as a test, and record it in COMPLIANCE.md's Gap column as an
+interpretation rather than a citation.
 
-## The formula version constant
-`CREDIT_FORMULA_VERSION = "2026-7.02.6"` in `app/constants/credit.py`, written
-into `credit_formula_version` on every computation. NASBA revises the Standards;
-a stored credit with no record of which formula produced it cannot be defended
-or recomputed. When the constant changes, every course's credit is stale by
-definition — make that fall out of a comparison in the staleness check rather
-than requiring a data migration.
+Two counting rules on top:
+- A question with exactly two choices does not count toward the review minimum
+  (true/false items do not count under 5.01.2.1).
+- An assessment question must have at least three choices. Forced-choice
+  responses are not permissible on the qualified assessment, and two choices is
+  the shape that makes them possible. `MIN_CHOICES_PER_QUESTION = 2` stays as the
+  global floor from feature 010; the assessment rule is stricter and sits beside
+  it.
 
-## Rounding
-Section 7.01 permits self study credit to be awarded initially in one-fifth or
-one-half increments, and — if one-fifth is awarded initially — in one-fifth
-increments thereafter. Round **down**, per 7.02.6's closing sentence.
+Publish validation gains: enough review questions, enough assessment questions,
+every assessment question has at least three choices, and no exact duplicate
+prompt between a review and an assessment question in the same course. Normalise
+whitespace and case for that comparison. Near-duplicates are the reviewer's job
+under 021 and this must not pretend otherwise — say so in the message.
 
-Implement one-fifth increments throughout: `floor(raw * 5) / 5`. That is the
-finest legal granularity, it is uniformly applicable, and it never rounds up.
+All of these join the existing flat list of failures; feature 017's checklist
+depends on getting every failure at once.
 
-A raw credit below 0.2 is not awardable. Return 0.0 and let publish validation
-produce the readable message; do not raise from the calculator.
+## The placement gap this feature does not close
+5.01.2.1 requires review questions to be placed throughout the program in
+sufficient intervals to let a participant evaluate what needs re-studying.
+Segment-boundary placement satisfies that for a multi-segment course. It cannot
+satisfy it for a **one-lesson course**, which has exactly one seam and that seam
+is the end — there is no "throughout" in a program with one segment.
 
-Put a comment on the rounding function stating plainly that state boards differ
-on acceptable increments and that superCPE will likely need a per-jurisdiction
-policy. Do not build that policy here.
+That collides directly with feature 019a's collapsed single-lesson editor, which
+was built to make a one-video course the easy path.
+
+Record it in COMPLIANCE.md's Gap column against 5.01.2.1, explicitly, with the
+mitigation: multi-segment courses are compliant, one-segment courses above the
+0.2-credit tier are not, and mid-video cues are the real fix. Do not write a Gap
+entry that implies placement is handled. This is exactly the kind of thing
+abacadaba exists to find before superCPE has an audit.
+
+Consider a publish warning — not a refusal — on a one-lesson course carrying more
+than 0.2 credits. A refusal here would block the platform's own demo content;
+a warning names the problem where the author can see it.
 
 ## Backend tasks
-1. The two lesson columns and seven course columns, then
-   `alembic revision --autogenerate -m "add credit measurement"`. Inspect it.
-   Autogenerate handles added columns well; check the numeric precision survived.
-   Verify `downgrade -1`.
-2. `app/constants/credit.py`: `CREDIT_FORMULA_VERSION`, `MINUTES_PER_CREDIT = 50`,
-   `WORDS_PER_MINUTE = 180`, `MINUTES_PER_QUESTION = 1.85`, `MIN_AWARDABLE = 0.2`.
-   Named constants, not inline numerals. Every one of these is a number NASBA
-   chose and can change.
-3. `app/services/credit.py`, pure and read-only:
-   - `compute(db, course_id) -> CreditBreakdown` — a dataclass carrying the
-     inputs, the raw minutes, the raw credit, the rounded award, and the formula
-     version. It reads; it does not write.
-   - `round_down(raw) -> Decimal` as above.
-   Use `Decimal`, not float, for anything that reaches a stored column. A credit
-   of 0.30000000000000004 in an audit export is not a rounding curiosity, it is
-   an error.
-4. The question count is every question belonging to every published lesson of
-   the course. `courses_service.published_question_count` already does this —
-   reuse it. **Leave a comment at that call site saying the formula counts review
-   and assessment questions alike, so that when feature 023 introduces the type
-   split and the assessment starts serving a filtered subset, nobody
-   "consistently" points this at the assessment-only count.** That is the single
-   most likely way this feature silently breaks later.
-5. A recompute path: `app/services/credit.py::store(db, course_id)` writing the
-   seven columns and stamping `credit_computed_at`. Call it from an explicit
-   admin action, not from every write. Recomputing inside every save means a
-   course's credit changes while an author is mid-edit, and the staleness rule
-   already tells them when to press the button.
-6. `validate_for_publish` gains three rules, returning alongside all the others
-   as one flat list (feature 017's checklist depends on that shape):
-   - credit has been computed and is not stale
-   - `credit_award >= 0.2`, with a message saying how many more minutes or
-     questions would reach the next increment. An author who is 40 seconds short
-     should be told that, not told "too short".
-   - every published lesson with `av_is_additional_learning = true` has a
-     non-null `duration_seconds`. You cannot count runtime you do not have.
-7. `GET /admin/courses/{id}/credit` returning the full breakdown, and
-   `POST /admin/courses/{id}/credit` to recompute and store. Behind the existing
-   router-level `require_admin`.
-8. `GET /courses/{slug}` gains `credit_award`. This is a pre-enrolment
-   disclosure — a participant decides whether to take a program partly on how
-   much credit it carries. If it is only in the admin API, this feature is not
-   done, which is the same rule feature 020 applied to objectives.
-9. Tests:
-   - the all-video case: 486 seconds A/V, 0 words, 8 questions gives 0.4
-   - the mixed case: a segment flagged narration-of-text contributes its words
-     and not its runtime
-   - rounding never rounds up: a raw 0.599 awards 0.4
-   - a raw below 0.2 awards 0.0 and publish is refused with a readable message
-   - editing a question bumps `content_updated_at` and the credit reads stale
-   - recomputing clears staleness
-   - publish is refused while stale
-   - publish is refused when a counted segment has no duration
-   - the public course payload carries the credit
+1. The columns, the new table, and the backfill migration. Hand-add both CHECK
+   constraints; autogenerate will not write them. Verify `downgrade -1`.
+2. `app/constants/question_minimums.py`, transcribed from the PDF.
+3. `app/services/quiz.py`: filter to assessment questions.
+4. `app/services/attempts.py`: the threshold from the course column against the
+   assessment count; correctness stripped from the in-attempt response; the
+   result payload branching on pass.
+5. `app/services/review.py`: serve, grade, record. Identity resolution reused
+   from feature 015, not rewritten.
+6. `app/routers/review.py`, plus the type and feedback fields on the admin
+   question payloads.
+7. `validate_for_publish`: the five new rules above.
+8. Tests:
+   - the backfill types the seeded courses as 3 review and 5 assessment per lesson
+   - the assessment serves assessment questions only
+   - the pass mark is the course's ratio applied to the assessment count, checked
+     at the boundary
+   - an in-progress answer response carries no correctness
+   - a failed result exposes no per-question correctness anywhere in the payload
+   - a passed result may
+   - a review answer returns a verdict and feedback and writes no attempt row
+   - user A's review responses are invisible to user B sharing a browser
+   - the floors refuse publish at 0.4 credits with 2 review and 2 assessment
+     questions, naming both shortfalls in one response
+   - a two-choice assessment question refuses publish
+   - a two-choice review question is allowed but does not count toward the floor
+   - the 5½ credit worked example from 6.01.2 requires 29 assessment questions
+   - the credit computed by feature 022 is unchanged by the type split
    - the leak test still passes
 
 ## Frontend tasks
-1. A Credit panel in `AdminCourseEditor` showing the arithmetic, not just the
-   answer: a per-segment row with runtime, the additional-learning flag, and word
-   count; then the question count; then the three terms, the sum, the division by
-   50, the raw credit, and the rounded award. A reviewer should be able to check
-   it by hand from what is on screen.
-2. A stale state on that panel with a Recompute button, worded like 021's "this
-   course has changed since it was reviewed" rather than as an error.
-3. `LessonVideoFields` gains the additional-learning checkbox and the word count
-   input, both joining the existing batched save. Label the checkbox with what it
-   decides, not with the standard's wording — something closer to "This segment's
-   audio teaches something the slides don't say" than "additional learning under
-   7.02.7". The helper text can cite the paragraph.
-4. `CourseDetail` shows the credit alongside program level and field of study, in
-   the disclosure block feature 020 placed above the player.
+1. `QuestionsEditor` gains a review/assessment control per question and a
+   feedback textarea shown only for review questions. Both join the batched save.
+   Group the list by type rather than interleaving — an author needs to see the
+   two sets as two sets.
+2. A review panel on `LessonSegment`, appearing once that segment's watch gate
+   closes. Reuse the gate state already on that page; do not fetch it twice.
+3. `Quiz` stops rendering per-answer correctness.
+4. `Result` branches on pass for the per-question breakdown, and on a fail says
+   plainly that the answers cannot be shown, rather than showing an empty area.
+5. A pass threshold input on the course details form, with helper text stating
+   the 70 percent floor and that it cannot be set lower.
 
 ## A thing to check rather than assume
-Feature 021's `REVIEW_CHAIN_FIELDS` exclusion set exists so review fields do not
-bump `content_updated_at`. The credit columns need the same treatment for the
-same reason: storing a computed credit must not itself make the credit stale.
-Add them to that exclusion set, and extend 021's `content_updated_at`-stability
-test to PATCH the credit fields too — the changelog for 021 records that this
-exact class of bug shipped once because the test only covered three of five
-fields.
+Feature 019 set `PASS_RATIO = 0.8` and its acceptance criteria included passing a
+fifteen-question course at 12 of 15. Those tests exist and will break. They
+should break — but check each one before changing it, because a test that breaks
+for the right reason and a test that breaks because the new threshold is wrong
+look identical from the failure line.
 
 ## Acceptance criteria
-- `alembic upgrade head` adds all nine columns; `downgrade -1` reverses
-- a course of one 486-second video and 8 questions computes and stores 0.4
-- the admin panel shows every term of the arithmetic, and the numbers add up by
-  hand
-- editing any question, objective, lesson duration, or word count makes the
-  credit read stale within the editor
-- recomputing does not itself make the credit stale
-- publish is refused while stale, and the checklist says so
-- publish is refused below 0.2 with a message naming what would close the gap
-- the public course page shows the credit to a signed-out visitor
-- pytest passes, including the leak test and 021's staleness tests
+- `alembic upgrade head` adds the columns and table and backfills the type;
+  `downgrade -1` reverses on a database with rows
+- a two-lesson course serves three review questions after segment one, three
+  after segment two, and a ten-question assessment at the end
+- a review answer returns correct or incorrect plus feedback, immediately
+- taking the assessment in a browser shows no correctness until the end
+- failing shows a score and no answers; passing shows the breakdown
+- the pass mark is 70 percent of the assessment questions, not 80 percent of all
+  questions
+- publishing a 0.4-credit course with too few of either kind is refused, and the
+  checklist names both
+- publishing an assessment question with two choices is refused
+- the course credit from feature 022 is the same before and after this feature
+- `npm run lint` passes
+- pytest passes, including the leak test and feature 015's cross-user test
 
 ## When done
-Append an entry to CHANGELOG.md, including the answer to the auto-fill question
-in "Read this before starting" point 1.
+Append an entry to CHANGELOG.md, including which questions the backfill typed as
+review and whether the position convention held in the real database.
 
-Then append to COMPLIANCE.md: rows for 7.01, 7.02.6, and 7.02.7. Quote the
-Requirement column from the PDF. Expect the Gap column on 7.02.7 to record that
-nothing in the application verifies the stored duration came from a measured
-render rather than an estimated one — that guard lives in `video/`, outside the
-app, and an author who types a number by hand can defeat it. Say that plainly
-rather than implying the constraint is enforced end to end.
+Then append to COMPLIANCE.md: rows for 5.01.2, 5.01.2.1, 5.01.2.2, and 6.01.2.
+Quote the Requirement column from the PDF. Three Gap entries are expected and
+none of them should be softened — the one-lesson placement gap, the
+above-one-credit chart decomposition as an interpretation, and the fact that the
+duplicate check catches exact matches only.

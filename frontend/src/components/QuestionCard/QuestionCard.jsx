@@ -1,22 +1,21 @@
-import { useEffect, useRef } from 'react'
-import { smallBurst } from '../../lib/confetti'
+import { useRef } from 'react'
 import styles from './QuestionCard.module.css'
 
 const LETTERS = ['A', 'B', 'C', 'D']
 
-function choiceState(choice, selectedChoiceId, result) {
-  if (result) {
-    if (choice.id === result.correctChoiceId) return 'correct'
-    if (choice.id === selectedChoiceId) return 'incorrect'
-    return 'default'
-  }
+// No correctness here, deliberately: under 6.01.2 (no test bank), the
+// application cannot know mid-attempt whether the participant will pass, so
+// per-question feedback during the assessment is feedback on a failed
+// assessment roughly half the time. See Result.jsx for the end-of-attempt
+// breakdown, shown only on a pass.
+function choiceState(choice, selectedChoiceId) {
   return choice.id === selectedChoiceId ? 'selected' : 'default'
 }
 
 function QuestionCard({
   question,
   selectedChoiceId,
-  result,
+  submitted,
   status,
   error,
   isLastQuestion,
@@ -27,18 +26,7 @@ function QuestionCard({
 }) {
   const cardRef = useRef(null)
 
-  useEffect(() => {
-    if (result && result.correct) {
-      smallBurst(cardRef.current)
-    }
-  }, [result])
-
-  const choicesLocked = status === 'submitting' || status === 'graded'
-
-  let announcement = ''
-  if (result) {
-    announcement = result.correct ? 'Correct!' : 'Incorrect. The correct answer is highlighted.'
-  }
+  const choicesLocked = status === 'submitting' || submitted
 
   return (
     <div className={styles.card} ref={cardRef}>
@@ -47,7 +35,7 @@ function QuestionCard({
       </p>
       <ul className={styles.choices}>
         {question.choices.map((choice, index) => {
-          const visualState = choiceState(choice, selectedChoiceId, result)
+          const visualState = choiceState(choice, selectedChoiceId)
           return (
             <li key={choice.id}>
               <button
@@ -66,7 +54,7 @@ function QuestionCard({
       </ul>
 
       <div aria-live="polite" className={styles.visuallyHidden}>
-        {announcement}
+        {submitted ? 'Answer submitted.' : ''}
       </div>
 
       {status === 'error' && (
@@ -78,7 +66,7 @@ function QuestionCard({
         </div>
       )}
 
-      {status !== 'error' && !result && (
+      {status !== 'error' && !submitted && (
         <button
           type="button"
           className={styles.submitButton}
@@ -89,7 +77,7 @@ function QuestionCard({
         </button>
       )}
 
-      {result && (
+      {submitted && (
         <button type="button" className={styles.nextButton} onClick={onNext}>
           {isLastQuestion ? 'Finish' : 'Next'}
         </button>

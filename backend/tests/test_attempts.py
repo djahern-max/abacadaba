@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -152,10 +153,10 @@ def test_answering_all_five_correctly_gives_score_five_and_passed_true():
     attempt_id = start_attempt()
     questions = get_questions()
 
-    for q in questions[:-1]:
+    for index, q in enumerate(questions[:-1], start=1):
         response = answer(attempt_id, q["question_id"], q["correct_choice_id"])
         assert response.status_code == 200
-        assert response.json()["correct"] is True
+        assert response.json()["answered_count"] == index
 
     last = questions[-1]
     final_response = answer(attempt_id, last["question_id"], last["correct_choice_id"])
@@ -166,6 +167,18 @@ def test_answering_all_five_correctly_gives_score_five_and_passed_true():
     body = result.json()
     assert body["score"] == 5
     assert body["passed"] is True
+
+
+# GUARD TEST: 6.01.2, no-test-bank arm - the application cannot know whether
+# an in-progress attempt will pass, so no per-question correctness may
+# appear in an answer response mid-attempt (Part 4 of current-feature.md).
+def test_in_progress_answer_response_carries_no_correctness():
+    attempt_id = start_attempt()
+    questions = get_questions()
+
+    response = answer(attempt_id, questions[0]["question_id"], questions[0]["correct_choice_id"])
+    assert response.status_code == 200
+    assert set(response.json().keys()) == {"answered_count", "question_count"}
 
 
 def test_answering_four_correctly_gives_score_four_and_passed_true():
@@ -289,7 +302,7 @@ def large_course():
     course = Course(
         slug=LARGE_COURSE_SLUG,
         title="Course With Fifteen Questions",
-        description="Used to test the 80% pass ratio beyond five questions.",
+        description="Used to test the default 70% pass ratio beyond five questions.",
         is_published=True,
     )
     db.add(course)
@@ -354,11 +367,30 @@ def _get_questions_for(slug):
     return result
 
 
-def test_passing_a_fifteen_question_course_requires_twelve_of_fifteen(large_course):
+def test_passing_a_fifteen_question_course_requires_eleven_of_fifteen(large_course):
+    # Feature 023: the pass mark is the course's pass_ratio (default 0.70)
+    # applied to the assessment question count, not a hardcoded 80% - here
+    # ceil(0.70 * 15) == 11, not the old ceil(0.80 * 15) == 12.
     ensure_signed_in()
     response = client.post(f"/api/v1/courses/{LARGE_COURSE_SLUG}/attempts")
     assert response.status_code == 201
     assert response.json()["question_count"] == 15
+    attempt_id = response.json()["attempt_id"]
+
+    questions = _get_questions_for(LARGE_COURSE_SLUG)
+    for q in questions[:10]:
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+    for q in questions[10:]:
+        answer(attempt_id, q["question_id"], q["wrong_choice_id"])
+
+    result = client.get(f"/api/v1/attempts/{attempt_id}/result").json()
+    assert result["score"] == 10
+    assert result["passed"] is False
+
+
+def test_passing_a_fifteen_question_course_at_eleven_succeeds(large_course):
+    ensure_signed_in()
+    response = client.post(f"/api/v1/courses/{LARGE_COURSE_SLUG}/attempts")
     attempt_id = response.json()["attempt_id"]
 
     questions = _get_questions_for(LARGE_COURSE_SLUG)
@@ -369,20 +401,107 @@ def test_passing_a_fifteen_question_course_requires_twelve_of_fifteen(large_cour
 
     result = client.get(f"/api/v1/attempts/{attempt_id}/result").json()
     assert result["score"] == 11
-    assert result["passed"] is False
+    assert result["passed"] is True
 
 
-def test_passing_a_fifteen_question_course_at_twelve_succeeds(large_course):
-    ensure_signed_in()
-    response = client.post(f"/api/v1/courses/{LARGE_COURSE_SLUG}/attempts")
-    attempt_id = response.json()["attempt_id"]
-
-    questions = _get_questions_for(LARGE_COURSE_SLUG)
-    for q in questions[:12]:
-        answer(attempt_id, q["question_id"], q["correct_choice_id"])
-    for q in questions[12:]:
+# GUARD TEST: 6.01.2, no-test-bank arm - "on a failed assessment, the CPE
+# program sponsor may not provide feedback to the test taker." A failed
+# result must carry a score and nothing that identifies which answers were
+# right or wrong, anywhere in the payload.
+def test_a_failed_result_exposes_no_per_question_correctness():
+    attempt_id = start_attempt()
+    questions = get_questions()
+    for q in questions:
         answer(attempt_id, q["question_id"], q["wrong_choice_id"])
 
+    response = client.get(f"/api/v1/attempts/{attempt_id}/result")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["passed"] is False
+    assert body["answers"] is None
+    assert "chosen_choice_id" not in response.text
+    assert "correct_choice_id" not in response.text
+
+
+def test_a_passed_result_may_include_the_per_question_breakdown():
+    attempt_id = start_attempt()
+    questions = get_questions()
+    for q in questions:
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+
+    response = client.get(f"/api/v1/attempts/{attempt_id}/result")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["passed"] is True
+    assert len(body["answers"]) == 5
+    for entry, q in zip(body["answers"], questions):
+        assert entry["is_correct"] is True
+        assert entry["chosen_choice_id"] == q["correct_choice_id"]
+        assert entry["correct_choice_id"] == q["correct_choice_id"]
+
+
+CUSTOM_RATIO_COURSE_SLUG = "test-course-attempts-custom-ratio"
+
+
+@pytest.fixture
+def custom_ratio_course():
+    db = SessionLocal()
+    course = Course(
+        slug=CUSTOM_RATIO_COURSE_SLUG,
+        title="Course With A Stricter Pass Ratio",
+        description="Used to prove the pass mark comes from course.pass_ratio, not a hardcoded default.",
+        is_published=True,
+        pass_ratio=Decimal("0.90"),
+    )
+    db.add(course)
+    db.flush()
+
+    lesson = Lesson(
+        course_id=course.id,
+        position=1,
+        slug=f"{CUSTOM_RATIO_COURSE_SLUG}-lesson",
+        title="Lesson",
+        description="d",
+        duration_seconds=300,
+        is_published=True,
+        required_watch_ratio=0,
+    )
+    db.add(lesson)
+    db.flush()
+    for position in range(1, 6):
+        question = Question(lesson_id=lesson.id, prompt=f"Q{position}?", position=position)
+        question.choices = [
+            Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
+            for index, letter in enumerate(["A", "B", "C", "D"], start=1)
+        ]
+        db.add(question)
+
+    db.commit()
+    db.close()
+
+    yield
+
+    db = SessionLocal()
+    course_ids = select(Course.id).where(Course.slug == CUSTOM_RATIO_COURSE_SLUG)
+    db.execute(delete(Attempt).where(Attempt.course_id.in_(course_ids)))
+    db.execute(delete(Course).where(Course.slug == CUSTOM_RATIO_COURSE_SLUG))
+    db.commit()
+    db.close()
+
+
+def test_pass_mark_uses_the_courses_pass_ratio_not_a_hardcoded_default(custom_ratio_course):
+    # ceil(0.90 * 5) == 5: with this course's stricter ratio, four of five
+    # correct - a pass under the default 0.70 ratio - must fail here.
+    ensure_signed_in()
+    response = client.post(f"/api/v1/courses/{CUSTOM_RATIO_COURSE_SLUG}/attempts")
+    assert response.status_code == 201
+    attempt_id = response.json()["attempt_id"]
+
+    questions = _get_questions_for(CUSTOM_RATIO_COURSE_SLUG)
+    for q in questions[:4]:
+        answer(attempt_id, q["question_id"], q["correct_choice_id"])
+    answer(attempt_id, questions[4]["question_id"], questions[4]["wrong_choice_id"])
+
     result = client.get(f"/api/v1/attempts/{attempt_id}/result").json()
-    assert result["score"] == 12
-    assert result["passed"] is True
+    assert result["score"] == 4
+    assert result["passed"] is False

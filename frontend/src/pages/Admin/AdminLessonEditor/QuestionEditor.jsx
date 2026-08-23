@@ -9,14 +9,19 @@ const QuestionEditor = forwardRef(function QuestionEditor(
   ref,
 ) {
   const [prompt, setPrompt] = useState(question.prompt)
+  const [kind, setKind] = useState(question.kind)
+  const [feedback, setFeedback] = useState(question.feedback ?? '')
   const [newChoiceText, setNewChoiceText] = useState('')
   const [dirtyChoiceCounts, setDirtyChoiceCounts] = useState(() => new Map())
   const choiceRefs = useRef(new Map())
   const promptRef = useRef(null)
 
   const promptDirty = prompt !== question.prompt
+  const kindDirty = kind !== question.kind
+  const feedbackDirty = feedback !== (question.feedback ?? '')
   const choicesDirtyTotal = [...dirtyChoiceCounts.values()].reduce((sum, count) => sum + count, 0)
-  const ownDirtyCount = (promptDirty ? 1 : 0) + choicesDirtyTotal
+  const ownDirtyCount =
+    (promptDirty ? 1 : 0) + (kindDirty ? 1 : 0) + (feedbackDirty ? 1 : 0) + choicesDirtyTotal
 
   useEffect(() => {
     onDirtyChange?.(question.id, ownDirtyCount)
@@ -37,7 +42,15 @@ const QuestionEditor = forwardRef(function QuestionEditor(
   useImperativeHandle(ref, () => ({
     save: async () => {
       const tasks = []
-      if (promptDirty) tasks.push(updateAdminQuestion(question.id, prompt))
+      if (promptDirty || kindDirty || feedbackDirty) {
+        tasks.push(
+          updateAdminQuestion(question.id, {
+            ...(promptDirty && { prompt }),
+            ...(kindDirty && { kind }),
+            ...(feedbackDirty && { feedback: feedback === '' ? null : feedback }),
+          }),
+        )
+      }
       for (const choiceId of dirtyChoiceCounts.keys()) {
         const choiceRef = choiceRefs.current.get(choiceId)
         if (choiceRef) tasks.push(choiceRef.save())
@@ -80,6 +93,38 @@ const QuestionEditor = forwardRef(function QuestionEditor(
           onChange={(event) => setPrompt(event.target.value)}
         />
       </div>
+
+      <div className={styles.metaRow}>
+        <label className={styles.kindLabel} htmlFor={`kind-${question.id}`}>
+          Type
+        </label>
+        <select
+          id={`kind-${question.id}`}
+          className={`${styles.kindSelect} ${kindDirty ? styles.fieldDirty : ''}`}
+          value={kind}
+          onChange={(event) => setKind(event.target.value)}
+        >
+          <option value="review">Review</option>
+          <option value="assessment">Assessment</option>
+        </select>
+      </div>
+
+      {kind === 'review' && (
+        <div className={styles.feedbackBlock}>
+          <label className={styles.feedbackLabel} htmlFor={`feedback-${question.id}`}>
+            Feedback shown after answering (optional)
+          </label>
+          <textarea
+            id={`feedback-${question.id}`}
+            className={`${styles.feedbackInput} ${feedbackDirty ? styles.fieldDirty : ''}`}
+            rows={2}
+            placeholder="Shown after the participant answers, in addition to correct/incorrect"
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+          />
+        </div>
+      )}
+
       <div className={styles.questionActions}>
         <Button variant="secondary" onClick={() => handleMove('up')} disabled={isFirst}>
           Move up

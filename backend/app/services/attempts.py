@@ -1,8 +1,8 @@
-import math
 import random
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -12,13 +12,11 @@ from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.course import Course
 from app.models.lesson import Lesson
-from app.models.question import Question
+from app.models.question import QUESTION_KIND_ASSESSMENT, Question
 from app.models.user import User
 from app.services import courses as courses_service
 from app.services import watch as watch_service
 
-# A five question course keeps today's behaviour exactly: ceil(0.8 * 5) == 4.
-PASS_RATIO = 0.8
 MAX_SHUFFLE_SEED = 2_147_483_647
 
 
@@ -83,10 +81,23 @@ class AttemptStartResult:
 
 @dataclass
 class AnswerResult:
-    correct: bool
-    correct_choice_id: int
+    # No correctness here, deliberately: under 6.01.2, with no test bank, the
+    # application cannot know whether an in-progress attempt will pass, so
+    # per-question feedback mid-attempt is feedback on a failed assessment
+    # roughly half the time. See Part 4 of current-feature.md.
     answered_count: int
     question_count: int
+
+
+@dataclass
+class AnsweredQuestionResult:
+    question_id: int
+    prompt: str
+    chosen_choice_id: int
+    chosen_choice_text: str
+    correct_choice_id: int
+    correct_choice_text: str
+    is_correct: bool
 
 
 @dataclass
@@ -99,6 +110,12 @@ class AttemptResultData:
     passed: bool
     completed_at: datetime
     certificate_code: str | None
+    # Per-question correctness. Populated only when passed - a failed
+    # assessment gets a score and nothing else (6.01.2, no-test-bank arm:
+    # "on a failed assessment, the CPE program sponsor may not provide
+    # feedback to the test taker"). None rather than [] so the API shape
+    # itself says "not available" instead of "available and empty".
+    answers: list[AnsweredQuestionResult] | None
 
 
 @dataclass
@@ -112,8 +129,8 @@ class UserAttemptData:
     certificate_code: str | None
 
 
-def _pass_threshold(question_count: int) -> int:
-    return math.ceil(PASS_RATIO * question_count)
+def _pass_threshold(question_count: int, pass_ratio: Decimal) -> int:
+    return int((pass_ratio * question_count).to_integral_value(rounding=ROUND_CEILING))
 
 
 def _completed_attempts_count(db: Session, course_id: int, user_id: int) -> int:
@@ -158,7 +175,7 @@ def start_attempt(db: Session, slug: str, user: User, viewer_id: uuid.UUID) -> A
     if course is None:
         return None
 
-    question_count = courses_service.published_question_count(db, course.id)
+    question_count = courses_service.published_question_count(db, course.id, kind=QUESTION_KIND_ASSESSMENT)
     if question_count == 0:
         return None
 
@@ -195,7 +212,11 @@ def record_answer(db: Session, public_id: uuid.UUID, question_id: int, choice_id
     stmt = (
         select(Question)
         .join(Lesson, Lesson.id == Question.lesson_id)
-        .where(Question.id == question_id, Lesson.course_id == attempt.course_id)
+        .where(
+            Question.id == question_id,
+            Lesson.course_id == attempt.course_id,
+            Question.kind == QUESTION_KIND_ASSESSMENT,
+        )
         .options(selectinload(Question.choices))
     )
     question = db.execute(stmt).scalar_one_or_none()
@@ -220,7 +241,7 @@ def record_answer(db: Session, public_id: uuid.UUID, question_id: int, choice_id
         db.rollback()
         raise DuplicateAnswerError(f"Question {question_id} was already answered in this attempt") from exc
 
-    question_count = courses_service.published_question_count(db, attempt.course_id)
+    question_count = courses_service.published_question_count(db, attempt.course_id, kind=QUESTION_KIND_ASSESSMENT)
     answered_count = db.execute(
         select(func.count()).select_from(AttemptAnswer).where(AttemptAnswer.attempt_id == attempt.id)
     ).scalar_one()
@@ -232,18 +253,40 @@ def record_answer(db: Session, public_id: uuid.UUID, question_id: int, choice_id
             .where(AttemptAnswer.attempt_id == attempt.id, AttemptAnswer.is_correct.is_(True))
         ).scalar_one()
         attempt.score = score
-        attempt.passed = score >= _pass_threshold(question_count)
+        attempt.passed = score >= _pass_threshold(question_count, attempt.course.pass_ratio)
         attempt.completed_at = datetime.now(timezone.utc)
 
     db.commit()
 
-    correct_choice_id = next(choice.id for choice in question.choices if choice.is_correct)
-    return AnswerResult(
-        correct=chosen.is_correct,
-        correct_choice_id=correct_choice_id,
-        answered_count=answered_count,
-        question_count=question_count,
+    return AnswerResult(answered_count=answered_count, question_count=question_count)
+
+
+def _answered_question_results(db: Session, attempt_id: int) -> list[AnsweredQuestionResult]:
+    stmt = (
+        select(AttemptAnswer, Question)
+        .join(Question, Question.id == AttemptAnswer.question_id)
+        .where(AttemptAnswer.attempt_id == attempt_id)
+        .options(selectinload(Question.choices))
+        .order_by(Question.position)
     )
+    rows = db.execute(stmt).all()
+
+    results = []
+    for answer, question in rows:
+        chosen = next(choice for choice in question.choices if choice.id == answer.choice_id)
+        correct = next(choice for choice in question.choices if choice.is_correct)
+        results.append(
+            AnsweredQuestionResult(
+                question_id=question.id,
+                prompt=question.prompt,
+                chosen_choice_id=chosen.id,
+                chosen_choice_text=chosen.text,
+                correct_choice_id=correct.id,
+                correct_choice_text=correct.text,
+                is_correct=answer.is_correct,
+            )
+        )
+    return results
 
 
 def get_result(db: Session, public_id: uuid.UUID) -> AttemptResultData:
@@ -256,15 +299,26 @@ def get_result(db: Session, public_id: uuid.UUID) -> AttemptResultData:
     if attempt.completed_at is None:
         raise AttemptNotCompleteError("This attempt is not complete yet")
 
+    # This is the no-test-bank arm of 6.01.2: feedback on a failed assessment
+    # is not permitted; a passed one may show the breakdown at the sponsor's
+    # discretion. A feature that adds a test bank would need to revisit this
+    # branch - 6.01.2's test-bank arm allows feedback either way, gated on
+    # bank size rather than on pass/fail. Computed only when needed - a
+    # failed attempt never even builds the per-question data.
+    answers = _answered_question_results(db, attempt.id) if attempt.passed else None
+
     return AttemptResultData(
         attempt_id=attempt.public_id,
         course_slug=attempt.course.slug,
         course_title=attempt.course.title,
         score=attempt.score,
-        question_count=courses_service.published_question_count(db, attempt.course_id),
+        question_count=courses_service.published_question_count(
+            db, attempt.course_id, kind=QUESTION_KIND_ASSESSMENT
+        ),
         passed=attempt.passed,
         completed_at=attempt.completed_at,
         certificate_code=attempt.certificate_code,
+        answers=answers,
     )
 
 

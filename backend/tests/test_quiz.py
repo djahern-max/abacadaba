@@ -14,8 +14,9 @@ client = TestClient(app)
 WITH_QUIZ_SLUG = "test-course-with-quiz"
 WITHOUT_QUIZ_SLUG = "test-course-without-quiz"
 MULTI_LESSON_SLUG = "test-course-multi-lesson-quiz"
+MIXED_KIND_SLUG = "test-course-mixed-kind-quiz"
 
-ALL_TEST_SLUGS = [WITH_QUIZ_SLUG, WITHOUT_QUIZ_SLUG, MULTI_LESSON_SLUG]
+ALL_TEST_SLUGS = [WITH_QUIZ_SLUG, WITHOUT_QUIZ_SLUG, MULTI_LESSON_SLUG, MIXED_KIND_SLUG]
 
 
 def _add_lesson_with_questions(db, course_id, slug, position, question_count=5):
@@ -76,6 +77,28 @@ def seed_test_courses():
     _add_lesson_with_questions(db, multi.id, f"{MULTI_LESSON_SLUG}-a", position=1, question_count=2)
     _add_lesson_with_questions(db, multi.id, f"{MULTI_LESSON_SLUG}-b", position=2, question_count=3)
 
+    mixed = Course(slug=MIXED_KIND_SLUG, title="Course With Review And Assessment", description="d", is_published=True)
+    db.add(mixed)
+    db.flush()
+    mixed_lesson = Lesson(
+        course_id=mixed.id,
+        position=1,
+        slug=f"{MIXED_KIND_SLUG}-lesson",
+        title="Lesson with review and assessment questions",
+        description="Used to test that the quiz serves assessment questions only.",
+        duration_seconds=300,
+        is_published=True,
+    )
+    db.add(mixed_lesson)
+    db.flush()
+    for position, kind in enumerate(["review", "review", "assessment", "assessment", "assessment"], start=1):
+        question = Question(lesson_id=mixed_lesson.id, prompt=f"{kind} question {position}?", kind=kind, position=position)
+        question.choices = [
+            Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
+            for index, letter in enumerate(["A", "B", "C", "D"], start=1)
+        ]
+        db.add(question)
+
     db.commit()
     db.close()
 
@@ -128,6 +151,17 @@ def test_quiz_spanning_lessons_is_ordered_lesson_then_question_position():
     # Lesson a (position 1) contributes its two questions before lesson b
     # (position 2) contributes its three, in each lesson's question order.
     assert prompts == ["Question 1?", "Question 2?", "Question 1?", "Question 2?", "Question 3?"]
+
+
+# Feature 023: the qualified assessment serves assessment questions only -
+# review questions are served separately, at segment boundaries.
+def test_quiz_serves_assessment_questions_only():
+    response = client.get(f"/api/v1/courses/{MIXED_KIND_SLUG}/quiz")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["question_count"] == 3
+    prompts = [q["prompt"] for q in body["questions"]]
+    assert prompts == ["assessment question 3?", "assessment question 4?", "assessment question 5?"]
 
 
 def test_course_with_no_questions_returns_404():

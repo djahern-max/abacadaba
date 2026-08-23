@@ -80,12 +80,23 @@ def upload_video(slug, monkeypatch):
     assert response.status_code == 200, response.text
 
 
-def add_questions(lesson_id, count):
+def add_questions(lesson_id, count, kind="assessment"):
+    # Prompt includes kind so two calls (e.g. review then assessment) never
+    # produce an exact-duplicate prompt across kinds - feature 023's publish
+    # check refuses that (6.01.2).
     for i in range(count):
-        question = client.post(f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": f"Question {i}"})
+        question = client.post(
+            f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": f"{kind} question {i}"}
+        )
         assert question.status_code == 201, question.text
         question_id = question.json()["id"]
-        for j in range(2):
+        if kind != "assessment":
+            update = client.patch(f"/api/v1/admin/questions/{question_id}", json={"kind": kind})
+            assert update.status_code == 200, update.text
+        # 4 choices, not 2: feature 023's MIN_CHOICES_ASSESSMENT (>= 3) and
+        # the "a two-choice question doesn't count toward the review
+        # minimum" rule both key off choice count.
+        for j in range(4):
             choice = client.post(
                 f"/api/v1/admin/questions/{question_id}/choices",
                 json={"text": f"Choice {j}", "is_correct": j == 0},
@@ -122,15 +133,20 @@ def add_review_chain(course_id, slug_suffix):
 
 
 def _publishable_course(monkeypatch, slug_suffix):
-    """One 1800s A/V lesson, one question, objective, and review chain -
-    computes to 0.6 credit: (1800/60 + 1*1.85) / 50 = 0.637 -> floor(3.185)/5."""
+    """One 1500s A/V lesson, six questions, objective, and review chain -
+    computes to 0.6 credit: (1500/60 + 6*1.85) / 50 = 0.722 -> floor(3.61)/5.
+    Feature 023: at 0.6 credit, 5.01.2.1 requires 2 review questions and
+    6.01.2 requires 4 assessment questions - the six questions below are
+    typed 2 review / 4 assessment (add_questions' default kind) to match
+    exactly, each with 4 choices so MIN_CHOICES_ASSESSMENT (>= 3) clears too."""
     login_admin()
     course = create_course(slug_suffix, description="A complete test course.")
     lesson = course["lessons"][0]
     upload_video(lesson["slug"], monkeypatch)
-    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1800})
+    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1500})
     assert response.status_code == 200, response.text
-    add_questions(lesson["id"], 1)
+    add_questions(lesson["id"], 2, kind="review")
+    add_questions(lesson["id"], 4, kind="assessment")
     add_objective(course["id"])
     add_review_chain(course["id"], slug_suffix)
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
@@ -170,6 +186,26 @@ def test_all_video_course_computes_expected_credit(monkeypatch):
     body = response.json()
     assert body["word_count"] == 0
     assert body["av_seconds"] == 486
+    assert body["question_count"] == 8
+    assert Decimal(str(body["award"])) == Decimal("0.4")
+
+
+def test_credit_is_unchanged_by_the_review_assessment_type_split(monkeypatch):
+    # Same shape as test_all_video_course_computes_expected_credit (486s,
+    # 8 questions, 0.4 credit) but split 3 review / 5 assessment - feature
+    # 023 must not narrow credit's count to assessment-only questions.
+    login_admin()
+    course = create_course("type-split")
+    lesson = course["lessons"][0]
+    upload_video(lesson["slug"], monkeypatch)
+    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 486})
+    assert response.status_code == 200, response.text
+    add_questions(lesson["id"], 3, kind="review")
+    add_questions(lesson["id"], 5, kind="assessment")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert response.status_code == 200, response.text
+    body = response.json()
     assert body["question_count"] == 8
     assert Decimal(str(body["award"])) == Decimal("0.4")
 

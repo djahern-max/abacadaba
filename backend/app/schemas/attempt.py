@@ -18,10 +18,24 @@ class AttemptAnswerRequest(BaseModel):
 
 
 class AttemptAnswerResponse(BaseModel):
-    correct: bool
-    correct_choice_id: int
+    # No correctness here, deliberately - see app/services/attempts.py's
+    # AnswerResult. The application cannot know mid-attempt whether the
+    # participant will pass, and 6.01.2 (no test bank) forbids feedback on a
+    # failed assessment.
     answered_count: int
     question_count: int
+
+
+class AnsweredQuestion(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    question_id: int
+    prompt: str
+    chosen_choice_id: int
+    chosen_choice_text: str
+    correct_choice_id: int
+    correct_choice_text: str
+    is_correct: bool
 
 
 class AttemptResult(BaseModel):
@@ -35,6 +49,8 @@ class AttemptResult(BaseModel):
     passed: bool
     completed_at: datetime
     certificate_code: str | None = None
+    # Populated only when passed - see AttemptResultData.answers.
+    answers: list[AnsweredQuestion] | None = None
 
 
 class UserAttempt(BaseModel):

@@ -40,6 +40,51 @@
   flex-wrap: wrap;
 }
 
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.kindLabel {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.kindSelect {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.feedbackBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.feedbackLabel {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.feedbackInput {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}
+
 .choicesBlock {
   margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);

@@ -66,6 +66,29 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
     }
   }
 
+  // Grouped by type rather than interleaved - an author needs to see the
+  // two sets (review questions reinforce learning; assessment questions
+  // gate credit) as two sets, not mixed by authored position.
+  const reviewQuestions = lesson.questions.filter((question) => question.kind === 'review')
+  const assessmentQuestions = lesson.questions.filter((question) => question.kind === 'assessment')
+
+  function renderGroup(questions) {
+    return questions.map((question, index) => (
+      <QuestionEditor
+        key={question.id}
+        ref={(el) => {
+          if (el) questionRefs.current.set(question.id, el)
+          else questionRefs.current.delete(question.id)
+        }}
+        question={question}
+        isFirst={index === 0}
+        isLast={index === questions.length - 1}
+        onDirtyChange={handleQuestionDirtyChange}
+        onChange={onChange}
+      />
+    ))
+  }
+
   return (
     <section className={styles.section}>
       <h2 className={styles.heading}>Questions ({lesson.questions.length})</h2>
@@ -85,20 +108,22 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
       </form>
       {error && <p className={styles.fieldError}>{error}</p>}
 
-      {lesson.questions.map((question, index) => (
-        <QuestionEditor
-          key={question.id}
-          ref={(el) => {
-            if (el) questionRefs.current.set(question.id, el)
-            else questionRefs.current.delete(question.id)
-          }}
-          question={question}
-          isFirst={index === 0}
-          isLast={index === lesson.questions.length - 1}
-          onDirtyChange={handleQuestionDirtyChange}
-          onChange={onChange}
-        />
-      ))}
+      <div className={styles.group}>
+        <h3 className={styles.groupHeading}>Review questions ({reviewQuestions.length})</h3>
+        <p className={styles.groupHint}>
+          Reinforce learning during the program, at the end of this segment. No minimum passing rate.
+        </p>
+        {renderGroup(reviewQuestions)}
+      </div>
+
+      <div className={styles.group}>
+        <h3 className={styles.groupHeading}>Assessment questions ({assessmentQuestions.length})</h3>
+        <p className={styles.groupHint}>
+          Served on the qualified assessment at the end of the course. Gate credit; no feedback until the
+          course is complete.
+        </p>
+        {renderGroup(assessmentQuestions)}
+      </div>
     </section>
   )
 })

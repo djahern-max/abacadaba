@@ -5,6 +5,7 @@ from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.review_response import ReviewResponse
 from app.models.session import Session
 from app.models.source import Source
 from app.models.subject_matter_expert import SubjectMatterExpert
@@ -19,6 +20,7 @@ __all__ = [
     "Choice",
     "Attempt",
     "AttemptAnswer",
+    "ReviewResponse",
     "User",
     "Session",
     "Source",

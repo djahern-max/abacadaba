@@ -9,8 +9,7 @@ import styles from './Quiz.module.css'
 
 const INITIAL_ANSWER_STATE = {
   selectedChoiceId: null,
-  status: 'idle', // idle | submitting | graded | error
-  result: null,
+  status: 'idle', // idle | submitting | submitted | error
   error: null,
 }
 
@@ -107,12 +106,8 @@ function Quiz() {
   function submitCurrentAnswer() {
     setAnswerState((prev) => ({ ...prev, status: 'submitting', error: null }))
     submitAttemptAnswer(attemptId, question.id, answerState.selectedChoiceId)
-      .then((response) => {
-        setAnswerState((prev) => ({
-          ...prev,
-          status: 'graded',
-          result: { correct: response.correct, correctChoiceId: response.correct_choice_id },
-        }))
+      .then(() => {
+        setAnswerState((prev) => ({ ...prev, status: 'submitted' }))
       })
       .catch(() => {
         setAnswerState((prev) => ({
@@ -142,7 +137,7 @@ function Quiz() {
       <QuestionCard
         question={question}
         selectedChoiceId={answerState.selectedChoiceId}
-        result={answerState.result}
+        submitted={answerState.status === 'submitted'}
         status={answerState.status}
         error={answerState.error}
         isLastQuestion={isLastQuestion}

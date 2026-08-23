@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.models.course import Course
 from app.models.lesson import Lesson
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
+from app.services.identity import identity_filter
 
 # A real heartbeat cadence is ~10s, comfortably clearing both thresholds below.
 MIN_POST_INTERVAL_SECONDS = 5
@@ -58,16 +59,9 @@ def _progress_data(watched_seconds: int, lesson: Lesson) -> WatchProgressData:
 
 
 def _identity_filter(viewer_id: uuid.UUID, user_id: int | None):
-    # Resolution is by identity, not union: a signed-in user's row is found by
-    # user_id alone, an anonymous viewer's row by viewer_id alone, and only
-    # among rows nobody has claimed. The two halves never both apply to the
-    # same row, which is what keeps one browser from leaking progress between
-    # the people who have signed in on it. This is the single place that
-    # reads watch_progress identity, matching the partial unique indexes in
-    # migration 6f58cd9b86ef.
-    if user_id is not None:
-        return WatchProgress.user_id == user_id
-    return and_(WatchProgress.viewer_id == viewer_id, WatchProgress.user_id.is_(None))
+    # See app/services/identity.py for the resolution rule this applies.
+    # Matches the partial unique indexes in migration 6f58cd9b86ef.
+    return identity_filter(WatchProgress.user_id, WatchProgress.viewer_id, viewer_id, user_id)
 
 
 def _best_watched_seconds(db: Session, lesson_id: int, viewer_id: uuid.UUID, user_id: int | None) -> int:

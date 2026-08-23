@@ -9,12 +9,17 @@ from sqlalchemy.orm import Session, selectinload
 from app.constants.credit import MIN_AWARDABLE, MINUTES_PER_CREDIT
 from app.constants.fields_of_study import CPA_REQUIRED, TAX_CREDENTIAL_REQUIRED, credential_tag_for
 from app.constants.program_levels import LEVELS_REQUIRING_PREREQUISITES, PROGRAM_LEVELS
+from app.constants.question_minimums import (
+    MIN_CHOICES_ASSESSMENT,
+    required_assessment_questions,
+    required_review_questions,
+)
 from app.models.attempt import Attempt
 from app.models.choice import Choice
 from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
-from app.models.question import Question
+from app.models.question import QUESTION_KIND_ASSESSMENT, QUESTION_KIND_REVIEW, Question
 from app.models.source import Source
 from app.models.subject_matter_expert import SubjectMatterExpert
 
@@ -395,11 +400,67 @@ def validate_for_publish(course: Course) -> list[str]:
                     f"Lesson '{lesson.title}' question {question.position} needs at least "
                     f"{MIN_CHOICES_PER_QUESTION} choices"
                 )
+            if question.kind == QUESTION_KIND_ASSESSMENT and len(question.choices) < MIN_CHOICES_ASSESSMENT:
+                errors.append(
+                    f"Lesson '{lesson.title}' question {question.position} is on the qualified assessment "
+                    f"and needs at least {MIN_CHOICES_ASSESSMENT} choices - forced-choice responses are not "
+                    "permissible on the qualified assessment (6.01.2)"
+                )
             correct_count = sum(1 for choice in question.choices if choice.is_correct)
             if correct_count != 1:
                 errors.append(
                     f"Lesson '{lesson.title}' question {question.position} must have exactly one correct choice"
                 )
+
+    # 5.01.2.1 and 6.01.2's floors are per credit - enforcing them against a
+    # credit that hasn't been computed yet would be enforcing them against
+    # zero, so they only run once feature 022's credit exists.
+    if course.credit_award is not None:
+        all_questions = [question for lesson in course.lessons for question in lesson.questions]
+        review_questions = [q for q in all_questions if q.kind == QUESTION_KIND_REVIEW]
+        assessment_questions = [q for q in all_questions if q.kind == QUESTION_KIND_ASSESSMENT]
+        # "True or false" (two-choice) questions do not count toward the
+        # review minimum (5.01.2.1) - they can still be published as review
+        # content, just not counted here.
+        counted_review_questions = [q for q in review_questions if len(q.choices) != 2]
+
+        required_review = required_review_questions(course.credit_award)
+        if len(counted_review_questions) < required_review:
+            errors.append(
+                f"This course needs at least {required_review} review question(s) counting toward the "
+                f"5.01.2.1 minimum for {course.credit_award} credit (two-choice questions don't count); "
+                f"it has {len(counted_review_questions)}"
+            )
+
+        required_assessment = required_assessment_questions(course.credit_award)
+        if len(assessment_questions) < required_assessment:
+            errors.append(
+                f"This course needs at least {required_assessment} qualified assessment question(s) for "
+                f"{course.credit_award} credit under 6.01.2; it has {len(assessment_questions)}"
+            )
+
+        # 6.01.2: "duplicate review and qualified assessment questions are
+        # not allowed" (except where recall is the learning strategy - not
+        # modeled here, so this is conservative). Exact match only, after
+        # normalising whitespace and case; a near-duplicate is the
+        # reviewer's judgment call under 021, not something this can catch.
+        def _normalize(prompt: str) -> str:
+            return " ".join(prompt.split()).strip().lower()
+
+        review_by_prompt = {}
+        for question in review_questions:
+            review_by_prompt.setdefault(_normalize(question.prompt), question)
+        for question in assessment_questions:
+            duplicate = review_by_prompt.get(_normalize(question.prompt))
+            if duplicate is not None:
+                errors.append(
+                    "A review question and a qualified assessment question have the exact same prompt "
+                    f"(\"{duplicate.prompt.strip()}\"). Duplicate review and assessment questions are not "
+                    "allowed except in courses where recall of information is the learning strategy "
+                    "(6.01.2). This check catches exact matches only - a near-duplicate prompt is a "
+                    "reviewer judgment call under 021."
+                )
+
     return errors
 
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getAttemptResult } from '../../api/attempts'
 import { certificatePdfUrl, claimCertificate } from '../../api/certificates'
+import AnswerBreakdown from '../../components/AnswerBreakdown/AnswerBreakdown'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { bigBurst } from '../../lib/confetti'
 import styles from './Result.module.css'
@@ -172,6 +173,7 @@ function Result() {
           You scored {scoreText} on {result.course_title}.
         </p>
         <Certificate attemptId={result.attempt_id} certificateCode={result.certificate_code} />
+        {result.answers && <AnswerBreakdown answers={result.answers} />}
         <Link to={`/courses/${result.course_slug}`}>Back to course</Link>
       </div>
     )
@@ -184,6 +186,9 @@ function Result() {
       </h1>
       <p className={styles.score}>
         You scored {scoreText} on {result.course_title}. You&apos;re close, give it another go.
+      </p>
+      <p className={styles.message}>
+        Individual answers aren&apos;t shown for an assessment that wasn&apos;t passed.
       </p>
       <div className={styles.actions}>
         <Link to={`/courses/${result.course_slug}`}>Watch again</Link>

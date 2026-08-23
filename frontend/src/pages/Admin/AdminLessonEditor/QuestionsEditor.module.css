@@ -55,3 +55,22 @@
   color: var(--color-danger);
   font-size: 14px;
 }
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.groupHeading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.groupHint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}

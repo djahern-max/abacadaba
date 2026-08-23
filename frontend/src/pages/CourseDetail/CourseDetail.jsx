@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getCourse, getCourseWatchStatus } from '../../api/courses'
 import LessonCard from '../../components/LessonCard/LessonCard'
+import ReviewPanel from '../../components/ReviewPanel/ReviewPanel'
 import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
 import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './CourseDetail.module.css'
@@ -126,11 +127,16 @@ function CourseDetail() {
       )}
 
       {singleLesson ? (
-        <VideoPlayer
-          courseSlug={course.slug}
-          lessonSlug={singleLesson.slug}
-          onProgressChange={setSingleLessonProgress}
-        />
+        <>
+          <VideoPlayer
+            courseSlug={course.slug}
+            lessonSlug={singleLesson.slug}
+            onProgressChange={setSingleLessonProgress}
+          />
+          {singleLessonProgress?.unlocked && (
+            <ReviewPanel courseSlug={course.slug} lessonSlug={singleLesson.slug} />
+          )}
+        </>
       ) : (
         <ol className={styles.lessonList}>
           {course.lessons.map((lesson) => (

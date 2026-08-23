@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.models.attempt import Attempt
+from app.models.question import QUESTION_KIND_ASSESSMENT
 from app.services import courses as courses_service
 
 # Feature 008 is done: an attempt with a signed in user gets its certificate
@@ -73,7 +74,9 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         course_slug=attempt.course.slug,
         course_title=attempt.course.title,
         score=attempt.score,
-        question_count=courses_service.published_question_count(db, attempt.course_id),
+        question_count=courses_service.published_question_count(
+            db, attempt.course_id, kind=QUESTION_KIND_ASSESSMENT
+        ),
         completed_at=attempt.completed_at,
         is_account_holder=attempt.user_id is not None,
     )

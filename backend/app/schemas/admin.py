@@ -104,6 +104,10 @@ class AdminQuestionIn(BaseModel):
 
 class AdminQuestionUpdate(BaseModel):
     prompt: str | None = None
+    kind: Literal["review", "assessment"] | None = None
+    # Shown after a review question is answered (5.01.2.2); unused for an
+    # assessment question - see Part 4 of current-feature.md.
+    feedback: str | None = None
 
 
 class AdminQuestion(BaseModel):
@@ -111,6 +115,8 @@ class AdminQuestion(BaseModel):
 
     id: int
     prompt: str
+    kind: str
+    feedback: str | None
     position: int
     choices: list[AdminChoice]
 
@@ -181,6 +187,9 @@ class AdminCourseUpdate(BaseModel):
     reviewed_at: datetime | None = None
     review_notes: str | None = None
     review_cycle: str | None = None
+    # 6.01.2: 70 percent is a floor a sponsor may raise but not lower - also
+    # enforced by the ck_courses_pass_ratio_floor CHECK constraint.
+    pass_ratio: Decimal | None = Field(default=None, ge=Decimal("0.70"), le=Decimal("1.00"))
     # Written only by app/services/credit.py::store(); exposed here so that
     # write path (admin_content.update_course) is the one every other
     # course field already goes through, rather than a second writer.
@@ -227,6 +236,7 @@ class AdminCourse(BaseModel):
     reviewed_at: datetime | None
     review_notes: str | None
     review_cycle: str
+    pass_ratio: Decimal
     content_updated_at: datetime
     sources: list[AdminSource]
     credit_award: Decimal | None
