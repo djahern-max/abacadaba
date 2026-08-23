@@ -4,13 +4,16 @@ import Button from '../../../components/Button/Button'
 import ChoiceRow from './ChoiceRow'
 import styles from './QuestionEditor.module.css'
 
+const NO_OBJECTIVE = ''
+
 const QuestionEditor = forwardRef(function QuestionEditor(
-  { question, isFirst, isLast, onDirtyChange, onChange },
+  { question, isFirst, isLast, objectives, onDirtyChange, onChange },
   ref,
 ) {
   const [prompt, setPrompt] = useState(question.prompt)
   const [kind, setKind] = useState(question.kind)
   const [feedback, setFeedback] = useState(question.feedback ?? '')
+  const [objectiveId, setObjectiveId] = useState(question.objective_id ?? NO_OBJECTIVE)
   const [newChoiceText, setNewChoiceText] = useState('')
   const [dirtyChoiceCounts, setDirtyChoiceCounts] = useState(() => new Map())
   const choiceRefs = useRef(new Map())
@@ -19,9 +22,14 @@ const QuestionEditor = forwardRef(function QuestionEditor(
   const promptDirty = prompt !== question.prompt
   const kindDirty = kind !== question.kind
   const feedbackDirty = feedback !== (question.feedback ?? '')
+  const objectiveDirty = objectiveId !== (question.objective_id ?? NO_OBJECTIVE)
   const choicesDirtyTotal = [...dirtyChoiceCounts.values()].reduce((sum, count) => sum + count, 0)
   const ownDirtyCount =
-    (promptDirty ? 1 : 0) + (kindDirty ? 1 : 0) + (feedbackDirty ? 1 : 0) + choicesDirtyTotal
+    (promptDirty ? 1 : 0) +
+    (kindDirty ? 1 : 0) +
+    (feedbackDirty ? 1 : 0) +
+    (objectiveDirty ? 1 : 0) +
+    choicesDirtyTotal
 
   useEffect(() => {
     onDirtyChange?.(question.id, ownDirtyCount)
@@ -42,12 +50,13 @@ const QuestionEditor = forwardRef(function QuestionEditor(
   useImperativeHandle(ref, () => ({
     save: async () => {
       const tasks = []
-      if (promptDirty || kindDirty || feedbackDirty) {
+      if (promptDirty || kindDirty || feedbackDirty || objectiveDirty) {
         tasks.push(
           updateAdminQuestion(question.id, {
             ...(promptDirty && { prompt }),
             ...(kindDirty && { kind }),
             ...(feedbackDirty && { feedback: feedback === '' ? null : feedback }),
+            ...(objectiveDirty && { objective_id: objectiveId === NO_OBJECTIVE ? null : objectiveId }),
           }),
         )
       }
@@ -122,6 +131,29 @@ const QuestionEditor = forwardRef(function QuestionEditor(
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
           />
+        </div>
+      )}
+
+      {kind === 'assessment' && (
+        <div className={styles.metaRow}>
+          <label className={styles.kindLabel} htmlFor={`objective-${question.id}`}>
+            Learning objective
+          </label>
+          <select
+            id={`objective-${question.id}`}
+            className={`${styles.kindSelect} ${objectiveDirty ? styles.fieldDirty : ''}`}
+            value={objectiveId}
+            onChange={(event) =>
+              setObjectiveId(event.target.value === NO_OBJECTIVE ? NO_OBJECTIVE : Number(event.target.value))
+            }
+          >
+            <option value={NO_OBJECTIVE}>Not tagged</option>
+            {(objectives ?? []).map((objective) => (
+              <option key={objective.id} value={objective.id}>
+                {objective.text}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 

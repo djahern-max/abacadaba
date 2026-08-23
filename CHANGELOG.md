@@ -1200,3 +1200,107 @@ questions all remain out of scope, as specified — each is left named at its
 relevant call site (`quiz.py`'s no-test-bank branch, `admin_content.py`'s
 duplicate check) so the feature that eventually builds it knows what to
 revisit.
+
+## 2026-08-23, Feature 023a, Question feedback, objective coverage, and assessment integrity
+This file was written without seeing 023's shipped code, so the first step
+was reconciling the two against `current-feature_23.md` (023's own spec,
+not present in the repo — reconciled against 023's changelog entry and
+code instead). Most of what this file assumed was still open had already
+shipped: `questions.feedback` (nullable, shown after a review question),
+`questions.kind`/`courses.pass_ratio` (023 named them `kind`/`pass_ratio`,
+not `question_type`/`pass_threshold` as this file guessed — left untouched
+beyond reading, per scope), the per-one-fifth charts in
+`question_minimums.py` (already the chart form, not a flat floor — task 2
+deleted from this file rather than rebuilt), the same-course duplicate
+review/assessment-prompt check, and the true/false rules (023 got both
+right: two-choice review questions are allowed but don't count toward the
+floor; forced choice is banned outright only on the assessment — neither
+needed fixing).
+
+What was actually missing: `objective_id`. Added to `questions`
+(`app/models/question.py`, migration `f86fae9d0a77`), nullable, indexed,
+FK `ondelete SET NULL` — hand-named
+(`fk_questions_objective_id`) and hand-set, not autogenerate's default;
+`downgrade -1` verified on a database with rows. Deleting a learning
+objective now untags its questions instead of deleting them.
+`app/services/objective_coverage.py` computes the 75% figure (6.01.2) —
+covered objective ids intersected against the course's own, pure and
+read-only alongside `credit.py`'s shape. `validate_for_publish`
+(`app/services/admin_content.py`) gained two rules: the coverage
+percentage, naming uncovered objectives by their own text rather than a
+number, and non-blank feedback on every review question (5.01.2.2) —
+023 had shipped the *column* but never required it be filled in.
+`QuestionEditor.jsx` gained a "Learning objective" select, populated from
+the course's own objectives, shown for assessment questions only (the
+feedback textarea already existed for review questions); the lesson-page
+editor didn't have the course's objectives available for this, so it now
+fetches them the same way it already scopes `checkAdminCoursePublish` off
+`lesson.course_id`. `ObjectivesPanel.jsx` shows a live per-objective count
+of assessment questions testing it, with a "not yet covered" flag at
+zero — 021's stale-review lesson (surface the problem where the author is
+already looking) applied to coverage.
+
+The visible product change: 023's `AttemptResultData.answers` already
+withheld all per-question data on a failed assessment and included
+correctness on a passed one, but never carried the *feedback text* either
+way — `AnsweredQuestionResult`/`AnsweredQuestion` now carry `feedback`,
+populated only when the attempt passed (`app/services/attempts.py::get_result`,
+unchanged branch, new field), and `AnswerBreakdown.jsx` renders it. A
+passed assessment's breakdown can now say something beyond "correct" or
+"incorrect" — 6.01.2 sub-ii b's actual permission, not the more
+conservative no-feedback-ever 023 had implemented pending this file. A
+second, smaller regression this feature fixes: 023's confetti-stripping
+pass over `QuestionCard.jsx`/`Quiz.jsx` (correctly, for the assessment)
+left `ReviewPanel.jsx` (`components/ReviewPanel/`, the participant-facing
+one) with no confetti at all, though nothing required removing it there —
+5.01.2.1 has no passing rate to protect and 5.01.2.2 asks for
+reinforcement, not restraint. `smallBurst` (`lib/confetti.js`, unused
+since 023) is now wired back in on a correct review answer, the same
+`useEffect`-on-result pattern feature 005 originally shipped.
+
+The leak surface needed no code change — `QuestionPublic`
+(`app/schemas/quiz.py`) already omits `feedback` entirely rather than
+filtering it at serialization, 004's precedent — but the guard test
+(`test_quiz_response_never_leaks_correct_answer`, `tests/test_quiz.py`)
+was meaningless against a fixture with no feedback text to leak; its
+questions now carry feedback and the test asserts the word doesn't appear
+in the payload at all.
+
+Tests: extended the shared "complete course" fixtures
+(`_make_publishable_course`/`add_complete_questions`,
+`tests/test_admin_content.py`; `_publishable_course`/`add_questions`,
+`tests/test_credit.py`) to tag their assessment questions and write review
+feedback, since every course they build now needs both to clear the new
+publish rules — the same kind of fixture update 023 itself needed when it
+added the count floors. New: the hazardous waste fixture
+(`_build_hazardous_waste_course`) — 5 lessons, 5 objectives, 4/3/3/3/2
+questions (5 review, 10 assessment, objectives 1,1,1/2,2/3,3/4,4/5),
+parametrized to publish at both 1.0 and 1.2 credit (27 and 33 minutes of
+video against the fixed 27.75-minute question term), proving the charts'
+above-one-credit addition rule rather than just their base case; a
+0.4-credit course publishing at exactly its 1-review/3-assessment floor;
+a 1.2-credit course refused for 6 of the required 7 assessment questions;
+dropping the coverage from 100% to 80% (still publishes) and then to 60%
+(refused, naming both uncovered objectives by text); a blank-feedback
+review question refused; deleting an objective leaving a 33%-covered
+course still failing after its tagged question is untagged, not silently
+passing; and editing feedback or retagging an objective each bumping
+`content_updated_at`. `tests/test_attempts.py`'s fixture now writes
+feedback per question and asserts it on a pass, absent (with the rest of
+the payload) on a fail. 270 backend tests pass; `npm run lint` and
+`npm run build` pass.
+
+Verified end to end against the real dev database in a browser
+(Playwright): as admin, confirmed the objective select appears only on
+assessment questions and the coverage readout updates live, including the
+"not yet covered" state; as a participant, answered a review question
+correctly and saw the verdict, feedback text, and a small confetti burst;
+failed a qualified assessment and saw only the score with no breakdown;
+passed a retake and saw the full per-question breakdown with feedback
+text plus the big confetti burst.
+
+Test banks, simulations/other content-reinforcement tools, and the
+recall-as-learning-strategy exception to the duplicate-prompt rule remain
+out of scope, as specified — the feedback-gating branch in
+`attempts.py::get_result` carries a comment naming the test-bank arm it
+would need to revisit.

@@ -52,7 +52,13 @@ const CollapsedLessonEditor = forwardRef(function CollapsedLessonEditor(
           onDirtyChange={setFieldsDirty}
         />
       </section>
-      <QuestionsEditor ref={questionsRef} lesson={lesson} onDirtyChange={setQuestionsDirty} onChange={onChange} />
+      <QuestionsEditor
+        ref={questionsRef}
+        lesson={lesson}
+        objectives={course.learning_objectives}
+        onDirtyChange={setQuestionsDirty}
+        onChange={onChange}
+      />
       <AddSecondSegmentControl course={course} />
     </>
   )

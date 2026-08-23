@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom'
-import { checkAdminCoursePublish, deleteAdminLesson, getAdminLesson, uploadAdminThumbnail } from '../../../api/admin'
+import {
+  checkAdminCoursePublish,
+  deleteAdminLesson,
+  getAdminCourse,
+  getAdminLesson,
+  uploadAdminThumbnail,
+} from '../../../api/admin'
 import { getLessonThumbnailUrl } from '../../../api/courses'
 import ThumbnailUploader from '../../../components/ThumbnailUploader/ThumbnailUploader'
 import StickySaveBar from '../../../components/StickySaveBar/StickySaveBar'
@@ -24,6 +30,7 @@ function AdminLessonEditor() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [outstanding, setOutstanding] = useState(null)
+  const [objectives, setObjectives] = useState([])
 
   const detailsRef = useRef(null)
   const questionsRef = useRef(null)
@@ -35,6 +42,13 @@ function AdminLessonEditor() {
     return getAdminLesson(id)
       .then((lesson) => {
         setState({ status: 'loaded', lesson })
+        // A question editor on a lesson page needs the course's objectives
+        // for the objective-tagging select, which the lesson payload alone
+        // doesn't carry - fetched the same way checkAdminCoursePublish
+        // already scopes a second request off lesson.course_id.
+        getAdminCourse(lesson.course_id)
+          .then((course) => setObjectives(course.learning_objectives))
+          .catch(() => setObjectives([]))
         return checkAdminCoursePublish(lesson.course_id)
           .then((result) =>
             setOutstanding(
@@ -172,7 +186,13 @@ function AdminLessonEditor() {
         onUploadingChange={setUploading}
         onChange={refresh}
       />
-      <QuestionsEditor ref={questionsRef} lesson={lesson} onDirtyChange={setQuestionsDirty} onChange={refresh} />
+      <QuestionsEditor
+        ref={questionsRef}
+        lesson={lesson}
+        objectives={objectives}
+        onDirtyChange={setQuestionsDirty}
+        onChange={refresh}
+      />
 
       <section className={styles.nextStep}>
         <h2 className={styles.heading}>Next</h2>

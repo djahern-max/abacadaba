@@ -80,7 +80,7 @@ def upload_video(slug, monkeypatch):
     assert response.status_code == 200, response.text
 
 
-def add_questions(lesson_id, count, kind="assessment"):
+def add_questions(lesson_id, count, kind="assessment", objective_id=None):
     # Prompt includes kind so two calls (e.g. review then assessment) never
     # produce an exact-duplicate prompt across kinds - feature 023's publish
     # check refuses that (6.01.2).
@@ -90,8 +90,18 @@ def add_questions(lesson_id, count, kind="assessment"):
         )
         assert question.status_code == 201, question.text
         question_id = question.json()["id"]
+        updates = {}
         if kind != "assessment":
-            update = client.patch(f"/api/v1/admin/questions/{question_id}", json={"kind": kind})
+            updates["kind"] = kind
+        # Feature 023a: 5.01.2.2 requires feedback on every review question.
+        if kind == "review":
+            updates["feedback"] = f"Feedback for {kind} question {i}."
+        # Feature 023a: 6.01.2's 75% objective-coverage rule reads
+        # assessment questions only.
+        if kind == "assessment" and objective_id is not None:
+            updates["objective_id"] = objective_id
+        if updates:
+            update = client.patch(f"/api/v1/admin/questions/{question_id}", json=updates)
             assert update.status_code == 200, update.text
         # 4 choices, not 2: feature 023's MIN_CHOICES_ASSESSMENT (>= 3) and
         # the "a two-choice question doesn't count toward the review
@@ -107,6 +117,7 @@ def add_questions(lesson_id, count, kind="assessment"):
 def add_objective(course_id):
     response = client.post(f"/api/v1/admin/courses/{course_id}/objectives", json={"text": "Explain the objective."})
     assert response.status_code == 201, response.text
+    return response.json()
 
 
 def add_review_chain(course_id, slug_suffix):
@@ -138,16 +149,19 @@ def _publishable_course(monkeypatch, slug_suffix):
     Feature 023: at 0.6 credit, 5.01.2.1 requires 2 review questions and
     6.01.2 requires 4 assessment questions - the six questions below are
     typed 2 review / 4 assessment (add_questions' default kind) to match
-    exactly, each with 4 choices so MIN_CHOICES_ASSESSMENT (>= 3) clears too."""
+    exactly, each with 4 choices so MIN_CHOICES_ASSESSMENT (>= 3) clears too.
+    Feature 023a: every review question gets feedback (5.01.2.2) and every
+    assessment question is tagged to the course's one objective, so the 75%
+    coverage rule (6.01.2) clears too."""
     login_admin()
     course = create_course(slug_suffix, description="A complete test course.")
     lesson = course["lessons"][0]
     upload_video(lesson["slug"], monkeypatch)
     response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1500})
     assert response.status_code == 200, response.text
+    objective = add_objective(course["id"])
     add_questions(lesson["id"], 2, kind="review")
-    add_questions(lesson["id"], 4, kind="assessment")
-    add_objective(course["id"])
+    add_questions(lesson["id"], 4, kind="assessment", objective_id=objective["id"])
     add_review_chain(course["id"], slug_suffix)
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert response.status_code == 200, response.text

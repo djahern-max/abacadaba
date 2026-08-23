@@ -105,9 +105,13 @@ class AdminQuestionIn(BaseModel):
 class AdminQuestionUpdate(BaseModel):
     prompt: str | None = None
     kind: Literal["review", "assessment"] | None = None
-    # Shown after a review question is answered (5.01.2.2); unused for an
-    # assessment question - see Part 4 of current-feature.md.
+    # Shown after a review question is answered (5.01.2.2); on an assessment
+    # question, shown only on the result screen after a pass (6.01.2 sub-ii b).
     feedback: str | None = None
+    # The course-level learning objective this question tests. Only
+    # meaningful on an assessment question - 6.01.2's 75% coverage rule reads
+    # assessment questions only (app/services/objective_coverage.py).
+    objective_id: int | None = None
 
 
 class AdminQuestion(BaseModel):
@@ -117,6 +121,7 @@ class AdminQuestion(BaseModel):
     prompt: str
     kind: str
     feedback: str | None
+    objective_id: int | None
     position: int
     choices: list[AdminChoice]
 

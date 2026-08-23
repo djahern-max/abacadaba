@@ -55,23 +55,42 @@ const ObjectivesPanel = forwardRef(function ObjectivesPanel({ course, onDirtyCha
     }
   }
 
+  // How many assessment questions test each objective - 6.01.2's 75%
+  // coverage rule made checkable per-objective, right where an author is
+  // already looking, rather than only surfaced later in the publish
+  // checklist (021's stale-review lesson applied again).
+  const assessmentQuestions = course.lessons.flatMap((lesson) =>
+    lesson.questions.filter((question) => question.kind === 'assessment'),
+  )
+  const coverageCounts = new Map()
+  for (const question of assessmentQuestions) {
+    if (question.objective_id == null) continue
+    coverageCounts.set(question.objective_id, (coverageCounts.get(question.objective_id) ?? 0) + 1)
+  }
+
   return (
     <section className={styles.section}>
       <h2 className={styles.heading}>Learning objectives ({course.learning_objectives.length})</h2>
 
       {course.learning_objectives.map((objective, index) => (
-        <ObjectiveRow
-          key={objective.id}
-          ref={(el) => {
-            if (el) objectiveRefs.current.set(objective.id, el)
-            else objectiveRefs.current.delete(objective.id)
-          }}
-          objective={objective}
-          isFirst={index === 0}
-          isLast={index === course.learning_objectives.length - 1}
-          onDirtyChange={handleObjectiveDirtyChange}
-          onChange={onChange}
-        />
+        <div key={objective.id}>
+          <ObjectiveRow
+            ref={(el) => {
+              if (el) objectiveRefs.current.set(objective.id, el)
+              else objectiveRefs.current.delete(objective.id)
+            }}
+            objective={objective}
+            isFirst={index === 0}
+            isLast={index === course.learning_objectives.length - 1}
+            onDirtyChange={handleObjectiveDirtyChange}
+            onChange={onChange}
+          />
+          <p className={(coverageCounts.get(objective.id) ?? 0) === 0 ? styles.fieldError : styles.groupHint}>
+            {coverageCounts.get(objective.id) ?? 0} assessment question
+            {coverageCounts.get(objective.id) === 1 ? '' : 's'} test this objective
+            {(coverageCounts.get(objective.id) ?? 0) === 0 ? ' - not yet covered' : ''}
+          </p>
+        </div>
       ))}
 
       <form className={styles.addForm} onSubmit={handleAdd}>

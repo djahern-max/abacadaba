@@ -21,6 +21,7 @@ function AnswerBreakdown({ answers }) {
             {!answer.is_correct && (
               <p className={styles.answerLine}>Correct answer: {answer.correct_choice_text}</p>
             )}
+            {answer.feedback && <p className={styles.answerLine}>{answer.feedback}</p>}
           </li>
         ))}
       </ol>

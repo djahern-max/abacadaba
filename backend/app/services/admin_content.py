@@ -22,6 +22,7 @@ from app.models.lesson import Lesson
 from app.models.question import QUESTION_KIND_ASSESSMENT, QUESTION_KIND_REVIEW, Question
 from app.models.source import Source
 from app.models.subject_matter_expert import SubjectMatterExpert
+from app.services import objective_coverage
 
 MIN_CHOICES_PER_QUESTION = 2
 
@@ -406,11 +407,32 @@ def validate_for_publish(course: Course) -> list[str]:
                     f"and needs at least {MIN_CHOICES_ASSESSMENT} choices - forced-choice responses are not "
                     "permissible on the qualified assessment (6.01.2)"
                 )
+            if question.kind == QUESTION_KIND_REVIEW and not (question.feedback and question.feedback.strip()):
+                errors.append(
+                    f"Lesson '{lesson.title}' question {question.position} is a review question and needs "
+                    "feedback shown after answering (5.01.2.2)"
+                )
             correct_count = sum(1 for choice in question.choices if choice.is_correct)
             if correct_count != 1:
                 errors.append(
                     f"Lesson '{lesson.title}' question {question.position} must have exactly one correct choice"
                 )
+
+    # 6.01.2: "the assessment ... must measure 75 percent or more of the
+    # learning objectives for the program." Independent of credit - runs
+    # whenever the course has objectives at all (the earlier rule above
+    # already requires at least one). Names the uncovered objectives by
+    # their own text rather than reporting a percentage, so an author who is
+    # one objective short is told which one.
+    if course.learning_objectives:
+        coverage = objective_coverage.compute(course)
+        if coverage.ratio < objective_coverage.COVERAGE_THRESHOLD:
+            uncovered_text = "; ".join(f'"{o.text.strip()}"' for o in coverage.uncovered)
+            errors.append(
+                "The qualified assessment must measure at least 75% of this course's learning objectives "
+                f"(6.01.2); it measures {coverage.covered_count} of {coverage.total_objectives}. "
+                f"No assessment question is tagged to: {uncovered_text}"
+            )
 
     # 5.01.2.1 and 6.01.2's floors are per credit - enforcing them against a
     # credit that hasn't been computed yet would be enforcing them against

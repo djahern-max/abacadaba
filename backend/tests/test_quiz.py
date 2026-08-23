@@ -37,6 +37,10 @@ def _add_lesson_with_questions(db, course_id, slug, position, question_count=5):
             lesson_id=lesson.id,
             prompt=f"Question {q_position}?",
             position=q_position,
+            # Feature 023a: feedback is written on assessment questions too
+            # (shown on a pass) - the leak test below needs it present to be
+            # a meaningful guard against it leaking mid-attempt.
+            feedback=f"Feedback for question {q_position}.",
         )
         question.choices = [
             Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
@@ -124,6 +128,14 @@ def test_quiz_returns_five_questions_with_four_choices_each():
 # standing between "quiz answers stripped out" and "quiz answers leaked to
 # every browser that loads this page." If this starts failing, the bug is in
 # the API response, not the test.
+#
+# Feature 023a: feedback text routinely states the answer ("a pH of 1.4
+# falls below the corrosivity threshold of 2.0" identifies the correct
+# choice as surely as is_correct does), so it's checked here too - the
+# fixture's questions all carry feedback text specifically so this guard
+# means something. QuestionPublic (app/schemas/quiz.py) never defines a
+# feedback field at all, following 004's precedent: a schema that omits the
+# field, not one that filters it out at serialization time.
 def test_quiz_response_never_leaks_correct_answer():
     response = client.get(f"/api/v1/courses/{WITH_QUIZ_SLUG}/quiz")
     assert response.status_code == 200
@@ -131,6 +143,7 @@ def test_quiz_response_never_leaks_correct_answer():
     assert "is_correct" not in raw
     assert "true" not in raw
     assert "correct" not in raw.lower()
+    assert "feedback" not in raw.lower()
 
 
 def test_quiz_questions_and_choices_ordered_by_position():

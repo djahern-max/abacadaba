@@ -135,13 +135,18 @@ def add_objective(course_id, text="Explain the objective."):
     return response.json()
 
 
-def add_complete_questions(lesson_id, count=1):
+def add_complete_questions(lesson_id, count=1, objective_id=None):
     for i in range(count):
         question = client.post(
             f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": f"Question {i}"}
         )
         assert question.status_code == 201, question.text
         question_id = question.json()["id"]
+        if objective_id is not None:
+            update = client.patch(
+                f"/api/v1/admin/questions/{question_id}", json={"objective_id": objective_id}
+            )
+            assert update.status_code == 200, update.text
         for j in range(4):
             choice = client.post(
                 f"/api/v1/admin/questions/{question_id}/choices",
@@ -150,12 +155,19 @@ def add_complete_questions(lesson_id, count=1):
             assert choice.status_code == 201, choice.text
 
 
-def add_question(lesson_id, prompt, kind="assessment", choice_count=4):
+def add_question(lesson_id, prompt, kind="assessment", choice_count=4, objective_id=None, feedback=None):
     question = client.post(f"/api/v1/admin/lessons/{lesson_id}/questions", json={"prompt": prompt})
     assert question.status_code == 201, question.text
     question_id = question.json()["id"]
+    updates = {}
     if kind != "assessment":
-        update = client.patch(f"/api/v1/admin/questions/{question_id}", json={"kind": kind})
+        updates["kind"] = kind
+    if feedback is not None:
+        updates["feedback"] = feedback
+    if objective_id is not None:
+        updates["objective_id"] = objective_id
+    if updates:
+        update = client.patch(f"/api/v1/admin/questions/{question_id}", json=updates)
         assert update.status_code == 200, update.text
     for j in range(choice_count):
         choice = client.post(
@@ -542,11 +554,15 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
         assert response.status_code == 200, response.text
         course = response.json()
     lesson = course["lessons"][0]
+    # Feature 023a: 6.01.2 requires the assessment to measure 75% of the
+    # course's objectives - with exactly one objective, every assessment
+    # question must be tagged to it.
+    objective = add_objective(course["id"])
     # Feature 023: 6.01.2 requires at least 2 qualified assessment questions
     # even at the smallest (0.2 credit) tier - one question is no longer a
     # publishable course. add_complete_questions defaults every question to
     # kind='assessment' and 4 choices, clearing MIN_CHOICES_ASSESSMENT too.
-    add_complete_questions(lesson["id"], count=2)
+    add_complete_questions(lesson["id"], count=2, objective_id=objective["id"])
     upload_video(lesson["slug"], monkeypatch)
     # Feature 022: enough runtime for credit >= 0.2, the minimum awardable
     # increment (7.01). 600s A/V + 2 questions x 1.85 min = 13.7 min / 50 =
@@ -556,7 +572,6 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
     # seeded above.
     response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
     assert response.status_code == 200, response.text
-    add_objective(course["id"])
     add_review_chain(course["id"], slug_suffix)
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert response.status_code == 200, response.text
@@ -892,9 +907,9 @@ def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
     login_admin()
     course = create_course("taxes-enrolled-agent", description="A complete test course.")
     lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=2)
+    objective = add_objective(course["id"])
+    add_complete_questions(lesson["id"], count=2, objective_id=objective["id"])
     upload_video(lesson["slug"], monkeypatch)
-    add_objective(course["id"])
     client.patch(f"/api/v1/admin/courses/{course['id']}", json={"field_of_study": "Taxes"})
     client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
 
@@ -1121,3 +1136,242 @@ def test_publish_refuses_exact_duplicate_prompt_between_review_and_assessment(mo
         "exact same prompt" in error and "recall of information" in error and "exact matches only" in error
         for error in errors
     )
+
+
+# --- feature 023a: feedback, objective coverage, and assessment integrity --
+
+
+# The hazardous waste course: 5 lessons, 5 course-level objectives (one per
+# lesson), 4/3/3/3/2 questions per lesson (15 total - position 1 in every
+# lesson is the review question, the rest assessment - 5 review, 10
+# assessment). Assessment questions tag objectives 1,1,1 / 2,2 / 3,3 / 4,4 /
+# 5 - every objective covered, 100% against 6.01.2's 75% floor.
+HAZWASTE_QUESTIONS_PER_LESSON = [4, 3, 3, 3, 2]
+HAZWASTE_ASSESSMENT_OBJECTIVES = [1, 1, 1, 2, 2, 3, 3, 4, 4, 5]
+
+
+def _build_hazardous_waste_course(slug_suffix, monkeypatch, av_seconds_per_lesson):
+    login_admin()
+    course = create_course(slug_suffix, description="Hazardous waste handling and disposal.")
+    objectives = [add_objective(course["id"], f"Objective {n}") for n in range(1, 6)]
+
+    lessons = [course["lessons"][0]]
+    for i in range(2, 6):
+        lessons.append(create_lesson(course["id"], f"{slug_suffix}-{i}"))
+
+    remaining_objective_numbers = list(HAZWASTE_ASSESSMENT_OBJECTIVES)
+    for lesson, question_count in zip(lessons, HAZWASTE_QUESTIONS_PER_LESSON):
+        upload_video(lesson["slug"], monkeypatch)
+        response = client.patch(
+            f"/api/v1/admin/lessons/{lesson['id']}",
+            json={"duration_seconds": av_seconds_per_lesson, "av_is_additional_learning": True},
+        )
+        assert response.status_code == 200, response.text
+
+        add_question(
+            lesson["id"],
+            f"Review question for lesson {lesson['position']}?",
+            kind="review",
+            feedback="Review feedback text.",
+        )
+        for position_in_lesson in range(2, question_count + 1):
+            objective_number = remaining_objective_numbers.pop(0)
+            add_question(
+                lesson["id"],
+                f"Assessment question {position_in_lesson} for lesson {lesson['position']}?",
+                kind="assessment",
+                objective_id=objectives[objective_number - 1]["id"],
+                feedback="Assessment feedback text.",
+            )
+
+    add_review_chain(course["id"], slug_suffix)
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+    course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
+    return course, objectives
+
+
+# 27 minutes of video -> 1.0 credit; 33 minutes -> 1.2 credit (the script/
+# video pipeline's measured range for this fixture's five segments, against
+# a fixed 27.75-minute term from 15 questions x 1.85). One test, two
+# parameters, so the chart's above-one-credit addition rule is exercised,
+# not just its base case - current-feature.md's own worked example: 1.2
+# credit needs 5+2=7 assessment questions and 3+0=3 review questions, both
+# comfortably cleared by this fixture's 10 and 5.
+@pytest.mark.parametrize(
+    "seconds_per_lesson,expected_credit",
+    [(324, "1.0"), (396, "1.2")],
+)
+def test_hazardous_waste_fixture_publishes_at_both_credit_boundaries(monkeypatch, seconds_per_lesson, expected_credit):
+    course, _ = _build_hazardous_waste_course(
+        f"hazwaste-{expected_credit.replace('.', '-')}", monkeypatch, seconds_per_lesson
+    )
+    assert Decimal(str(course["credit_award"])) == Decimal(expected_credit)
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_publish_at_0_4_credit_with_exactly_the_floor_counts_succeeds(monkeypatch):
+    login_admin()
+    course = create_course("floor-exact-0-4", description="A complete test course.")
+    lesson = course["lessons"][0]
+    objective = add_objective(course["id"])
+    add_question(lesson["id"], "Review one?", kind="review", feedback="Feedback text.")
+    for i in range(3):
+        add_question(lesson["id"], f"Assessment {i}?", kind="assessment", objective_id=objective["id"])
+    upload_video(lesson["slug"], monkeypatch)
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1000})
+    add_review_chain(course["id"], "floor-exact-0-4")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+    award = Decimal(str(client.get(f"/api/v1/admin/courses/{course['id']}").json()["credit_award"]))
+    assert award == Decimal("0.4")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_publish_at_1_2_credit_with_six_assessment_questions_is_refused_naming_seven(monkeypatch):
+    login_admin()
+    course = create_course("floor-1-2-shortfall", description="A complete test course.")
+    lesson = course["lessons"][0]
+    objective = add_objective(course["id"])
+    for i in range(3):
+        add_question(lesson["id"], f"Review {i}?", kind="review", feedback="Feedback text.")
+    for i in range(6):
+        add_question(lesson["id"], f"Assessment {i}?", kind="assessment", objective_id=objective["id"])
+    upload_video(lesson["slug"], monkeypatch)
+    # (2646/60 + 9*1.85) / 50 = 1.215 -> floor(6.075)/5 -> 1.2 credit.
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 2646})
+    add_review_chain(course["id"], "floor-1-2-shortfall")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+    award = Decimal(str(client.get(f"/api/v1/admin/courses/{course['id']}").json()["credit_award"]))
+    assert award == Decimal("1.2")
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "qualified assessment question(s)" in error and "at least 7" in error and "it has 6" in error
+        for error in errors
+    )
+
+
+def test_dropping_the_objective_5_question_still_publishes_at_80_percent_coverage(monkeypatch):
+    course, objectives = _build_hazardous_waste_course("coverage-80", monkeypatch, 324)
+
+    lesson5 = course["lessons"][4]
+    detail = client.get(f"/api/v1/admin/lessons/{lesson5['id']}").json()
+    obj5_question = next(q for q in detail["questions"] if q["objective_id"] == objectives[4]["id"])
+    delete = client.delete(f"/api/v1/admin/questions/{obj5_question['id']}")
+    assert delete.status_code == 204
+
+    # Dropping a question is a content edit like any other - it stales both
+    # the review and the computed credit (021, 022), unrelated to this
+    # test's actual point (coverage). Clear both the same way an author
+    # would: recompute credit, then re-record the review.
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+    review = client.patch(
+        f"/api/v1/admin/courses/{course['id']}", json={"reviewed_at": datetime.now(timezone.utc).isoformat()}
+    )
+    assert review.status_code == 200, review.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_dropping_objective_4_and_5_questions_drops_coverage_to_60_percent_and_names_both(monkeypatch):
+    course, objectives = _build_hazardous_waste_course("coverage-60", monkeypatch, 324)
+
+    all_questions = []
+    for lesson in course["lessons"]:
+        all_questions.extend(client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()["questions"])
+    for objective in (objectives[3], objectives[4]):
+        for question in [q for q in all_questions if q["objective_id"] == objective["id"]]:
+            delete = client.delete(f"/api/v1/admin/questions/{question['id']}")
+            assert delete.status_code == 204
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "Objective 4" in error and "Objective 5" in error and "6.01.2" in error for error in errors
+    )
+
+
+def test_publish_with_a_review_question_missing_feedback_is_refused(monkeypatch):
+    login_admin()
+    course = create_course("review-no-feedback", description="A complete test course.")
+    lesson = course["lessons"][0]
+    objective = add_objective(course["id"])
+    add_question(lesson["id"], "Review with no feedback?", kind="review", choice_count=4)
+    for i in range(2):
+        add_question(lesson["id"], f"Assessment {i}?", kind="assessment", objective_id=objective["id"])
+    upload_video(lesson["slug"], monkeypatch)
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
+    add_review_chain(course["id"], "review-no-feedback")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("needs feedback" in error and "5.01.2.2" in error for error in errors)
+
+
+def test_deleting_an_objective_untags_its_questions_and_coverage_failure_persists(monkeypatch):
+    login_admin()
+    course = create_course("delete-objective-coverage", description="A complete test course.")
+    lesson = course["lessons"][0]
+    objective_a = add_objective(course["id"], "Objective A")
+    add_objective(course["id"], "Objective B")
+    add_objective(course["id"], "Objective C")
+    tagged_question_id = add_question(
+        lesson["id"], "Tagged to A?", kind="assessment", objective_id=objective_a["id"]
+    )
+    add_question(lesson["id"], "Untagged assessment?", kind="assessment")
+    upload_video(lesson["slug"], monkeypatch)
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
+    add_review_chain(course["id"], "delete-objective-coverage")
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+
+    # 1 of 3 objectives covered before deletion - already below 75%.
+    before = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert before.status_code == 422
+    assert any("6.01.2" in error for error in before.json()["detail"])
+
+    delete = client.delete(f"/api/v1/admin/objectives/{objective_a['id']}")
+    assert delete.status_code == 204
+
+    questions = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()["questions"]
+    tagged_question = next(q for q in questions if q["id"] == tagged_question_id)
+    assert tagged_question["objective_id"] is None
+
+    after = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert after.status_code == 422
+    errors = after.json()["detail"]
+    assert any("Objective B" in error and "Objective C" in error and "6.01.2" in error for error in errors)
+
+
+def test_editing_feedback_and_retagging_objective_each_bump_content_updated_at(monkeypatch):
+    login_admin()
+    course, lesson = _make_publishable_course("touch-feedback-objective", monkeypatch)
+    question_id = client.get(f"/api/v1/admin/lessons/{lesson['id']}").json()["questions"][0]["id"]
+    second_objective = add_objective(course["id"], "A second objective")
+
+    before = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    response = client.patch(f"/api/v1/admin/questions/{question_id}", json={"feedback": "New feedback."})
+    assert response.status_code == 200, response.text
+    after_feedback = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after_feedback > before
+
+    response = client.patch(
+        f"/api/v1/admin/questions/{question_id}", json={"objective_id": second_objective["id"]}
+    )
+    assert response.status_code == 200, response.text
+    after_retag = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after_retag > after_feedback

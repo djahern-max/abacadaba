@@ -36,6 +36,9 @@ class AnsweredQuestion(BaseModel):
     correct_choice_id: int
     correct_choice_text: str
     is_correct: bool
+    # Only ever present here because this whole list is only ever present on
+    # a passed attempt (6.01.2 sub-ii b) - see AttemptResult.answers.
+    feedback: str | None = None
 
 
 class AttemptResult(BaseModel):

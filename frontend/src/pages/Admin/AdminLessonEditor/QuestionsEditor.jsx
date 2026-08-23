@@ -4,7 +4,7 @@ import Button from '../../../components/Button/Button'
 import QuestionEditor from './QuestionEditor'
 import styles from './QuestionsEditor.module.css'
 
-const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyChange, onChange }, ref) {
+const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, objectives, onDirtyChange, onChange }, ref) {
   const [prompt, setPrompt] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
@@ -83,6 +83,7 @@ const QuestionsEditor = forwardRef(function QuestionsEditor({ lesson, onDirtyCha
         question={question}
         isFirst={index === 0}
         isLast={index === questions.length - 1}
+        objectives={objectives}
         onDirtyChange={handleQuestionDirtyChange}
         onChange={onChange}
       />

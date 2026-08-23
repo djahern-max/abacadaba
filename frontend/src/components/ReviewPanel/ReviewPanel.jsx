@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getReviewQuestions, submitReviewAnswer } from '../../api/review'
+import { smallBurst } from '../../lib/confetti'
 import styles from './ReviewPanel.module.css'
 
 const INITIAL_ANSWER_STATE = { selectedChoiceId: null, status: 'idle', result: null }
@@ -7,8 +8,20 @@ const INITIAL_ANSWER_STATE = { selectedChoiceId: null, status: 'idle', result: n
 // 5.01.2.2: the verdict (correct/incorrect) is mandatory, the feedback text
 // is optional - render the verdict always, the text when present. There is
 // no minimum passing rate here (5.01.2.1), so re-answering just overwrites.
+// Review questions keep the product's confetti personality (a correct
+// answer fires a small burst, feature 005's original behavior); the
+// qualified assessment does not - 6.01.2's no-test-bank arm forbids
+// per-question feedback there before a pass, and a burst is feedback (see
+// current-feature.md).
 function ReviewQuestion({ courseSlug, lessonSlug, question }) {
   const [state, setState] = useState(INITIAL_ANSWER_STATE)
+  const cardRef = useRef(null)
+
+  useEffect(() => {
+    if (state.result?.correct) {
+      smallBurst(cardRef.current)
+    }
+  }, [state.result])
 
   function handleSelect(choiceId) {
     if (state.status === 'submitting') return
@@ -23,7 +36,7 @@ function ReviewQuestion({ courseSlug, lessonSlug, question }) {
   }
 
   return (
-    <div className={styles.question}>
+    <div className={styles.question} ref={cardRef}>
       <p className={styles.prompt}>{question.prompt}</p>
       <ul className={styles.choices}>
         {question.choices.map((choice) => (

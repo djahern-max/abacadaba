@@ -27,10 +27,19 @@ class Question(Base):
     kind: Mapped[str] = mapped_column(
         String, nullable=False, default=DEFAULT_QUESTION_KIND, server_default=DEFAULT_QUESTION_KIND
     )
-    # Shown after a review question is answered (5.01.2.2). Unused for an
-    # assessment question - see Part 4 of current-feature.md: no per-question
-    # feedback during or after the qualified assessment in the no-test-bank arm.
+    # Shown after a review question is answered (5.01.2.2). On an assessment
+    # question, withheld during the attempt and on a failed result; shown on
+    # the result screen only after a pass (6.01.2 sub-ii b, no test bank) -
+    # see app/services/attempts.py::get_result.
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The course-level learning objective this question tests (feature 023a).
+    # Nullable: review questions are never required to be tagged, and an
+    # assessment question mid-authoring has none yet. SET NULL, not CASCADE -
+    # deleting an objective must not delete the questions that tested it; it
+    # untags them, and publish validation reports the resulting coverage gap.
+    objective_id: Mapped[int | None] = mapped_column(
+        ForeignKey("learning_objectives.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

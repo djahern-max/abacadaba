@@ -53,6 +53,7 @@ def seed_test_course():
             lesson_id=lesson.id,
             prompt=f"Question {position}?",
             position=position,
+            feedback=f"Feedback for question {position}.",
         )
         question.choices = [
             Choice(text=f"Choice {letter}", is_correct=(letter == "B"), position=index)
@@ -421,6 +422,9 @@ def test_a_failed_result_exposes_no_per_question_correctness():
     assert body["answers"] is None
     assert "chosen_choice_id" not in response.text
     assert "correct_choice_id" not in response.text
+    # 6.01.2 sub-ii b: on a failed assessment, no feedback either - the
+    # whole per-question list is omitted, so its feedback text goes with it.
+    assert "feedback" not in response.text.lower()
 
 
 def test_a_passed_result_may_include_the_per_question_breakdown():
@@ -434,10 +438,13 @@ def test_a_passed_result_may_include_the_per_question_breakdown():
     body = response.json()
     assert body["passed"] is True
     assert len(body["answers"]) == 5
-    for entry, q in zip(body["answers"], questions):
+    for index, (entry, q) in enumerate(zip(body["answers"], questions), start=1):
         assert entry["is_correct"] is True
         assert entry["chosen_choice_id"] == q["correct_choice_id"]
         assert entry["correct_choice_id"] == q["correct_choice_id"]
+        # 6.01.2 sub-ii b: on a passed assessment, a sponsor may provide
+        # feedback - the seed fixture writes one per question.
+        assert entry["feedback"] == f"Feedback for question {index}."
 
 
 CUSTOM_RATIO_COURSE_SLUG = "test-course-attempts-custom-ratio"

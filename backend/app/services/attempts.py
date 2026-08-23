@@ -98,6 +98,10 @@ class AnsweredQuestionResult:
     correct_choice_id: int
     correct_choice_text: str
     is_correct: bool
+    # 6.01.2 sub-ii b: on assessments passed successfully, a sponsor may
+    # provide feedback. This is only ever populated on a passed attempt - see
+    # get_result, which never builds AnsweredQuestionResult for a fail.
+    feedback: str | None
 
 
 @dataclass
@@ -284,6 +288,7 @@ def _answered_question_results(db: Session, attempt_id: int) -> list[AnsweredQue
                 correct_choice_id=correct.id,
                 correct_choice_text=correct.text,
                 is_correct=answer.is_correct,
+                feedback=question.feedback,
             )
         )
     return results
