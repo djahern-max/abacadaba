@@ -20,6 +20,13 @@ def _to_info(data: certificates_service.CertificateData) -> CertificateInfo:
         score=data.score,
         question_count=data.question_count,
         completed_at=data.completed_at,
+        field_of_study=data.field_of_study,
+        delivery_method=data.delivery_method,
+        credit_award=data.credit_award,
+        sponsor_name=data.sponsor_name,
+        sponsor_registry_id=data.sponsor_registry_id,
+        sponsor_state_registry_ids=data.sponsor_state_registry_ids,
+        issued_at=data.issued_at,
     )
 
 
@@ -70,4 +77,11 @@ def verify_certificate(code: str, db: Session = Depends(get_db)):
         question_count=data.question_count,
         completed_at=data.completed_at,
         is_account_holder=data.is_account_holder,
+        field_of_study=data.field_of_study,
+        delivery_method=data.delivery_method,
+        credit_award=data.credit_award,
+        sponsor_name=data.sponsor_name,
+        sponsor_registry_id=data.sponsor_registry_id,
+        sponsor_state_registry_ids=data.sponsor_state_registry_ids,
+        issued_at=data.issued_at,
     )

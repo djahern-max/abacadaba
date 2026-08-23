@@ -579,6 +579,19 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
     return course, lesson
 
 
+def test_publish_with_incomplete_sponsor_profile_returns_422_naming_missing_fields(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("incomplete-sponsor", monkeypatch)
+
+    blank = client.patch("/api/v1/admin/sponsor", json={"name": "", "national_registry_id": ""})
+    assert blank.status_code == 200, blank.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("sponsor name" in error and "NASBA sponsor registry ID" in error for error in errors)
+
+
 def test_create_course_defaults_to_basic_level_and_non_cpe_field():
     login_admin()
     course = create_course("defaults")

@@ -42,6 +42,13 @@
   font-weight: 600;
 }
 
+.timeStatement {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .message {
   display: flex;
   flex-direction: column;

@@ -244,3 +244,33 @@ export function uploadAdminThumbnail(lessonId, file, onProgress) {
 export function uploadAdminCourseThumbnail(courseId, file, onProgress) {
   return uploadFile(`${BASE_URL}/api/v1/admin/courses/${courseId}/thumbnail`, file, onProgress)
 }
+
+// --- sponsor profile -----------------------------------------------------------
+
+export function getAdminSponsor() {
+  return apiFetch('/api/v1/admin/sponsor')
+}
+
+export function updateAdminSponsor(payload) {
+  return apiFetch('/api/v1/admin/sponsor', { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+// --- completions -----------------------------------------------------------------
+
+function completionsQuery(filters = {}) {
+  const params = new URLSearchParams()
+  if (filters.courseId) params.set('course_id', filters.courseId)
+  if (filters.startDate) params.set('start_date', filters.startDate)
+  if (filters.endDate) params.set('end_date', filters.endDate)
+  if (filters.passed !== undefined && filters.passed !== '') params.set('passed', filters.passed)
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
+export function getAdminCompletions(filters) {
+  return apiFetch(`/api/v1/admin/completions${completionsQuery(filters)}`)
+}
+
+export function adminCompletionsCsvUrl(filters) {
+  return `${BASE_URL}/api/v1/admin/completions.csv${completionsQuery(filters)}`
+}

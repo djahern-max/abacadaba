@@ -1,0 +1,94 @@
+.page {
+  max-width: var(--content-width);
+  margin: var(--space-xl) auto 0;
+  padding: 0 var(--space-lg) var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.back {
+  align-self: flex-start;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.heading {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.intro {
+  margin: 0;
+  color: var(--color-text-muted);
+  max-width: 640px;
+}
+
+.message {
+  color: var(--color-text-muted);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-sm);
+}
+
+.select,
+.dateInput {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.dateLabel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.downloadButton {
+  margin-left: auto;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: var(--space-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.passed {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.failed {
+  color: var(--color-text-muted);
+}

@@ -14,6 +14,8 @@ import AdminCourseList from './pages/Admin/AdminCourseList/AdminCourseList'
 import AdminCourseEditor from './pages/Admin/AdminCourseEditor/AdminCourseEditor'
 import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
 import AdminSMEList from './pages/Admin/AdminSMEList/AdminSMEList'
+import AdminSponsorSettings from './pages/Admin/AdminSponsorSettings/AdminSponsorSettings'
+import AdminCompletions from './pages/Admin/AdminCompletions/AdminCompletions'
 import Stats from './pages/Admin/Stats/Stats'
 import styles from './App.module.css'
 
@@ -78,6 +80,22 @@ function App() {
             element={
               <AdminGuard>
                 <AdminSMEList />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/sponsor"
+            element={
+              <AdminGuard>
+                <AdminSponsorSettings />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/completions"
+            element={
+              <AdminGuard>
+                <AdminCompletions />
               </AdminGuard>
             }
           />

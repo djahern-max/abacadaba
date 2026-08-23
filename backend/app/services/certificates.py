@@ -2,7 +2,8 @@ import io
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 
 from reportlab.lib.pagesizes import LETTER, landscape
 from reportlab.pdfgen import canvas
@@ -10,12 +11,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
+from app.constants.delivery_methods import DELIVERY_METHOD_SELF_STUDY
 from app.models.attempt import Attempt
 from app.models.question import QUESTION_KIND_ASSESSMENT
 from app.services import courses as courses_service
+from app.services import sponsor_profile as sponsor_profile_service
 
 # Feature 008 is done: an attempt with a signed in user gets its certificate
 # name from the account automatically; anonymous attempts still type one in.
+
+# 9.01 item 10: "NASBA time statement stating that CPE credits have been
+# granted on a 50-minute hour." Fixed text, not attempt data - identical on
+# every certificate abacadaba has ever issued or ever will, so it needs no
+# snapshot column.
+NASBA_TIME_STATEMENT = "CPE credit has been granted based on a 50-minute hour, per NASBA Standards."
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no O, 0, I, 1, L
 _CODE_LENGTH = 12
@@ -50,6 +59,13 @@ class CertificateData:
     question_count: int
     completed_at: datetime
     is_account_holder: bool
+    field_of_study: str
+    delivery_method: str
+    credit_award: Decimal | None
+    sponsor_name: str
+    sponsor_registry_id: str
+    sponsor_state_registry_ids: str | None
+    issued_at: datetime | None
 
 
 def generate_code(db: Session) -> str:
@@ -68,10 +84,42 @@ def _normalize_code(raw: str) -> str:
 
 
 def _to_data(db: Session, attempt: Attempt) -> CertificateData:
+    # course_slug is routing metadata for the download filename, never
+    # asserted certificate content (it isn't on the PDF or the verify page),
+    # so it's the one field that's fine to keep reading live off the course
+    # even for a snapshot-backed attempt.
+    course_slug = attempt.course.slug
+
+    if attempt.cert_course_title is not None:
+        return CertificateData(
+            certificate_code=attempt.certificate_code,
+            recipient_name=attempt.recipient_name,
+            course_slug=course_slug,
+            course_title=attempt.cert_course_title,
+            score=attempt.score,
+            question_count=attempt.cert_question_count,
+            completed_at=attempt.completed_at,
+            is_account_holder=attempt.user_id is not None,
+            field_of_study=attempt.cert_field_of_study,
+            delivery_method=attempt.cert_delivery_method,
+            credit_award=attempt.cert_credit_award,
+            sponsor_name=attempt.cert_sponsor_name,
+            sponsor_registry_id=attempt.cert_sponsor_registry_id,
+            sponsor_state_registry_ids=attempt.cert_sponsor_state_registry_ids,
+            issued_at=attempt.cert_issued_at,
+        )
+
+    # Pre-024 certificate: claimed before this feature shipped, so it has
+    # no snapshot - the columns above are nullable for exactly this case.
+    # Backfilling them would mean fabricating a snapshot from data that was
+    # never actually frozen (the sponsor concept didn't exist yet, and the
+    # course may have changed since); reading live, as these always have,
+    # is the more honest of the two options current-feature.md offered.
+    sponsor = sponsor_profile_service.get_sponsor_profile(db)
     return CertificateData(
         certificate_code=attempt.certificate_code,
         recipient_name=attempt.recipient_name,
-        course_slug=attempt.course.slug,
+        course_slug=course_slug,
         course_title=attempt.course.title,
         score=attempt.score,
         question_count=courses_service.published_question_count(
@@ -79,6 +127,13 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         ),
         completed_at=attempt.completed_at,
         is_account_holder=attempt.user_id is not None,
+        field_of_study=attempt.course.field_of_study,
+        delivery_method=DELIVERY_METHOD_SELF_STUDY,
+        credit_award=attempt.course.credit_award,
+        sponsor_name=sponsor.name,
+        sponsor_registry_id=sponsor.national_registry_id,
+        sponsor_state_registry_ids=sponsor.state_registry_ids,
+        issued_at=None,
     )
 
 
@@ -103,7 +158,23 @@ def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | N
 
     attempt.recipient_name = name
     if attempt.certificate_code is None:
+        # First claim only - a second claim (feature 007) keeps this code
+        # and, from here on, keeps the snapshot below too. Written in the
+        # same transaction as the code itself: a certificate_code with no
+        # snapshot is a state _to_data can't render.
         attempt.certificate_code = generate_code(db)
+        sponsor = sponsor_profile_service.get_sponsor_profile(db)
+        attempt.cert_course_title = attempt.course.title
+        attempt.cert_field_of_study = attempt.course.field_of_study
+        attempt.cert_delivery_method = DELIVERY_METHOD_SELF_STUDY
+        attempt.cert_credit_award = attempt.course.credit_award
+        attempt.cert_question_count = courses_service.published_question_count(
+            db, attempt.course_id, kind=QUESTION_KIND_ASSESSMENT
+        )
+        attempt.cert_sponsor_name = sponsor.name
+        attempt.cert_sponsor_registry_id = sponsor.national_registry_id
+        attempt.cert_sponsor_state_registry_ids = sponsor.state_registry_ids
+        attempt.cert_issued_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(attempt)
 
@@ -137,6 +208,17 @@ def _fit_font_size(pdf: canvas.Canvas, text: str, font_name: str, max_width: flo
     return size
 
 
+def _draw_field(pdf: canvas.Canvas, x: float, y: float, column_width: float, label: str, value: str) -> None:
+    pdf.setFont("Helvetica-Bold", 8)
+    pdf.setFillGray(0.35)
+    pdf.drawString(x, y, label.upper())
+
+    value_size = _fit_font_size(pdf, value, "Helvetica", column_width, 10, min_size=6)
+    pdf.setFont("Helvetica", value_size)
+    pdf.setFillGray(0.1)
+    pdf.drawString(x, y - 13, value)
+
+
 def render_pdf(info: CertificateData) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=PAGE_SIZE)
@@ -167,6 +249,36 @@ def render_pdf(info: CertificateData) -> bytes:
     date_text = info.completed_at.strftime("%B %d, %Y")
     pdf.setFont("Helvetica", 14)
     pdf.drawCentredString(width / 2, height - 345, f"{score_text}  —  {date_text}")
+
+    # Section 9.01's required documentation fields not already covered by
+    # the centred lines above (participant name, course title, date of
+    # completion), laid out as a labelled block rather than more centred
+    # lines - current-feature.md's own instruction, since this is now a
+    # fairly full page rather than a sparse one. Two columns of three rows.
+    credit_text = f"{info.credit_award} CPE credit(s)" if info.credit_award is not None else "—"
+    state_registry_text = info.sponsor_state_registry_ids or "None"
+    fields = [
+        ("Field of Study", info.field_of_study),
+        ("Type of Formal Learning Program", info.delivery_method),
+        ("CPE Credit Awarded", credit_text),
+        ("Sponsor", info.sponsor_name),
+        ("NASBA Sponsor Registry ID", info.sponsor_registry_id),
+        ("State Registry ID(s)", state_registry_text),
+    ]
+    col_gap = 24
+    column_width = (max_text_width - col_gap) / 2
+    row_height = 34
+    block_top = height - 385
+    for index, (label, value) in enumerate(fields):
+        row, col = divmod(index, 2)
+        x = margin + col * (column_width + col_gap)
+        y = block_top - row * row_height
+        _draw_field(pdf, x, y, column_width, label, value)
+
+    statement_y = block_top - 3 * row_height - 6
+    pdf.setFont("Helvetica-Oblique", 8)
+    pdf.setFillGray(0.4)
+    pdf.drawCentredString(width / 2, statement_y, NASBA_TIME_STATEMENT)
 
     verify_url = f"{settings.site_url}/verify/{info.certificate_code}"
     pdf.setFont("Helvetica", 9)

@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -26,6 +27,13 @@ class CertificateInfo(BaseModel):
     score: int
     question_count: int
     completed_at: datetime
+    field_of_study: str
+    delivery_method: str
+    credit_award: Decimal | None
+    sponsor_name: str
+    sponsor_registry_id: str
+    sponsor_state_registry_ids: str | None
+    issued_at: datetime | None
 
 
 class CertificateVerification(BaseModel):
@@ -39,3 +47,10 @@ class CertificateVerification(BaseModel):
     question_count: int | None = None
     completed_at: datetime | None = None
     is_account_holder: bool | None = None
+    field_of_study: str | None = None
+    delivery_method: str | None = None
+    credit_award: Decimal | None = None
+    sponsor_name: str | None = None
+    sponsor_registry_id: str | None = None
+    sponsor_state_registry_ids: str | None = None
+    issued_at: datetime | None = None

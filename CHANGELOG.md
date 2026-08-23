@@ -1304,3 +1304,160 @@ recall-as-learning-strategy exception to the duplicate-prompt rule remain
 out of scope, as specified — the feedback-gating branch in
 `attempts.py::get_result` carries a comment naming the test-bank arm it
 would need to revisit.
+
+## 2026-08-23, Feature 024, Completion documents and participant records
+A certificate now carries the fields Section 9.01 of
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` actually requires,
+frozen at claim time so a later course or sponsor edit can never change a
+certificate already issued.
+
+Section 9.01's own 11-item list was checked against the working list in
+current-feature.md, not copied: kept sponsor name, NASBA sponsor registry
+ID, state registry ID(s) where the sponsor holds any, participant name,
+course title, field of study, delivery method ("type of formal learning
+program"), CPE credit amount, and date of completion. **Dropped "program
+knowledge level"** — it's a Section 8.01 pre-enrollment disclosure item
+(course announcements/descriptive materials), not one of 9.01's 11
+certificate-documentation items; abacadaba still computes and stores it on
+the course (feature 020) for that disclosure purpose, it's just not part of
+the certificate or its snapshot. **Added item 10**, the NASBA time
+statement ("CPE credit has been granted based on a 50-minute hour, per
+NASBA Standards.") — missing from the working list entirely — as fixed
+boilerplate text on the PDF and the verify page (`NASBA_TIME_STATEMENT` in
+`app/services/certificates.py`); it's identical on every certificate, so it
+needed no snapshot column. Item 5 ("if applicable, location") is N/A —
+self study has no location, it's asynchronous by definition. Item 11
+("any other statements required by boards of accountancy") has nothing
+concrete to add; no per-state statement requirement is modeled anywhere in
+this application, so nothing was built for it.
+
+9.02's retention period — "a minimum of five years" — is
+`RETENTION_YEARS = 5` in the new `app/constants/retention.py`, cited rather
+than guessed. Nothing purges or otherwise acts on it yet; recording it was
+the scope, per current-feature.md.
+
+New `sponsor_profile` table (`app/models/sponsor_profile.py`), a singleton
+enforced by a hand-added `CHECK (id = 1)`, seeded with one empty-string row
+in the same migration (`051cc63bc6c9`) that adds it, so the admin page
+always has something to edit. Nine new nullable columns on `attempts`,
+written once at claim time by `claim_certificate` and never after:
+`cert_course_title`, `cert_field_of_study`, `cert_delivery_method`,
+`cert_credit_award`, `cert_sponsor_name`, `cert_sponsor_registry_id`,
+`cert_issued_at`, plus two not in current-feature.md's own column list,
+added because leaving them out would have broken the feature's own stated
+rule — `cert_question_count` (the assessment total behind "scored X out of
+Y", which the file's own "problem this feature solves" section names as
+exactly the kind of live-course read this feature exists to close) and
+`cert_sponsor_state_registry_ids` (9.01 item 9, the sponsor's state
+registry IDs, needed frozen for the same reason the sponsor name and NASBA
+ID are). `cert_program_level` from the file's list was not added — nothing
+would ever read it once program knowledge level was dropped from the
+certificate above, and this codebase doesn't carry unused columns.
+`downgrade -1`
+verified clean.
+
+`app/services/certificates.py::_to_data` now reads the snapshot columns,
+not `attempt.course`, whenever a snapshot exists (`cert_course_title is not
+None`) — `claim_certificate` writes it inside the same transaction as
+`certificate_code`, so a code with no snapshot is a state nothing can
+render. A second claim (feature 007's rule) still only updates the
+recipient name; the snapshot is untouched. **A certificate claimed before
+this feature has no snapshot and renders from the live course and the
+current sponsor row instead, permanently** — chosen over backfilling,
+because backfilling would mean fabricating a frozen snapshot for data that
+was never actually frozen (the sponsor concept did not exist before this
+feature, and an old course may have changed since); staying honest that
+pre-024 certificates keep reading live data, as they always have, beat
+pretending otherwise. `course_slug` is the one field every certificate
+still reads live off the course regardless of snapshot — it's routing
+metadata for the download filename, never asserted certificate content.
+`render_pdf` lays the new fields out as a labelled two-column block in the
+lower third (`_draw_field`, reusing `_fit_font_size` per field so a long
+sponsor name can't overflow its column) rather than more centred lines, per
+current-feature.md's own instruction now that the page is fairly full.
+`verify_code` returns the same `CertificateData`, so the PDF and the verify
+page agree on every field by construction — there's only one function that
+assembles this data.
+
+`validate_for_publish` (`app/services/admin_content.py`) gained a sponsor-
+completeness rule: publish is refused, naming the missing fields, unless
+the sponsor profile has a name and a NASBA registry ID — the two fields a
+certificate can't be compliant without (9.01 items 1 and 8). State registry
+ID is correctly excluded (9.01 item 9 is conditional, "if required by the
+state boards" — a sponsor with none is still complete) and so are contact
+details (website, email, address are part of the identity record an admin
+edits, but never appear on a certificate). New `GET`/`PATCH /admin/sponsor`
+(`app/routers/admin_sponsor.py`) behind `require_admin`. Every existing
+test that publishes a course needed the sponsor profile populated to keep
+passing — added `tests/conftest.py`, a repo-first top-level conftest, whose
+autouse `reset_sponsor_profile` fixture resets the singleton row to a
+complete default before each test, the same way a course-scoped fixture
+resets its own rows, since this one row is shared across the whole test
+database.
+
+`app/services/completions.py` is read-only aggregate SQL, one query
+(feature 012's rule), joining `attempts`/`courses`/`users`: every completed
+attempt (`completed_at is not null`, pass or fail) with course title,
+participant name (account display name, falling back to the self-reported
+`recipient_name`), participant email when signed in, credit (only for a
+passed attempt — a failed one earned none; the snapshot wins once claimed,
+else the course's current award), completion date, pass/fail, and
+certificate code. Filterable by course, date range, and passed. `GET
+/admin/completions` and `GET /admin/completions.csv`
+(`app/routers/admin_completions.py`) share the one query; the CSV streams
+row-by-row (`stream_csv`, a generator) rather than building the file in
+memory, with a stable header and column order.
+
+Frontend: `AdminSponsorSettings` (new page at `/admin/sponsor`) edits the
+singleton and shows which fields are missing; `AdminCompletions` (new page
+at `/admin/completions`) is a plain filterable table plus a CSV download
+link — no charts, feature 012 settled that. Both are reachable from
+`AdminCourseList`'s header nav, next to "Subject matter experts," not
+buried inside a course. `Verify` renders the new snapshot fields (field of
+study, delivery method, credit, sponsor name/NASBA ID/state registry IDs)
+plus the 50-minute-hour statement; the existing self-reported-name wording
+from feature 007 is unchanged. `Result` needed no changes — it only links
+to claim/download, it doesn't render certificate content itself.
+
+**Anonymous attempts and 6.01**: checked, not assumed. Feature 016
+(2026-08-11) already made `POST /courses/{slug}/attempts` require a signed-
+in user, so every attempt created since then has a verified account behind
+it — 6.01's "self-certification of attendance/completion alone is not
+sufficient" concern doesn't apply to anything new. `claim_certificate`
+still lets a *pre-016* anonymous attempt (`attempt.user_id is None`) claim
+with a typed-in name, exactly as feature 016 decided to preserve for
+certificate links already handed out. That typed name is self-certification
+in the plain sense of the term, so **this feature does not mark 6.01
+satisfied on the strength of a passed assessment alone where the identity
+is self-asserted** — see COMPLIANCE.md's Gap column on that row. The scope
+of the gap is fixed and shrinking (only attempts created before 2026-08-11
+can ever hit it) rather than open-ended, which is why current-feature.md's
+instruction not to fix it by removing the anonymous path was followed as
+written.
+
+Tests: 288 backend tests pass (up from 270), including new coverage in
+`tests/test_certificates.py` (snapshot written at claim time and verified
+against the fixture course/sponsor; editing the course or sponsor after
+claiming changes neither the PDF nor the verify page; claiming twice keeps
+the original snapshot even if the course changes in between; the PDF
+contains every Section 9 field, asserted against text extracted with
+`pypdf` rather than eyeballing bytes — new dependency, `pypdf==6.16.*`,
+declared in `requirements.txt`; a long name against a long course title
+against a long sponsor name still produces a valid, readable PDF; a
+pre-024 certificate with no snapshot still renders),
+`tests/test_sponsor_profile.py`, `tests/test_completions.py`, and one new test in
+`tests/test_admin_content.py` proving publish is refused and names the
+missing fields. Verified end to end against the real dev database in a
+browser (Playwright, driven directly — `chromium-cli` wasn't available in
+this environment): registered an admin, confirmed the new nav links,
+confirmed the sponsor page's missing-fields warning and that it clears and
+persists on save, confirmed publish is refused with an incomplete sponsor
+profile and succeeds once it's complete, completed a real assessment as a
+signed-in participant, claimed and downloaded a certificate whose extracted
+PDF text carried every required field, confirmed the verify page agreed,
+and confirmed the completions table and CSV download both reflected the
+new completion. Test data cleaned up from the dev database afterward.
+
+Emailing certificates, certificate templates/branding, revocation and
+expiry, and publishing the retention policy as a participant-facing page
+remain out of scope, as specified.

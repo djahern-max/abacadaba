@@ -63,7 +63,21 @@ function Verify() {
         </dd>
         <dt>Date</dt>
         <dd>{formatDate(data.completed_at)}</dd>
+        <dt>Field of study</dt>
+        <dd>{data.field_of_study}</dd>
+        <dt>Delivery method</dt>
+        <dd>{data.delivery_method}</dd>
+        <dt>CPE credit awarded</dt>
+        <dd>{data.credit_award ?? '—'}</dd>
+        <dt>Sponsor</dt>
+        <dd>
+          {data.sponsor_name} (NASBA registry ID {data.sponsor_registry_id}
+          {data.sponsor_state_registry_ids ? `, state registry ID(s) ${data.sponsor_state_registry_ids}` : ''})
+        </dd>
       </dl>
+      <p className={styles.timeStatement}>
+        CPE credit has been granted based on a 50-minute hour, per NASBA Standards.
+      </p>
       <Link to="/">Back home</Link>
     </div>
   )

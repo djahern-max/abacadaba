@@ -23,6 +23,7 @@ from app.models.question import QUESTION_KIND_ASSESSMENT, QUESTION_KIND_REVIEW, 
 from app.models.source import Source
 from app.models.subject_matter_expert import SubjectMatterExpert
 from app.services import objective_coverage
+from app.services import sponsor_profile as sponsor_profile_service
 
 MIN_CHOICES_PER_QUESTION = 2
 
@@ -289,7 +290,7 @@ def delete_course(db: Session, course_id: int) -> None:
 
 def publish_course(db: Session, course_id: int) -> Course:
     course = _course_with_content_or_404(db, course_id)
-    errors = validate_for_publish(course)
+    errors = validate_for_publish(db, course)
     if errors:
         raise PublishValidationError(errors)
 
@@ -305,7 +306,7 @@ def publish_course(db: Session, course_id: int) -> Course:
 
 def check_publish_course(db: Session, course_id: int) -> list[str]:
     course = _course_with_content_or_404(db, course_id)
-    return validate_for_publish(course)
+    return validate_for_publish(db, course)
 
 
 def unpublish_course(db: Session, course_id: int) -> Course:
@@ -315,8 +316,21 @@ def unpublish_course(db: Session, course_id: int) -> Course:
     return _course_with_content_or_404(db, course_id)
 
 
-def validate_for_publish(course: Course) -> list[str]:
+def validate_for_publish(db: Session, course: Course) -> list[str]:
     errors = []
+
+    # Feature 024: a course that cannot produce a compliant certificate
+    # should not be able to enrol anyone (9.01 items 1 and 8 - sponsor name
+    # and NASBA registry ID). See app/services/sponsor_profile.py for why
+    # contact details and the optional state registry ID don't block this.
+    sponsor = sponsor_profile_service.get_sponsor_profile(db)
+    missing_sponsor_fields = sponsor_profile_service.missing_fields(sponsor)
+    if missing_sponsor_fields:
+        errors.append(
+            "The sponsor profile is missing: " + ", ".join(missing_sponsor_fields) + ". "
+            "Complete it on the sponsor settings page before publishing."
+        )
+
     if not course.title.strip():
         errors.append("Title is required")
     if not course.slug.strip():

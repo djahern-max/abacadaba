@@ -35,9 +35,17 @@ function AdminCourseList() {
     <div className={styles.page}>
       <div className={styles.headerRow}>
         <h1 className={styles.heading}>Admin: courses</h1>
-        <Link to="/admin/smes" className={styles.smeLink}>
-          Subject matter experts
-        </Link>
+        <nav className={styles.nav}>
+          <Link to="/admin/smes" className={styles.smeLink}>
+            Subject matter experts
+          </Link>
+          <Link to="/admin/sponsor" className={styles.smeLink}>
+            Sponsor settings
+          </Link>
+          <Link to="/admin/completions" className={styles.smeLink}>
+            Completions
+          </Link>
+        </nav>
       </div>
 
       <form className={styles.createForm} onSubmit={handleCreate}>

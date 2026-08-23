@@ -17,6 +17,11 @@
   font-weight: 600;
 }
 
+.nav {
+  display: flex;
+  gap: var(--space-md);
+}
+
 .smeLink {
   color: var(--color-accent);
   font-weight: 600;
