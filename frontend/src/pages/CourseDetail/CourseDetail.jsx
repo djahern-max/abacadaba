@@ -97,6 +97,10 @@ function CourseDetail() {
           <dt>Advance preparation</dt>
           <dd>{course.advance_preparation || 'None'}</dd>
         </div>
+        <div className={styles.programDetail}>
+          <dt>CPE credit</dt>
+          <dd>{course.credit_award != null ? `${course.credit_award} credit` : 'Not yet available'}</dd>
+        </div>
       </dl>
 
       {course.reviewed_at && (

@@ -22,6 +22,12 @@ class Lesson(Base):
     video_key: Mapped[str | None] = mapped_column(String, nullable=True)
     thumbnail_key: Mapped[str | None] = mapped_column(String, nullable=True)
     required_watch_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.9, server_default="0.9")
+    # Feature 022 credit inputs. When True, duration_seconds enters the A/V
+    # term of the word-count formula (7.02.6/7.02.7); when False - this
+    # segment's audio is narration of the on-screen text, not additional
+    # learning - word_count enters the word term instead.
+    av_is_additional_learning: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

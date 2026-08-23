@@ -8,6 +8,7 @@ import Button from '../../../components/Button/Button'
 import CourseDetailsForm from './CourseDetailsForm'
 import ObjectivesPanel from './ObjectivesPanel'
 import ReviewPanel from './ReviewPanel'
+import CreditPanel from './CreditPanel'
 import LessonsPanel from './LessonsPanel'
 import CollapsedLessonEditor from './CollapsedLessonEditor'
 import CoursePublishPanel from './CoursePublishPanel'
@@ -168,6 +169,7 @@ function AdminCourseEditor() {
       />
       <ObjectivesPanel ref={objectivesRef} course={course} onDirtyChange={setObjectivesDirty} onChange={refresh} />
       <ReviewPanel ref={reviewRef} course={course} onDirtyChange={setReviewDirty} onChange={refresh} />
+      <CreditPanel course={course} onChange={refresh} />
       {singleLesson ? (
         <CollapsedLessonEditor
           ref={collapsedRef}

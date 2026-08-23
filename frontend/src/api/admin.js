@@ -64,6 +64,16 @@ export function moveAdminObjective(id, direction) {
   })
 }
 
+// --- credit ------------------------------------------------------------------
+
+export function getAdminCourseCredit(courseId) {
+  return apiFetch(`/api/v1/admin/courses/${courseId}/credit`)
+}
+
+export function recomputeAdminCourseCredit(courseId) {
+  return apiFetch(`/api/v1/admin/courses/${courseId}/credit`, { method: 'POST' })
+}
+
 // --- subject matter experts -----------------------------------------------------
 
 export function getAdminSMEs() {

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -131,6 +132,8 @@ class AdminLessonUpdate(BaseModel):
     description: str | None = None
     duration_seconds: int | None = None
     required_watch_ratio: float | None = Field(default=None, ge=0, le=1)
+    av_is_additional_learning: bool | None = None
+    word_count: int | None = Field(default=None, ge=0)
 
 
 class AdminLesson(BaseModel):
@@ -147,6 +150,8 @@ class AdminLesson(BaseModel):
     video_key: str | None
     thumbnail_key: str | None
     required_watch_ratio: float
+    av_is_additional_learning: bool
+    word_count: int
     is_published: bool
     questions: list[AdminQuestion]
 
@@ -176,6 +181,16 @@ class AdminCourseUpdate(BaseModel):
     reviewed_at: datetime | None = None
     review_notes: str | None = None
     review_cycle: str | None = None
+    # Written only by app/services/credit.py::store(); exposed here so that
+    # write path (admin_content.update_course) is the one every other
+    # course field already goes through, rather than a second writer.
+    credit_award: Decimal | None = None
+    credit_raw_minutes: Decimal | None = None
+    credit_word_count: int | None = None
+    credit_av_seconds: int | None = None
+    credit_question_count: int | None = None
+    credit_formula_version: str | None = None
+    credit_computed_at: datetime | None = None
 
 
 class AdminCourseSummary(BaseModel):
@@ -214,6 +229,35 @@ class AdminCourse(BaseModel):
     review_cycle: str
     content_updated_at: datetime
     sources: list[AdminSource]
+    credit_award: Decimal | None
+    credit_raw_minutes: Decimal | None
+    credit_word_count: int | None
+    credit_av_seconds: int | None
+    credit_question_count: int | None
+    credit_formula_version: str | None
+    credit_computed_at: datetime | None
+
+
+class AdminCreditBreakdown(BaseModel):
+    """Every term of the word-count formula (7.02.6/7.02.7), not just the
+    answer - so a reviewer can check it by hand. GET returns the
+    last-stored breakdown; POST recomputes, stores, and returns the fresh
+    one. All fields are null when credit has never been computed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    course_id: int
+    word_count: int | None
+    av_seconds: int | None
+    question_count: int | None
+    word_term_minutes: Decimal | None
+    av_term_minutes: Decimal | None
+    question_term_minutes: Decimal | None
+    raw_minutes: Decimal | None
+    raw_credit: Decimal | None
+    award: Decimal | None
+    formula_version: str | None
+    computed_at: datetime | None
 
 
 class MoveRequest(BaseModel):

@@ -17,6 +17,7 @@ from app.schemas.admin import (
     AdminCourseCreate,
     AdminCourseSummary,
     AdminCourseUpdate,
+    AdminCreditBreakdown,
     AdminLesson,
     AdminLessonCreate,
     AdminLessonUpdate,
@@ -36,6 +37,7 @@ from app.schemas.admin import (
     SetCorrectChoiceRequest,
 )
 from app.services import admin_content
+from app.services import credit as credit_service
 from app.services import storage
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -178,6 +180,25 @@ async def upload_course_thumbnail(course_id: int, file: UploadFile = File(...), 
     db.commit()
 
     return {"thumbnail_key": course.thumbnail_key, "warning": warning}
+
+
+# --- credit (feature 022) -----------------------------------------------------
+
+
+@router.get("/admin/courses/{course_id}/credit", response_model=AdminCreditBreakdown)
+def get_course_credit(course_id: int, db: Session = Depends(get_db)):
+    course = db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return credit_service.from_stored(course)
+
+
+@router.post("/admin/courses/{course_id}/credit", response_model=AdminCreditBreakdown)
+def recompute_course_credit(course_id: int, db: Session = Depends(get_db)):
+    try:
+        return credit_service.store(db, course_id)
+    except admin_content.CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
 
 
 # --- subject matter experts -----------------------------------------------------

@@ -1,10 +1,12 @@
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.credit import MIN_AWARDABLE, MINUTES_PER_CREDIT
 from app.constants.fields_of_study import CPA_REQUIRED, TAX_CREDENTIAL_REQUIRED, credential_tag_for
 from app.constants.program_levels import LEVELS_REQUIRING_PREREQUISITES, PROGRAM_LEVELS
 from app.models.attempt import Attempt
@@ -18,15 +20,32 @@ from app.models.subject_matter_expert import SubjectMatterExpert
 
 MIN_CHOICES_PER_QUESTION = 2
 
-# Fields on Course that record a review having happened, not the content
-# being reviewed - excluded from the content_updated_at bump for exactly the
-# reason spelled out in current-feature.md: bumping on these would make
-# `reviewed_at < content_updated_at` true the instant after every review.
-# review_cycle is set from the same Review panel and PATCH as the rest of
-# this group (ReviewPanel.jsx sends all five fields together) - excluding
-# only four of the five would reintroduce that exact bug the moment a
-# reviewer also touches the cycle, which was caught live in browser testing.
-REVIEW_CHAIN_FIELDS = {"developer_id", "reviewer_id", "reviewed_at", "review_notes", "review_cycle"}
+# Fields on Course that record a review or a computed credit having
+# happened, not the content being reviewed or measured - excluded from the
+# content_updated_at bump for exactly the reason spelled out in
+# current-feature.md: bumping on these would make `reviewed_at <
+# content_updated_at` (or `credit_computed_at < content_updated_at`) true
+# the instant after every review or recompute. review_cycle is set from the
+# same Review panel and PATCH as the rest of that group (ReviewPanel.jsx
+# sends all five fields together) - excluding only four of the five would
+# reintroduce that exact bug the moment a reviewer also touches the cycle,
+# which was caught live in browser testing. The seven credit_* fields get
+# the same treatment for the same reason (feature 022): storing a computed
+# credit must not itself make the credit stale.
+REVIEW_CHAIN_FIELDS = {
+    "developer_id",
+    "reviewer_id",
+    "reviewed_at",
+    "review_notes",
+    "review_cycle",
+    "credit_award",
+    "credit_raw_minutes",
+    "credit_word_count",
+    "credit_av_seconds",
+    "credit_question_count",
+    "credit_formula_version",
+    "credit_computed_at",
+}
 
 
 class CourseNotFoundError(Exception):
@@ -347,9 +366,27 @@ def validate_for_publish(course: Course) -> list[str]:
                 "A taxes course needs a licensed CPA, tax attorney, or enrolled agent as developer or reviewer"
             )
 
+    if course.credit_computed_at is None:
+        errors.append("Credit has not been computed yet")
+    elif course.credit_computed_at < course.content_updated_at:
+        errors.append("This course has changed since credit was last computed")
+
+    if course.credit_award is not None and course.credit_award < MIN_AWARDABLE:
+        # 7.01: a raw credit below 0.2 is not awardable. Name the gap in
+        # seconds, not just "too short" - current-feature.md's own example.
+        remaining_minutes = (MIN_AWARDABLE * MINUTES_PER_CREDIT) - (course.credit_raw_minutes or Decimal(0))
+        remaining_seconds = int((remaining_minutes * 60).to_integral_value(rounding=ROUND_CEILING))
+        errors.append(
+            f"This course computes to {course.credit_award} credit, below the {MIN_AWARDABLE} minimum "
+            f"award. Add about {remaining_seconds} more seconds of qualifying audio/video, words, or "
+            "questions to reach it."
+        )
+
     for lesson in course.lessons:
         if not lesson.video_key:
             errors.append(f"Lesson '{lesson.title}' must have a video")
+        if lesson.av_is_additional_learning and lesson.duration_seconds is None:
+            errors.append(f"Lesson '{lesson.title}' counts its runtime toward credit but has no duration")
         if not lesson.questions:
             errors.append(f"Lesson '{lesson.title}' must have at least one question")
         for question in lesson.questions:

@@ -63,6 +63,8 @@ ADMIN_ROUTES = [
     ("PATCH", "/api/v1/admin/sources/999999"),
     ("DELETE", "/api/v1/admin/sources/999999"),
     ("POST", "/api/v1/admin/sources/999999/move"),
+    ("GET", "/api/v1/admin/courses/999999/credit"),
+    ("POST", "/api/v1/admin/courses/999999/credit"),
 ]
 
 
@@ -349,12 +351,7 @@ def test_dry_run_publish_reports_errors_without_publishing():
 
 def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
     login_admin()
-    course = create_course("dry-run-complete", description="A complete test course.")
-    lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=1)
-    upload_video(lesson["slug"], monkeypatch)
-    add_objective(course["id"])
-    add_review_chain(course["id"], "dry-run-complete")
+    course, _ = _make_publishable_course("dry-run-complete", monkeypatch)
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish?dry_run=true")
     assert response.status_code == 200
@@ -366,12 +363,7 @@ def test_dry_run_publish_reports_no_errors_for_complete_course(monkeypatch):
 
 def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch):
     login_admin()
-    course = create_course("complete", description="A complete test course.")
-    lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=1)
-    upload_video(lesson["slug"], monkeypatch)
-    add_objective(course["id"])
-    add_review_chain(course["id"], "complete")
+    course, _ = _make_publishable_course("complete", monkeypatch)
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 200
@@ -383,12 +375,7 @@ def test_publish_complete_course_succeeds_and_appears_in_public_list(monkeypatch
 
 def test_publishing_a_course_publishes_its_lessons_so_the_quiz_is_servable(monkeypatch):
     login_admin()
-    course = create_course("publish-cascades", description="A complete test course.")
-    lesson = course["lessons"][0]
-    add_complete_questions(lesson["id"], count=1)
-    upload_video(lesson["slug"], monkeypatch)
-    add_objective(course["id"])
-    add_review_chain(course["id"], "publish-cascades")
+    course, lesson = _make_publishable_course("publish-cascades", monkeypatch)
 
     assert lesson["is_published"] is False
 
@@ -540,8 +527,15 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
     lesson = course["lessons"][0]
     add_complete_questions(lesson["id"], count=1)
     upload_video(lesson["slug"], monkeypatch)
+    # Feature 022: enough runtime for credit >= 0.2, the minimum awardable
+    # increment (7.01). 1800s A/V + 1 question x 1.85 min = 31.85 min / 50
+    # -> 0.6 credit, with margin above the 0.2 boundary.
+    response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1800})
+    assert response.status_code == 200, response.text
     add_objective(course["id"])
     add_review_chain(course["id"], slug_suffix)
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert response.status_code == 200, response.text
     course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
     return course, lesson
 
@@ -797,6 +791,28 @@ def test_recording_a_review_does_not_change_content_updated_at(monkeypatch):
     after = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
     assert after == before
 
+    # Feature 022: the seven credit_* fields get the same REVIEW_CHAIN_FIELDS
+    # exclusion for the same reason - storing a computed credit must not
+    # itself make the credit stale. Extended per current-feature.md, which
+    # notes 021's version of this test only covered three of five review
+    # fields the first time and missed a real bug - PATCH all seven here.
+    response = client.patch(
+        f"/api/v1/admin/courses/{course['id']}",
+        json={
+            "credit_award": "0.4",
+            "credit_raw_minutes": "20.00",
+            "credit_word_count": 0,
+            "credit_av_seconds": 600,
+            "credit_question_count": 5,
+            "credit_formula_version": "2026-7.02.6",
+            "credit_computed_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    after_credit = client.get(f"/api/v1/admin/courses/{course['id']}").json()["content_updated_at"]
+    assert after_credit == before
+
 
 def test_editing_a_question_changes_content_updated_at(monkeypatch):
     login_admin()
@@ -856,6 +872,7 @@ def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
     upload_video(lesson["slug"], monkeypatch)
     add_objective(course["id"])
     client.patch(f"/api/v1/admin/courses/{course['id']}", json={"field_of_study": "Taxes"})
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1800})
 
     developer = create_sme("taxes-ea-dev")
     reviewer = create_sme("taxes-ea-rev", is_enrolled_agent=True)
@@ -868,6 +885,9 @@ def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
         },
     )
     assert response.status_code == 200
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert response.status_code == 200, response.text
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
     assert response.status_code == 200, response.text

@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.constants.fields_of_study import DEFAULT_FIELD_OF_STUDY
@@ -46,6 +47,19 @@ class Course(Base):
     review_cycle: Mapped[str] = mapped_column(
         String, nullable=False, default=DEFAULT_REVIEW_CYCLE, server_default=DEFAULT_REVIEW_CYCLE
     )
+    # Feature 022: the word-count credit formula (7.02.6/7.02.7). Stored
+    # inputs plus the computed result, not just the answer - see
+    # current-feature.md, "Store the inputs, not just the answer". Nullable
+    # because a course starts with no credit computed at all; staleness is
+    # derived (never a stored bool) exactly like the review chain's, from
+    # `credit_computed_at is None or credit_computed_at < content_updated_at`.
+    credit_award: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
+    credit_raw_minutes: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    credit_word_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_av_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_question_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_formula_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    credit_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

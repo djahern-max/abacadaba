@@ -11,6 +11,10 @@ const FIXED_CHECKS = [
   { label: 'Developer', message: 'A developer is required' },
   { label: 'Reviewer', message: 'A reviewer is required' },
   { label: 'Review date', message: 'A review date is required' },
+  {
+    label: 'Credit is up to date',
+    messages: ['Credit has not been computed yet', 'This course has changed since credit was last computed'],
+  },
 ]
 
 const LESSON_MESSAGE_PATTERN = /^Lesson '(.+?)'/
@@ -41,7 +45,7 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
     await onChange()
   }
 
-  const fixedMessages = new Set(FIXED_CHECKS.map((check) => check.message))
+  const fixedMessages = new Set(FIXED_CHECKS.flatMap((check) => check.messages ?? [check.message]))
   const lessonErrors = publishErrors.filter((message) => !fixedMessages.has(message))
   const publishDisabled = hasUnsavedWork || publishErrors.length > 0
   // A collapsed (single-lesson) course has no second lesson to disambiguate
@@ -54,7 +58,8 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
       <h2 className={styles.heading}>Publish</h2>
       <ul className={styles.checklist}>
         {FIXED_CHECKS.map((check) => {
-          const met = !publishErrors.includes(check.message)
+          const messages = check.messages ?? [check.message]
+          const met = !messages.some((message) => publishErrors.includes(message))
           return (
             <li key={check.label} className={met ? styles.checklistItemMet : styles.checklistItem}>
               <span aria-hidden="true">{met ? '✓' : '○'}</span> {check.label}
@@ -65,13 +70,13 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
           // A per-lesson rule has nothing to check against zero lessons — vacuously
           // true is not the same as satisfied, so this renders neutral, not met.
           <li className={styles.checklistItem}>
-            <span aria-hidden="true">○</span> Every lesson has a video, at least one question, and each
-            question has exactly one correct choice
+            <span aria-hidden="true">○</span> Every lesson has a video with a duration (if it counts toward
+            credit), at least one question, and each question has exactly one correct choice
           </li>
         ) : lessonErrors.length === 0 ? (
           <li className={styles.checklistItemMet}>
-            <span aria-hidden="true">✓</span> Every lesson has a video, at least one question, and each
-            question has exactly one correct choice
+            <span aria-hidden="true">✓</span> Every lesson has a video with a duration (if it counts toward
+            credit), at least one question, and each question has exactly one correct choice
           </li>
         ) : (
           lessonErrors.map((message) => {

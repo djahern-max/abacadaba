@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -42,6 +43,7 @@ class CourseWithLessons:
     reviewed_at: datetime | None
     developer: SMESummary | None
     reviewer: SMESummary | None
+    credit_award: Decimal | None
 
 
 @dataclass
@@ -121,6 +123,7 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         reviewer=SMESummary(name=course.reviewer.name, credentials=course.reviewer.credentials)
         if course.reviewer
         else None,
+        credit_award=course.credit_award,
     )
 
 

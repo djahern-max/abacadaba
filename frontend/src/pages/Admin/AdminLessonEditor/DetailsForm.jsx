@@ -9,14 +9,25 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
   const [duration, setDuration] = useState(lesson.duration_seconds ?? '')
   const [durationAutoFilled, setDurationAutoFilled] = useState(false)
   const [watchPercent, setWatchPercent] = useState(Math.round(lesson.required_watch_ratio * 100))
+  const [additionalLearning, setAdditionalLearning] = useState(lesson.av_is_additional_learning)
+  const [wordCount, setWordCount] = useState(lesson.word_count)
 
   const titleDirty = title !== lesson.title
   const slugDirty = slug !== lesson.slug
   const descriptionDirty = description !== lesson.description
   const durationDirty = String(duration) !== String(lesson.duration_seconds ?? '')
   const watchPercentDirty = Number(watchPercent) !== Math.round(lesson.required_watch_ratio * 100)
+  const additionalLearningDirty = additionalLearning !== lesson.av_is_additional_learning
+  const wordCountDirty = Number(wordCount) !== lesson.word_count
 
-  const dirty = titleDirty || slugDirty || descriptionDirty || durationDirty || watchPercentDirty
+  const dirty =
+    titleDirty ||
+    slugDirty ||
+    descriptionDirty ||
+    durationDirty ||
+    watchPercentDirty ||
+    additionalLearningDirty ||
+    wordCountDirty
 
   useEffect(() => {
     onDirtyChange?.(dirty ? 1 : 0)
@@ -36,6 +47,8 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
         description,
         duration_seconds: duration === '' ? null : Number(duration),
         required_watch_ratio: Number(watchPercent) / 100,
+        av_is_additional_learning: additionalLearning,
+        word_count: wordCount === '' ? 0 : Number(wordCount),
       }),
   }))
 
@@ -115,6 +128,37 @@ const DetailsForm = forwardRef(function DetailsForm({ lesson, detectedDuration, 
           value={watchPercent}
           onChange={(event) => setWatchPercent(event.target.value)}
         />
+
+        <label className={styles.label} htmlFor="additional-learning">
+          <input
+            id="additional-learning"
+            type="checkbox"
+            checked={additionalLearning}
+            onChange={(event) => setAdditionalLearning(event.target.checked)}
+          />{' '}
+          This segment&apos;s audio teaches something the slides don&apos;t say
+        </label>
+        <p className={styles.hint}>
+          {additionalLearning
+            ? "Checked: this segment's runtime counts toward the course's CPE credit (7.02.7)."
+            : "Unchecked: the audio is narration of the on-screen text, not additional learning - its runtime doesn't count. Enter the word count below instead (7.02.6)."}
+        </p>
+
+        {!additionalLearning && (
+          <>
+            <label className={styles.label} htmlFor="word-count">
+              Word count
+            </label>
+            <input
+              id="word-count"
+              className={`${styles.input} ${wordCountDirty ? styles.fieldDirty : ''}`}
+              type="number"
+              min="0"
+              value={wordCount}
+              onChange={(event) => setWordCount(event.target.value)}
+            />
+          </>
+        )}
       </div>
     </section>
   )

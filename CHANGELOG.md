@@ -986,3 +986,92 @@ generic slide rendering, script plumbing), and the 7.02.7 mapping recorded
 under Video pipeline 01 is unchanged — `durationOf`/`totalSeconds` still
 measure real narration length ahead of the estimate, per lesson, and
 `Root.tsx` still warns per composition rather than gating render or publish.
+
+## 2026-08-23, Feature 022, Credit measurement
+
+A course now knows how many CPE credits it is worth, with the arithmetic
+that produced the number stored and visible, not just the answer. Two new
+`lessons` columns (`av_is_additional_learning`, default true; `word_count`,
+default 0) and seven new nullable `courses` columns
+(`credit_award`/`credit_raw_minutes`/`credit_word_count`/`credit_av_seconds`/
+`credit_question_count`/`credit_formula_version`/`credit_computed_at`), added
+via migration `d204728bf964` (`downgrade -1` verified). `app/constants/credit.py`
+names every number the 2026 Standards chose (`WORDS_PER_MINUTE = 180`,
+`MINUTES_PER_QUESTION = Decimal("1.85")`, `MINUTES_PER_CREDIT = 50`,
+`MIN_AWARDABLE = Decimal("0.2")`) plus `CREDIT_FORMULA_VERSION`, so a stored
+credit always records which formula produced it. `app/services/credit.py`
+holds the whole formula: `compute()` is pure and read-only, `round_down()`
+floors to the finest legal self study increment (one-fifth, 7.01) and never
+rounds up, and `store()` writes the seven columns and stamps
+`credit_computed_at` only when explicitly called — never from a content edit,
+so a course's credit doesn't shift mid-edit the way 021's review date
+doesn't either. Confirmed feature 017's auto-fill (`VideoUploader.jsx`
+reading the browser's own `video.duration` off the uploaded file) is what
+populates `duration_seconds`, not a typed estimate — the one place the app
+can defend the "actual" in "actual audio/video duration time."
+
+`validate_for_publish` gained three rules: credit must be computed and not
+stale (`credit_computed_at is None or credit_computed_at < content_updated_at`,
+derived exactly like 021's review staleness — no stored boolean), the award
+must be at least 0.2 with a message naming the shortfall in seconds rather
+than "too short," and every lesson whose runtime counts toward credit must
+have a duration. The seven `credit_*` fields joined 021's
+`REVIEW_CHAIN_FIELDS` exclusion set (now covering review-chain and credit
+fields alike) so recomputing never itself makes the credit stale; extended
+021's `content_updated_at`-stability test to PATCH all seven credit fields
+together, per current-feature.md's note about exactly this class of bug.
+`GET`/`POST /admin/courses/{id}/credit` read the last-stored breakdown and
+recompute-and-store one, respectively; `GET /courses/{slug}` now carries
+`credit_award` as a pre-enrolment disclosure, alongside program level and
+field of study.
+
+**Deviation from the letter of current-feature.md's Task 4:** the question
+count (and the word/A-V terms) sum over every lesson of the course, not
+`courses_service.published_question_count`'s `Lesson.is_published`-gated
+count as instructed. `publish_course()` only flips lessons to published
+after `validate_for_publish` passes, so gating credit's own inputs on that
+same flag would make a course's first-ever publish permanently unreachable
+and would compute 0 credit for the feature's own worked example (486s +
+8 questions). Resolved with the user's explicit sign-off; documented at the
+count's call site in `app/services/credit.py::compute` and in COMPLIANCE.md's
+Gap column for 7.02.6.
+
+Frontend: a new `CreditPanel.jsx` in `AdminCourseEditor` shows a per-segment
+table (runtime, additional-learning flag, word count) then every term of
+the arithmetic — words ÷ 180, A/V minutes, questions × 1.85, the sum, ÷ 50,
+the raw credit, and the rounded award — sourced from the dedicated GET/POST
+endpoints, with a stale banner worded like 021's ("this course has changed
+since credit was last computed") and its own Recompute button, outside the
+page's batched save since credit is derived, not typed. `LessonVideoFields.jsx`
+and `DetailsForm.jsx` (multi-lesson courses duplicate this logic rather than
+sharing it, matching the codebase's existing pattern) both gained the
+additional-learning checkbox, labelled "This segment's audio teaches
+something the slides don't say" rather than the Standard's own wording, plus
+a word-count field that appears only when unchecked. `CoursePublishPanel.jsx`
+gained a "Credit is up to date" checklist line and an extended per-lesson
+message covering the new duration requirement. `CourseDetail.jsx` shows the
+credit alongside program level and field of study.
+
+Verified against a real dev database end to end in a browser (Playwright):
+authored a course with a 486-second video and 8 questions, watched the
+Credit panel compute 0.4 credit matching the arithmetic on screen exactly,
+confirmed Publish was blocked until credit was computed and un-stale,
+published, and confirmed the public course page showed "0.4 credit" to a
+signed-in visitor's disclosure block. Unchecked a segment's
+additional-learning flag, confirmed the word-count field appeared and a
+large duration on that segment was correctly excluded from the A/V term
+(covered as a pytest case too, since narration segments are easy to get
+backwards). Backend: 235 tests pass, including new `tests/test_credit.py`
+(all-video and mixed narration cases, rounding never rounding up, the
+below-0.2 refusal message, staleness appearing after a question edit and
+clearing after recompute, publish refused when a counted segment has no
+duration, and the public payload carrying the credit) and the extended
+review/credit `content_updated_at`-stability test. `npm run lint` and
+`npm run build` pass.
+
+Pilot testing (7.02.1–7.02.4), adaptive-path averaging (7.02.6's second
+paragraph), splitting review from assessment questions (023 — this feature
+deliberately counts every question, and the call site carries a comment
+warning against narrowing that when 023 lands), certificate content (024),
+and reading the technical/non-technical field-of-study tag for a per-state
+cap remain out of scope, as specified.
