@@ -11,6 +11,7 @@ const FIXED_CHECKS = [
   { label: 'Developer', message: 'A developer is required' },
   { label: 'Reviewer', message: 'A reviewer is required' },
   { label: 'Review date', message: 'A review date is required' },
+  { label: 'Expiration date', message: 'An expiration date is required for self study programs (9.02.2)' },
   {
     label: 'Credit is up to date',
     messages: ['Credit has not been computed yet', 'This course has changed since credit was last computed'],
@@ -19,6 +20,11 @@ const FIXED_CHECKS = [
 
 const LESSON_MESSAGE_PATTERN = /^Lesson '(.+?)'/
 const LESSON_MESSAGE_PREFIX = /^Lesson '.+?'\s*/
+// Feature 026: a site-wide condition surfacing in a course-level checklist -
+// current-feature.md says to word it so the author knows it isn't something
+// wrong with their course. Not one of FIXED_CHECKS since the message names
+// which policies, so it can't be matched by exact string.
+const POLICIES_MESSAGE_PREFIX = "The sponsor's policies are not yet published:"
 
 function lessonForMessage(course, message) {
   const match = message.match(LESSON_MESSAGE_PATTERN)
@@ -46,7 +52,10 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
   }
 
   const fixedMessages = new Set(FIXED_CHECKS.flatMap((check) => check.messages ?? [check.message]))
-  const lessonErrors = publishErrors.filter((message) => !fixedMessages.has(message))
+  const policiesError = publishErrors.find((message) => message.startsWith(POLICIES_MESSAGE_PREFIX))
+  const lessonErrors = publishErrors.filter(
+    (message) => !fixedMessages.has(message) && message !== policiesError,
+  )
   const publishDisabled = hasUnsavedWork || publishErrors.length > 0
   // A collapsed (single-lesson) course has no second lesson to disambiguate
   // from, so the "Lesson 'X'" prefix names a field the author can't even
@@ -66,6 +75,16 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
             </li>
           )
         })}
+        <li className={policiesError ? styles.checklistItem : styles.checklistItemMet}>
+          <span aria-hidden="true">{policiesError ? '○' : '✓'}</span>{' '}
+          {policiesError ? (
+            <>
+              {policiesError} <Link to="/admin/policies">Write them here.</Link>
+            </>
+          ) : (
+            "Sponsor's policies are published"
+          )}
+        </li>
         {course.lessons.length === 0 ? (
           // A per-lesson rule has nothing to check against zero lessons — vacuously
           // true is not the same as satisfied, so this renders neutral, not met.

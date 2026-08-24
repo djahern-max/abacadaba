@@ -1,7 +1,7 @@
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import func, select
@@ -22,6 +22,25 @@ MAX_SHUFFLE_SEED = 2_147_483_647
 
 class AttemptNotFoundError(Exception):
     """Raised when a public_id does not match any attempt."""
+
+
+class CourseExpiredError(Exception):
+    """Raised when starting an attempt on a course past its expiration date.
+
+    9.02.2: expiry is a property of the course, not of the participant, so
+    it's checked before authentication - see current-feature.md, Part 2.
+    """
+
+    def __init__(self, expires_on: date):
+        super().__init__(
+            f"This program expired on {expires_on.isoformat()} and is no longer accepting new attempts."
+        )
+        self.expires_on = expires_on
+
+
+class NotAuthenticatedError(Exception):
+    """Raised when starting an attempt while signed out, once the course's
+    own expiry has already been checked - see CourseExpiredError."""
 
 
 class WatchRequirementNotMetError(Exception):
@@ -169,7 +188,9 @@ def _enforce_retake_policy(db: Session, course: Course, user_id: int) -> None:
                 raise RetakeCooldownError(retry_at)
 
 
-def start_attempt(db: Session, slug: str, user: User, viewer_id: uuid.UUID) -> AttemptStartResult | None:
+def start_attempt(
+    db: Session, slug: str, user: User | None, viewer_id: uuid.UUID
+) -> AttemptStartResult | None:
     stmt = (
         select(Course)
         .where(Course.slug == slug, Course.is_published.is_(True))
@@ -178,6 +199,16 @@ def start_attempt(db: Session, slug: str, user: User, viewer_id: uuid.UUID) -> A
     course = db.execute(stmt).scalar_one_or_none()
     if course is None:
         return None
+
+    # Feature 019 established authenticate, then gate, then policy. Expiry is
+    # a property of the course, not of the participant, so it goes first -
+    # telling someone how much video is left on a program they cannot take
+    # is worse than useless. See current-feature.md, Part 2.
+    if course.expires_on is not None and course.expires_on < datetime.now(timezone.utc).date():
+        raise CourseExpiredError(course.expires_on)
+
+    if user is None:
+        raise NotAuthenticatedError("Sign in required")
 
     question_count = courses_service.published_question_count(db, course.id, kind=QUESTION_KIND_ASSESSMENT)
     if question_count == 0:

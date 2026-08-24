@@ -1559,3 +1559,42 @@ page showed the correct response count/rate/means/comment, and a
 freshly-created empty course showed the plain no-responses message instead
 of an empty table. Seeded course, attempts, and users cleaned up from the
 dev database afterward.
+
+## 2026-08-23, Feature 026, Policies, disclosures, and content currency
+Refund/cancellation, complaint resolution, records retention, and program
+cancellation now exist as real editable `policies` rows (migration
+`c101e414d784`, seeded with an unmistakable placeholder rather than invented
+text) served at `GET /policies`/`GET /policies/{slug}` and edited via
+`PATCH /admin/policies/{slug}`; `validate_for_publish` refuses to publish any
+course while any of the four is still placeholder, naming which, and the
+public pages render at `/policies/{slug}`, linked from a new site footer and,
+for the two 8.01.1 names, from `CourseDetail`'s pre-enrollment disclosure
+block. Rendered through a small hand-rolled markdown subset
+(`frontend/src/lib/markdown.js`) rather than a new dependency or a rich text
+editor. Courses gained `expires_on` (9.02.2): required to publish, disclosed
+beside credit and last-reviewed date, defaulted client-side to the review
+date plus one year the first time a review is recorded but always editable,
+and excluded from `content_updated_at`'s bump (joining the review-chain
+fields) so extending it doesn't force a re-review. An expired course is
+excluded from the public catalog but stays reachable and published rather
+than being pulled out from under anyone; `start_attempt` now checks expiry
+before authentication (a property of the course, not the participant) and
+refuses a new attempt with the expiration date named, never a 404. A new
+`GET /admin/currency` dashboard (`app/services/currency.py`, four read-only
+queries) reports courses overdue for review, due within 60 days, published
+but edited since their last review (021's recorded-but-unenforced gap), and
+expired or expiring within 60 days - each sorted worst first, a course
+appearing in more than one section when it qualifies, reusing `Stats.jsx`'s
+table treatment rather than a second one. Confirmed by reading the codebase,
+not assumed, that 8.01.1's "schedule of events for concurrent/bundled
+programs" clause is not applicable: abacadaba has no concept of bundling
+several programs or non-CPE activities together. Verified live against a
+real dev database via a scripted Playwright session: edited a policy and
+watched it appear at its public URL and clear a publish refusal for two
+courses at once, created a course and watched the publish checklist show
+both new rules, set an expiration date and saved it, and confirmed the
+currency dashboard's four sections render with no console errors. Backend
+suite: 329 tests (304 existing + 25 new) pass; `npm run lint` and
+`npm run build` pass. A draft-and-version model for courses, emailing anyone
+about anything overdue, and a complaint intake workflow remain out of scope,
+as specified.

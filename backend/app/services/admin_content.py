@@ -23,6 +23,7 @@ from app.models.question import QUESTION_KIND_ASSESSMENT, QUESTION_KIND_REVIEW, 
 from app.models.source import Source
 from app.models.subject_matter_expert import SubjectMatterExpert
 from app.services import objective_coverage
+from app.services import policies as policies_service
 from app.services import sponsor_profile as sponsor_profile_service
 
 MIN_CHOICES_PER_QUESTION = 2
@@ -38,13 +39,19 @@ MIN_CHOICES_PER_QUESTION = 2
 # reintroduce that exact bug the moment a reviewer also touches the cycle,
 # which was caught live in browser testing. The seven credit_* fields get
 # the same treatment for the same reason (feature 022): storing a computed
-# credit must not itself make the credit stale.
+# credit must not itself make the credit stale. expires_on (feature 026)
+# joins the set for the same structural reason though a different rule
+# motivates it: it's an administrative deadline (9.02.2), not educational
+# material a content reviewer checks for accuracy, so a sponsor extending it
+# shouldn't force a full re-review any more than recording the review itself
+# should stale the review.
 REVIEW_CHAIN_FIELDS = {
     "developer_id",
     "reviewer_id",
     "reviewed_at",
     "review_notes",
     "review_cycle",
+    "expires_on",
     "credit_award",
     "credit_raw_minutes",
     "credit_word_count",
@@ -331,6 +338,18 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
             "Complete it on the sponsor settings page before publishing."
         )
 
+    # 8.01.1/9.02: another site-wide condition, same reasoning as the sponsor
+    # profile check above - this isn't something wrong with this particular
+    # course, so the message says so and points at where to fix it rather
+    # than reading like a course-content defect.
+    unwritten_policies = policies_service.placeholder_titles(db)
+    if unwritten_policies:
+        errors.append(
+            "The sponsor's policies are not yet published: " + ", ".join(unwritten_policies) + ". "
+            "This isn't something wrong with this course - write them on the policies admin page "
+            "before any course can publish."
+        )
+
     if not course.title.strip():
         errors.append("Title is required")
     if not course.slug.strip():
@@ -352,6 +371,9 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
 
     if not course.field_of_study.strip():
         errors.append("Field of study is required")
+
+    if course.expires_on is None:
+        errors.append("An expiration date is required for self study programs (9.02.2)")
 
     if course.program_level in LEVELS_REQUIRING_PREREQUISITES:
         if not (course.prerequisites and course.prerequisites.strip()):

@@ -61,6 +61,10 @@ function CourseDetail() {
     user?.is_admin ||
     (singleLesson ? singleLessonProgress?.unlocked === true : watchStatus?.gate_met === true)
   const levelLabel = course.program_level.charAt(0).toUpperCase() + course.program_level.slice(1)
+  // ISO date strings compare lexicographically, so no Date parsing/timezone
+  // edge cases - 9.02.2.
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const isExpired = course.expires_on != null && course.expires_on < todayIso
 
   return (
     <article className={styles.detail}>
@@ -102,7 +106,18 @@ function CourseDetail() {
           <dt>CPE credit</dt>
           <dd>{course.credit_award != null ? `${course.credit_award} credit` : 'Not yet available'}</dd>
         </div>
+        <div className={styles.programDetail}>
+          <dt>Expires</dt>
+          <dd>
+            {course.expires_on != null ? new Date(course.expires_on).toLocaleDateString() : 'Not yet available'}
+          </dd>
+        </div>
       </dl>
+
+      <nav className={styles.policyLinks}>
+        <Link to="/policies/refund-and-cancellation">Refund and cancellation policy</Link>
+        <Link to="/policies/complaint-resolution">Complaint resolution policy</Link>
+      </nav>
 
       {course.reviewed_at && (
         <section className={styles.reviewInfo}>
@@ -151,7 +166,12 @@ function CourseDetail() {
         </ol>
       )}
 
-      {authLoading ? (
+      {isExpired ? (
+        <span className={styles.assessmentButtonDisabled}>
+          This program expired on {new Date(course.expires_on).toLocaleDateString()} and is no longer accepting
+          new attempts.
+        </span>
+      ) : authLoading ? (
         <span className={styles.assessmentButtonDisabled}>Checking your watch progress&hellip;</span>
       ) : !user ? (
         <Link to="/login" state={{ from: `/courses/${course.slug}` }} className={styles.assessmentButton}>

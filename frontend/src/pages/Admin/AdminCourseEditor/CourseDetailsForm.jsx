@@ -3,6 +3,18 @@ import { updateAdminCourse } from '../../../api/admin'
 import { getFieldsOfStudy, getProgramLevels } from '../../../api/meta'
 import styles from '../AdminLessonEditor/DetailsForm.module.css'
 
+// 9.02.2 item 3: "no longer than one year from the date of purchase or
+// enrollment." abacadaba has no per-enrollment purchase date, so the window
+// is measured from the course's own review date instead - see
+// app/constants/currency.py's EXPIRATION_WINDOW_DAYS, which this mirrors.
+const EXPIRATION_WINDOW_DAYS = 365
+
+function defaultExpiration(reviewedAt) {
+  const reviewed = new Date(reviewedAt)
+  const withWindow = new Date(reviewed.getTime() + EXPIRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  return withWindow.toISOString().slice(0, 10)
+}
+
 const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collapsed, onDirtyChange }, ref) {
   const [title, setTitle] = useState(course.title)
   const [slug, setSlug] = useState(course.slug)
@@ -14,6 +26,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const [fieldOfStudy, setFieldOfStudy] = useState(course.field_of_study)
   const [prerequisites, setPrerequisites] = useState(course.prerequisites ?? '')
   const [advancePreparation, setAdvancePreparation] = useState(course.advance_preparation ?? '')
+  const [expiresOn, setExpiresOn] = useState(course.expires_on ?? '')
   const [fieldsOfStudy, setFieldsOfStudy] = useState(null)
   const [programLevels, setProgramLevels] = useState(null)
 
@@ -21,6 +34,16 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
     getFieldsOfStudy().then(setFieldsOfStudy).catch(() => {})
     getProgramLevels().then(setProgramLevels).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    // Default only when nothing has ever been set - an author who has to
+    // type a date will eventually type a wrong one (current-feature.md,
+    // Part 2). Never overwrites an explicit value, on this course or typed
+    // locally.
+    if (course.expires_on == null && course.reviewed_at && expiresOn === '') {
+      setExpiresOn(defaultExpiration(course.reviewed_at))
+    }
+  }, [course.reviewed_at, course.expires_on])
 
   const titleDirty = title !== course.title
   const slugDirty = slug !== course.slug
@@ -32,6 +55,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const fieldOfStudyDirty = fieldOfStudy !== course.field_of_study
   const prerequisitesDirty = prerequisites !== (course.prerequisites ?? '')
   const advancePreparationDirty = advancePreparation !== (course.advance_preparation ?? '')
+  const expiresOnDirty = expiresOn !== (course.expires_on ?? '')
 
   const dirty =
     titleDirty ||
@@ -43,6 +67,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
     fieldOfStudyDirty ||
     prerequisitesDirty ||
     advancePreparationDirty ||
+    expiresOnDirty ||
     passPercentDirty
 
   useEffect(() => {
@@ -61,6 +86,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
         field_of_study: fieldOfStudy,
         prerequisites: prerequisites === '' ? null : prerequisites,
         advance_preparation: advancePreparation === '' ? null : advancePreparation,
+        expires_on: expiresOn === '' ? null : expiresOn,
         pass_ratio: Number(passPercent) / 100,
       }),
   }))
@@ -181,6 +207,21 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
         <p className={styles.hint}>
           Required for Intermediate, Advanced, and Update courses. Leave blank for Basic and Overview to show
           &quot;None&quot; on the course page.
+        </p>
+
+        <label className={styles.label} htmlFor="course-expires-on">
+          Expiration date
+        </label>
+        <input
+          id="course-expires-on"
+          className={`${styles.input} ${expiresOnDirty ? styles.fieldDirty : ''}`}
+          type="date"
+          value={expiresOn}
+          onChange={(event) => setExpiresOn(event.target.value)}
+        />
+        <p className={styles.hint}>
+          9.02.2: the date by which a participant must complete the qualified assessment. Required to publish.
+          Defaulted to one year past the review date once a review is recorded, but editable.
         </p>
 
         <label className={styles.label} htmlFor="course-cooldown-minutes">

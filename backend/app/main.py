@@ -7,6 +7,7 @@ from app.routers import (
     admin,
     admin_analytics,
     admin_completions,
+    admin_currency,
     admin_sponsor,
     attempts,
     auth,
@@ -15,6 +16,7 @@ from app.routers import (
     evaluations,
     health,
     meta,
+    policies,
     review,
 )
 
@@ -38,10 +40,12 @@ app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(courses.router, prefix="/api/v1")
 app.include_router(meta.router, prefix="/api/v1")
+app.include_router(policies.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(admin_analytics.router, prefix="/api/v1")
 app.include_router(admin_sponsor.router, prefix="/api/v1")
 app.include_router(admin_completions.router, prefix="/api/v1")
+app.include_router(admin_currency.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(certificates.router, prefix="/api/v1")
 app.include_router(review.router, prefix="/api/v1")

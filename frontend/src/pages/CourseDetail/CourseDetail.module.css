@@ -70,6 +70,16 @@
   color: var(--color-text);
 }
 
+.policyLinks {
+  display: flex;
+  gap: var(--space-md);
+  font-size: 13px;
+}
+
+.policyLinks a {
+  color: var(--color-text-muted);
+}
+
 .reviewInfo {
   display: flex;
   flex-direction: column;

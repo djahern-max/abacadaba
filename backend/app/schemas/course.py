@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -63,6 +63,9 @@ class CourseDetail(BaseModel):
     # 7.02.6/7.02.7 credit, disclosed before enrolment - see current-feature.md,
     # "This is a pre-enrolment disclosure". Null until an admin has computed it.
     credit_award: Decimal | None
+    # 9.02.2 item 3, disclosed alongside credit and last-reviewed date - see
+    # current-feature.md, Part 2.
+    expires_on: date | None
 
 
 class LessonSegmentDetail(BaseModel):

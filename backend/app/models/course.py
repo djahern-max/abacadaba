@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.constants.fields_of_study import DEFAULT_FIELD_OF_STUDY
@@ -66,6 +66,14 @@ class Course(Base):
     pass_ratio: Mapped[Decimal] = mapped_column(
         Numeric(3, 2), nullable=False, default=Decimal("0.70"), server_default="0.70"
     )
+    # 9.02.2 item 3: self study programs must carry an expiration date - "the
+    # time by which the participant must complete the qualified assessment."
+    # Nullable because a new course starts without one; validate_for_publish
+    # refuses to publish until it's set. An expired course stays published
+    # and reachable (feature 021's precedent for not pulling a program out
+    # from under someone) but is excluded from the public listing and
+    # refuses new attempts - see app/services/attempts.py.
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

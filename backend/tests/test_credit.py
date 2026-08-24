@@ -143,6 +143,14 @@ def add_review_chain(course_id, slug_suffix):
     assert response.status_code == 200, response.text
 
 
+def set_expiration(course_id, expires_on="2030-01-01"):
+    # Feature 026: a separate PATCH, not folded into add_review_chain's -
+    # expires_on isn't a review-chain field, so bundling it there would bump
+    # content_updated_at.
+    response = client.patch(f"/api/v1/admin/courses/{course_id}", json={"expires_on": expires_on})
+    assert response.status_code == 200, response.text
+
+
 def _publishable_course(monkeypatch, slug_suffix):
     """One 1500s A/V lesson, six questions, objective, and review chain -
     computes to 0.6 credit: (1500/60 + 6*1.85) / 50 = 0.722 -> floor(3.61)/5.
@@ -163,6 +171,7 @@ def _publishable_course(monkeypatch, slug_suffix):
     add_questions(lesson["id"], 2, kind="review")
     add_questions(lesson["id"], 4, kind="assessment", objective_id=objective["id"])
     add_review_chain(course["id"], slug_suffix)
+    set_expiration(course["id"])
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert response.status_code == 200, response.text
     return client.get(f"/api/v1/admin/courses/{course['id']}").json(), lesson

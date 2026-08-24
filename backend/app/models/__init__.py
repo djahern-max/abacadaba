@@ -5,6 +5,7 @@ from app.models.course import Course
 from app.models.evaluation import Evaluation
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
+from app.models.policy import Policy
 from app.models.question import Question
 from app.models.review_response import ReviewResponse
 from app.models.session import Session
@@ -23,6 +24,7 @@ __all__ = [
     "Attempt",
     "AttemptAnswer",
     "Evaluation",
+    "Policy",
     "ReviewResponse",
     "User",
     "Session",

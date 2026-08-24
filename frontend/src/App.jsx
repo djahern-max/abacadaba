@@ -1,11 +1,13 @@
 import { Link, Route, Routes } from 'react-router-dom'
 import Header from './components/Header/Header'
+import Footer from './components/Footer/Footer'
 import CourseList from './pages/CourseList/CourseList'
 import CourseDetail from './pages/CourseDetail/CourseDetail'
 import LessonSegment from './pages/LessonSegment/LessonSegment'
 import Quiz from './pages/Quiz/Quiz'
 import Result from './pages/Result/Result'
 import Verify from './pages/Verify/Verify'
+import Policy from './pages/Policy/Policy'
 import Login from './pages/Login/Login'
 import Register from './pages/Register/Register'
 import Progress from './pages/Progress/Progress'
@@ -15,6 +17,8 @@ import AdminCourseEditor from './pages/Admin/AdminCourseEditor/AdminCourseEditor
 import AdminLessonEditor from './pages/Admin/AdminLessonEditor/AdminLessonEditor'
 import AdminSMEList from './pages/Admin/AdminSMEList/AdminSMEList'
 import AdminSponsorSettings from './pages/Admin/AdminSponsorSettings/AdminSponsorSettings'
+import AdminPolicies from './pages/Admin/AdminPolicies/AdminPolicies'
+import AdminCurrency from './pages/Admin/AdminCurrency/AdminCurrency'
 import AdminCompletions from './pages/Admin/AdminCompletions/AdminCompletions'
 import Stats from './pages/Admin/Stats/Stats'
 import Evaluations from './pages/Admin/Evaluations/Evaluations'
@@ -41,6 +45,7 @@ function App() {
           <Route path="/courses/:slug/quiz" element={<Quiz />} />
           <Route path="/attempts/:attemptId" element={<Result />} />
           <Route path="/verify/:code" element={<Verify />} />
+          <Route path="/policies/:slug" element={<Policy />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/me" element={<Progress />} />
@@ -101,6 +106,22 @@ function App() {
             }
           />
           <Route
+            path="/admin/policies"
+            element={
+              <AdminGuard>
+                <AdminPolicies />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/currency"
+            element={
+              <AdminGuard>
+                <AdminCurrency />
+              </AdminGuard>
+            }
+          />
+          <Route
             path="/admin/completions"
             element={
               <AdminGuard>
@@ -111,6 +132,7 @@ function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
+      <Footer />
     </div>
   )
 }

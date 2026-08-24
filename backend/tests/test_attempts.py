@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -148,6 +149,67 @@ def test_starting_an_attempt_returns_a_uuid_and_question_count():
 def test_starting_an_attempt_while_signed_out_returns_401():
     response = client.post(f"/api/v1/courses/{COURSE_SLUG}/attempts")
     assert response.status_code == 401
+
+
+EXPIRED_COURSE_SLUG = "test-course-attempts-expired"
+
+
+@pytest.fixture
+def expired_course():
+    db = SessionLocal()
+    course = Course(
+        slug=EXPIRED_COURSE_SLUG,
+        title="Course That Has Expired",
+        description="Used to test 9.02.2's expiration refusal.",
+        is_published=True,
+        expires_on=date.today() - timedelta(days=1),
+    )
+    db.add(course)
+    db.flush()
+
+    lesson = Lesson(
+        course_id=course.id,
+        position=1,
+        slug=f"{EXPIRED_COURSE_SLUG}-lesson",
+        title="Lesson For Expired Course",
+        description="d",
+        duration_seconds=300,
+        is_published=True,
+        required_watch_ratio=0,
+    )
+    db.add(lesson)
+    db.flush()
+
+    question = Question(lesson_id=lesson.id, prompt="Question?", position=1)
+    question.choices = [Choice(text="A", is_correct=True, position=1), Choice(text="B", is_correct=False, position=2)]
+    db.add(question)
+    db.commit()
+    db.close()
+
+    yield
+
+    db = SessionLocal()
+    db.execute(delete(Course).where(Course.slug == EXPIRED_COURSE_SLUG))
+    db.commit()
+    db.close()
+
+
+def test_starting_an_attempt_on_an_expired_course_is_refused_with_a_reason_not_a_404(expired_course):
+    # 9.02.2/current-feature.md: a participant who bookmarked an expired
+    # program deserves to know why, not a bare "not found."
+    ensure_signed_in()
+    response = client.post(f"/api/v1/courses/{EXPIRED_COURSE_SLUG}/attempts")
+    assert response.status_code == 403
+    assert "expired" in response.json()["detail"].lower()
+
+
+def test_starting_an_attempt_on_an_expired_course_while_signed_out_still_names_the_expiry(expired_course):
+    # Expiry is a property of the course, not of the participant, so it's
+    # checked before authentication - a signed-out visitor gets the same
+    # reason a signed-in one would, not a generic sign-in prompt.
+    response = client.post(f"/api/v1/courses/{EXPIRED_COURSE_SLUG}/attempts")
+    assert response.status_code == 403
+    assert "expired" in response.json()["detail"].lower()
 
 
 def test_answering_all_five_correctly_gives_score_five_and_passed_true():

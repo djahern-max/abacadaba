@@ -4,10 +4,11 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.constants.fields_of_study import NON_CPE
+from app.constants.policies import PLACEHOLDER_BODY
 from app.db import SessionLocal
 from app.main import app
 from app.models.attempt import Attempt
@@ -15,6 +16,7 @@ from app.models.attempt_answer import AttemptAnswer
 from app.models.choice import Choice
 from app.models.course import Course
 from app.models.lesson import Lesson
+from app.models.policy import Policy
 from app.models.question import Question
 from app.models.session import Session as SessionModel
 from app.models.source import Source
@@ -222,6 +224,15 @@ def add_review_chain(course_id, slug_suffix, developer_overrides=None, reviewer_
     )
     assert response.status_code == 200, response.text
     return developer, reviewer
+
+
+def set_expiration(course_id, expires_on="2030-01-01"):
+    # A separate PATCH, not folded into add_review_chain's - expires_on is
+    # not a review-chain field, so bundling it there would bump
+    # content_updated_at and break
+    # test_recording_a_review_does_not_change_content_updated_at.
+    response = client.patch(f"/api/v1/admin/courses/{course_id}", json={"expires_on": expires_on})
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("method,path", ADMIN_ROUTES)
@@ -573,6 +584,7 @@ def _make_publishable_course(slug_suffix, monkeypatch, **course_overrides):
     response = client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
     assert response.status_code == 200, response.text
     add_review_chain(course["id"], slug_suffix)
+    set_expiration(course["id"])
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert response.status_code == 200, response.text
     course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
@@ -590,6 +602,72 @@ def test_publish_with_incomplete_sponsor_profile_returns_422_naming_missing_fiel
     assert response.status_code == 422
     errors = response.json()["detail"]
     assert any("sponsor name" in error and "NASBA sponsor registry ID" in error for error in errors)
+
+
+# --- policies and expiration (feature 026) -----------------------------------
+
+
+def test_publish_with_a_placeholder_policy_returns_422_naming_it(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("placeholder-policy", monkeypatch)
+
+    db = SessionLocal()
+    db.execute(
+        update(Policy).where(Policy.slug == "refund-and-cancellation").values(body=PLACEHOLDER_BODY)
+    )
+    db.commit()
+    db.close()
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("Refund and Cancellation Policy" in error for error in errors)
+
+
+def test_editing_a_policy_clears_the_publish_refusal_for_every_course_at_once(monkeypatch):
+    login_admin()
+    course_a, _ = _make_publishable_course("policy-clears-a", monkeypatch)
+    course_b, _ = _make_publishable_course("policy-clears-b", monkeypatch)
+
+    db = SessionLocal()
+    db.execute(
+        update(Policy).where(Policy.slug == "complaint-resolution").values(body=PLACEHOLDER_BODY)
+    )
+    db.commit()
+    db.close()
+
+    for course in (course_a, course_b):
+        response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+        assert response.status_code == 422
+        assert any("Complaint Resolution Policy" in error for error in response.json()["detail"])
+
+    write = client.patch(
+        "/api/v1/admin/policies/complaint-resolution", json={"body": "Real complaint text."}
+    )
+    assert write.status_code == 200, write.text
+
+    for course in (course_a, course_b):
+        response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+        assert response.status_code == 200, response.text
+
+
+def test_publish_without_an_expiration_date_returns_422(monkeypatch):
+    login_admin()
+    course = create_course("no-expiration", description="A complete test course.")
+    lesson = course["lessons"][0]
+    objective = add_objective(course["id"])
+    add_complete_questions(lesson["id"], count=2, objective_id=objective["id"])
+    upload_video(lesson["slug"], monkeypatch)
+    client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 600})
+    add_review_chain(course["id"], "no-expiration")
+    # Deliberately no set_expiration() call.
+    credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
+    assert credit.status_code == 200, credit.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("expiration date" in error for error in errors)
 
 
 def test_create_course_defaults_to_basic_level_and_non_cpe_field():
@@ -937,6 +1015,7 @@ def test_taxes_course_with_enrolled_agent_as_reviewer_publishes(monkeypatch):
         },
     )
     assert response.status_code == 200
+    set_expiration(course["id"])
 
     response = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert response.status_code == 200, response.text
@@ -1198,6 +1277,7 @@ def _build_hazardous_waste_course(slug_suffix, monkeypatch, av_seconds_per_lesso
             )
 
     add_review_chain(course["id"], slug_suffix)
+    set_expiration(course["id"])
     credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert credit.status_code == 200, credit.text
     course = client.get(f"/api/v1/admin/courses/{course['id']}").json()
@@ -1236,6 +1316,7 @@ def test_publish_at_0_4_credit_with_exactly_the_floor_counts_succeeds(monkeypatc
     upload_video(lesson["slug"], monkeypatch)
     client.patch(f"/api/v1/admin/lessons/{lesson['id']}", json={"duration_seconds": 1000})
     add_review_chain(course["id"], "floor-exact-0-4")
+    set_expiration(course["id"])
     credit = client.post(f"/api/v1/admin/courses/{course['id']}/credit")
     assert credit.status_code == 200, credit.text
     award = Decimal(str(client.get(f"/api/v1/admin/courses/{course['id']}").json()["credit_award"]))

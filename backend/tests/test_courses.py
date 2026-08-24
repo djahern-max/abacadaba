@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
@@ -12,7 +14,8 @@ client = TestClient(app)
 PUBLISHED_SLUG = "test-published-course"
 UNPUBLISHED_SLUG = "test-unpublished-course"
 SINGLE_LESSON_SLUG = "test-single-lesson-course"
-ALL_TEST_SLUGS = [PUBLISHED_SLUG, UNPUBLISHED_SLUG, SINGLE_LESSON_SLUG]
+EXPIRED_SLUG = "test-expired-course"
+ALL_TEST_SLUGS = [PUBLISHED_SLUG, UNPUBLISHED_SLUG, SINGLE_LESSON_SLUG, EXPIRED_SLUG]
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +79,15 @@ def seed_test_courses():
             duration_seconds=300,
             is_published=True,
             video_key="lessons/should-never-leak.mp4",
+        )
+    )
+    db.add(
+        Course(
+            slug=EXPIRED_SLUG,
+            title="Expired Test Course",
+            description="A published course past its 9.02.2 expiration date.",
+            is_published=True,
+            expires_on=date.today() - timedelta(days=1),
         )
     )
     db.commit()
@@ -151,3 +163,21 @@ def test_single_lesson_course_payload_discloses_metadata_and_omits_video_url():
     assert body["field_of_study"]
     assert body["prerequisites"] == "None"
     assert body["advance_preparation"] == "None"
+
+
+# --- expiration (feature 026, 9.02.2) ----------------------------------------
+
+
+def test_expired_course_does_not_appear_in_the_public_list():
+    response = client.get("/api/v1/courses")
+    slugs = [course["slug"] for course in response.json()]
+    assert EXPIRED_SLUG not in slugs
+
+
+def test_expired_course_detail_page_stays_reachable_not_404():
+    # 9.02.2: "not found" is a lie - a bookmarked expired course still
+    # resolves and discloses why, rather than being pulled out from under
+    # anyone (the same reasoning feature 021 applied to a stale review).
+    response = client.get(f"/api/v1/courses/{EXPIRED_SLUG}")
+    assert response.status_code == 200
+    assert response.json()["expires_on"] == str(date.today() - timedelta(days=1))

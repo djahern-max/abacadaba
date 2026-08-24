@@ -187,6 +187,9 @@ class AdminCourseUpdate(BaseModel):
     field_of_study: str | None = None
     prerequisites: str | None = None
     advance_preparation: str | None = None
+    # 9.02.2 item 3: the qualified-assessment deadline this course's
+    # documentation must carry.
+    expires_on: date | None = None
     developer_id: int | None = None
     reviewer_id: int | None = None
     reviewed_at: datetime | None = None
@@ -231,6 +234,7 @@ class AdminCourse(BaseModel):
     field_of_study: str
     prerequisites: str | None
     advance_preparation: str | None
+    expires_on: date | None
     is_published: bool
     lessons: list[AdminLesson]
     learning_objectives: list[AdminObjective]

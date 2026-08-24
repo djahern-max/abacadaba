@@ -1,0 +1,4 @@
+.form {
+  composes: form from '../AdminSponsorSettings/AdminSponsorSettings.module.css';
+  max-width: 720px;
+}

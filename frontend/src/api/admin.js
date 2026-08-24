@@ -249,6 +249,18 @@ export function uploadAdminCourseThumbnail(courseId, file, onProgress) {
   return uploadFile(`${BASE_URL}/api/v1/admin/courses/${courseId}/thumbnail`, file, onProgress)
 }
 
+// --- policies --------------------------------------------------------------------
+
+export function updateAdminPolicy(slug, payload) {
+  return apiFetch(`/api/v1/admin/policies/${slug}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+// --- currency dashboard ------------------------------------------------------------
+
+export function getAdminCurrency() {
+  return apiFetch('/api/v1/admin/currency')
+}
+
 // --- sponsor profile -----------------------------------------------------------
 
 export function getAdminSponsor() {

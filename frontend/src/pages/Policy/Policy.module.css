@@ -1,0 +1,65 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-md);
+  max-width: 680px;
+  margin: var(--space-xl) auto 0;
+}
+
+.back {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.updated {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.body {
+  line-height: 1.7;
+}
+
+.body :global(h2) {
+  font-size: 20px;
+  font-weight: 600;
+  margin: var(--space-md) 0 0;
+}
+
+.body :global(h3) {
+  font-size: 17px;
+  font-weight: 600;
+  margin: var(--space-md) 0 0;
+}
+
+.body :global(p) {
+  margin: var(--space-sm) 0 0;
+}
+
+.body :global(ul) {
+  margin: var(--space-sm) 0 0;
+  padding-left: var(--space-lg);
+}
+
+.placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) 0;
+  color: var(--color-text-muted);
+  text-align: center;
+}

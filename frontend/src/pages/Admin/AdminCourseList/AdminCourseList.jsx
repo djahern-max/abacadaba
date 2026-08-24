@@ -42,6 +42,12 @@ function AdminCourseList() {
           <Link to="/admin/sponsor" className={styles.smeLink}>
             Sponsor settings
           </Link>
+          <Link to="/admin/policies" className={styles.smeLink}>
+            Policies
+          </Link>
+          <Link to="/admin/currency" className={styles.smeLink}>
+            Currency
+          </Link>
           <Link to="/admin/completions" className={styles.smeLink}>
             Completions
           </Link>

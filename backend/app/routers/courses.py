@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.dependencies import get_current_user, get_viewer_id, require_user
+from app.dependencies import get_current_user, get_viewer_id
 from app.models.course import Course
 from app.models.user import User
 from app.schemas.attempt import AttemptStart
@@ -213,11 +213,15 @@ def get_quiz(slug: str, attempt_id: uuid.UUID | None = None, db: Session = Depen
 def start_attempt(
     slug: str,
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User | None = Depends(get_current_user),
     viewer_id: uuid.UUID = Depends(get_viewer_id),
 ):
     try:
         result = attempts_service.start_attempt(db, slug, user, viewer_id)
+    except attempts_service.CourseExpiredError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except attempts_service.NotAuthenticatedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except attempts_service.WatchRequirementNotMetError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except attempts_service.MaxAttemptsExceededError as exc:
