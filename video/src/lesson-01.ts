@@ -75,7 +75,7 @@ export const meta = {
   subtitle: "Four characteristics, four lists",
   eyebrow: "Lesson 01",
   fieldOfStudy: "ESG/Sustainability",
-  status: "DRAFT — NOT REVIEWED",
+  status: "",
 };
 
 export const blocks: Block[] = [
