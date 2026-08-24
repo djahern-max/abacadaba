@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.constants.delivery_methods import DELIVERY_METHOD_SELF_STUDY
+from app.constants.registry_status import REGISTRY_STATUS_REGISTERED
 from app.models.attempt import Attempt
 from app.models.question import QUESTION_KIND_ASSESSMENT
 from app.services import courses as courses_service
@@ -23,8 +24,20 @@ from app.services import sponsor_profile as sponsor_profile_service
 # 9.01 item 10: "NASBA time statement stating that CPE credits have been
 # granted on a 50-minute hour." Fixed text, not attempt data - identical on
 # every certificate abacadaba has ever issued or ever will, so it needs no
-# snapshot column.
+# snapshot column. Feature 027: only true, and only printed, when the
+# sponsor was registered at claim time - see NOT_REGISTERED_NOTICE below.
 NASBA_TIME_STATEMENT = "CPE credit has been granted based on a 50-minute hour, per NASBA Standards."
+
+# Feature 027: printed in place of the NASBA fields above, in the same
+# weight as the participant's name rather than as fine print, whenever the
+# sponsor was not registered with NASBA at claim time. Suppressing the
+# boilerplate leaves the document silent about registration; this makes it
+# explicit instead - see current-feature.md, "Silence is what an author
+# skimming a PDF fails to notice."
+NOT_REGISTERED_NOTICE_LINES = (
+    "This program is not offered by a sponsor registered with NASBA,",
+    "and completion does not earn CPE credit.",
+)
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no O, 0, I, 1, L
 _CODE_LENGTH = 12
@@ -63,8 +76,11 @@ class CertificateData:
     delivery_method: str
     credit_award: Decimal | None
     sponsor_name: str
-    sponsor_registry_id: str
+    # None whenever registry_status is not "registered" - absent, not "N/A"
+    # and not blank. See current-feature.md, Part 2.
+    sponsor_registry_id: str | None
     sponsor_state_registry_ids: str | None
+    registry_status: str
     issued_at: datetime | None
 
 
@@ -91,6 +107,17 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
     course_slug = attempt.course.slug
 
     if attempt.cert_course_title is not None:
+        registry_status = attempt.cert_registry_status
+        if registry_status is None:
+            # Claimed after 024 shipped but before 027 did, so every other
+            # cert_* column was frozen except this one, which didn't exist
+            # yet. Reading it live for this one field only is the same
+            # honest fallback the pre-024 branch below already uses for a
+            # whole record - see current-feature.md's backend task 1.
+            registry_status = sponsor_profile_service.get_sponsor_profile(db).registry_status
+        sponsor_registry_id = (
+            attempt.cert_sponsor_registry_id if registry_status == REGISTRY_STATUS_REGISTERED else None
+        )
         return CertificateData(
             certificate_code=attempt.certificate_code,
             recipient_name=attempt.recipient_name,
@@ -104,8 +131,9 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
             delivery_method=attempt.cert_delivery_method,
             credit_award=attempt.cert_credit_award,
             sponsor_name=attempt.cert_sponsor_name,
-            sponsor_registry_id=attempt.cert_sponsor_registry_id,
+            sponsor_registry_id=sponsor_registry_id,
             sponsor_state_registry_ids=attempt.cert_sponsor_state_registry_ids,
+            registry_status=registry_status,
             issued_at=attempt.cert_issued_at,
         )
 
@@ -116,6 +144,7 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
     # course may have changed since); reading live, as these always have,
     # is the more honest of the two options current-feature.md offered.
     sponsor = sponsor_profile_service.get_sponsor_profile(db)
+    live_registry_id = sponsor.national_registry_id if sponsor.registry_status == REGISTRY_STATUS_REGISTERED else None
     return CertificateData(
         certificate_code=attempt.certificate_code,
         recipient_name=attempt.recipient_name,
@@ -131,8 +160,9 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         delivery_method=DELIVERY_METHOD_SELF_STUDY,
         credit_award=attempt.course.credit_award,
         sponsor_name=sponsor.name,
-        sponsor_registry_id=sponsor.national_registry_id,
+        sponsor_registry_id=live_registry_id,
         sponsor_state_registry_ids=sponsor.state_registry_ids,
+        registry_status=sponsor.registry_status,
         issued_at=None,
     )
 
@@ -174,6 +204,7 @@ def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | N
         attempt.cert_sponsor_name = sponsor.name
         attempt.cert_sponsor_registry_id = sponsor.national_registry_id
         attempt.cert_sponsor_state_registry_ids = sponsor.state_registry_ids
+        attempt.cert_registry_status = sponsor.registry_status
         attempt.cert_issued_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(attempt)
@@ -250,11 +281,30 @@ def render_pdf(info: CertificateData) -> bytes:
     pdf.setFont("Helvetica", 14)
     pdf.drawCentredString(width / 2, height - 345, f"{score_text}  —  {date_text}")
 
+    is_registered = info.registry_status == REGISTRY_STATUS_REGISTERED
+
+    block_top = height - 385
+    if not is_registered:
+        # Feature 027: same bold weight as the participant's name above, not
+        # fine print - see NOT_REGISTERED_NOTICE_LINES above. Pushes the
+        # fields block down to make room.
+        pdf.setFillColorRGB(0.6, 0, 0)
+        notice_y = height - 372
+        for line in NOT_REGISTERED_NOTICE_LINES:
+            notice_size = _fit_font_size(pdf, line, "Helvetica-Bold", max_text_width, 15, min_size=10)
+            pdf.setFont("Helvetica-Bold", notice_size)
+            pdf.drawCentredString(width / 2, notice_y, line)
+            notice_y -= 18
+        pdf.setFillGray(0.1)
+        block_top = notice_y - 12
+
     # Section 9.01's required documentation fields not already covered by
     # the centred lines above (participant name, course title, date of
     # completion), laid out as a labelled block rather than more centred
     # lines - current-feature.md's own instruction, since this is now a
-    # fairly full page rather than a sparse one. Two columns of three rows.
+    # fairly full page rather than a sparse one. Two columns of rows.
+    # NASBA Sponsor Registry ID is omitted outright when unregistered - not
+    # "N/A", not blank, absent - per current-feature.md, Part 2.
     credit_text = f"{info.credit_award} CPE credit(s)" if info.credit_award is not None else "—"
     state_registry_text = info.sponsor_state_registry_ids or "None"
     fields = [
@@ -262,23 +312,28 @@ def render_pdf(info: CertificateData) -> bytes:
         ("Type of Formal Learning Program", info.delivery_method),
         ("CPE Credit Awarded", credit_text),
         ("Sponsor", info.sponsor_name),
-        ("NASBA Sponsor Registry ID", info.sponsor_registry_id),
-        ("State Registry ID(s)", state_registry_text),
     ]
+    if is_registered:
+        fields.append(("NASBA Sponsor Registry ID", info.sponsor_registry_id))
+    fields.append(("State Registry ID(s)", state_registry_text))
+
     col_gap = 24
     column_width = (max_text_width - col_gap) / 2
     row_height = 34
-    block_top = height - 385
     for index, (label, value) in enumerate(fields):
         row, col = divmod(index, 2)
         x = margin + col * (column_width + col_gap)
         y = block_top - row * row_height
         _draw_field(pdf, x, y, column_width, label, value)
 
-    statement_y = block_top - 3 * row_height - 6
-    pdf.setFont("Helvetica-Oblique", 8)
-    pdf.setFillGray(0.4)
-    pdf.drawCentredString(width / 2, statement_y, NASBA_TIME_STATEMENT)
+    # 9.01 item 10, only true of a registered sponsor - omitted, not printed
+    # and then contradicted by the notice above, when unregistered.
+    if is_registered:
+        row_count = -(-len(fields) // 2)  # ceil
+        statement_y = block_top - row_count * row_height - 6
+        pdf.setFont("Helvetica-Oblique", 8)
+        pdf.setFillGray(0.4)
+        pdf.drawCentredString(width / 2, statement_y, NASBA_TIME_STATEMENT)
 
     verify_url = f"{settings.site_url}/verify/{info.certificate_code}"
     pdf.setFont("Helvetica", 9)

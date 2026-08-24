@@ -17,11 +17,29 @@ class SponsorProfile(Base):
     always something to edit."""
 
     __tablename__ = "sponsor_profile"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_sponsor_profile_singleton"),)
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_sponsor_profile_singleton"),
+        CheckConstraint(
+            "registry_status IN ('not_registered', 'registered')",
+            name="ck_sponsor_profile_registry_status_valid",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
     national_registry_id: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    # Feature 027. Every other field this app can compute, it derives rather
+    # than stores (019a's is_placeholder, 022's credit staleness) - this one
+    # is a deliberate exception. Whether abacadaba is on the National
+    # Registry is a fact about the world, not something inferable from the
+    # shape of national_registry_id: a plausible six-digit string is not
+    # evidence, and format-sniffing it would produce a confident wrong
+    # answer. The sponsor has to state it. Defaults to 'not_registered' so a
+    # fresh database, and the pre-existing seeded row, are both honest
+    # without anyone doing anything.
+    registry_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="not_registered", server_default="not_registered"
+    )
     # Free form because a sponsor registered with individual state boards
     # carries more than one (9.01 item 9, "if required by the state
     # boards") - not every sponsor has one at all.

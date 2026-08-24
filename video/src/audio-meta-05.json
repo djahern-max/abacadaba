@@ -1,0 +1,34 @@
+{
+  "block-01": {
+    "durationSeconds": 55.585,
+    "reveals": [
+      20.724,
+      32.555,
+      43.631
+    ],
+    "hash": "9e19e6c33532",
+    "generatedAt": "2026-08-24T14:10:10.536Z"
+  },
+  "block-02": {
+    "durationSeconds": 49.687,
+    "reveals": [
+      5.364,
+      16.126,
+      23.51,
+      33.494
+    ],
+    "hash": "695542917c35",
+    "generatedAt": "2026-08-24T14:10:18.945Z"
+  },
+  "block-03": {
+    "durationSeconds": 55.631,
+    "reveals": [
+      6.734,
+      14.094,
+      24.346,
+      43.526
+    ],
+    "hash": "97f4b28c7a39",
+    "generatedAt": "2026-08-24T14:10:28.251Z"
+  }
+}

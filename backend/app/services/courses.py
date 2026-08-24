@@ -9,6 +9,7 @@ from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
+from app.services import sponsor_profile as sponsor_profile_service
 
 
 @dataclass
@@ -45,6 +46,11 @@ class CourseWithLessons:
     reviewer: SMESummary | None
     credit_award: Decimal | None
     expires_on: date | None
+    # Feature 027: a live read, not a snapshot - unlike a certificate, this
+    # page describes the sponsor's current state, not a historical claim, so
+    # there is nothing here to freeze. See the pre-enrollment disclosure
+    # reasoning in current-feature.md's frontend task 3.
+    sponsor_registry_status: str
 
 
 @dataclass
@@ -134,6 +140,7 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         else None,
         credit_award=course.credit_award,
         expires_on=course.expires_on,
+        sponsor_registry_status=sponsor_profile_service.get_sponsor_profile(db).registry_status,
     )
 
 

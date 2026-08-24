@@ -1598,3 +1598,78 @@ suite: 329 tests (304 existing + 25 new) pass; `npm run lint` and
 `npm run build` pass. A draft-and-version model for courses, emailing anyone
 about anything overdue, and a complaint intake workflow remain out of scope,
 as specified.
+
+## 2026-08-24, Feature 027, Sponsor registration state
+abacadaba is not a registered NASBA CPE sponsor, and its certificates no
+longer imply otherwise. `sponsor_profile` gained `registry_status`
+(`'not_registered'`/`'registered'`, `NOT NULL`, server default
+`'not_registered'`, migration `2f6c9b1a4d3e`) - stored, not derived, as a
+deliberate exception to the derived-not-stored rule 019a/022/026 followed:
+whether abacadaba is on the National Registry is a fact about the world, and
+no amount of inspecting `national_registry_id`'s text can determine it, so
+the sponsor has to state it (see the model's own docstring). `attempts`
+gained the matching snapshot column, `cert_registry_status`, written once at
+claim time by `claim_certificate` alongside the other `cert_*` columns 024
+added; `_to_data` falls back to a live read of the sponsor's current
+`registry_status` only for the narrow window of certificates claimed after
+024 shipped but before this feature did (every other field on those was
+already frozen) - the dev database had zero claimed certificates at
+migration time, so nothing actually renders under that fallback today, but
+the code path is real and tested. A certificate issued while unregistered
+omits the NASBA time statement and the registry ID field outright (absent,
+not blank, not "N/A") and instead prints, in the same bold weight as the
+participant's name rather than as fine print, that the program is not
+offered by a NASBA-registered sponsor and completion does not earn CPE
+credit (`app/services/certificates.py`'s `render_pdf`, gated on
+`registry_status` alone - not on whether `national_registry_id` happens to
+be blank, since an admin can still type a number while unregistered and the
+suppression must not depend on them not doing that). `Verify.jsx` and the
+`/certificates/{code}` payload branch on the same `registry_status` field
+`render_pdf` does, proven with a dedicated agreement test rather than
+assumed. `sponsor_profile.py`'s `REQUIRED_FIELDS` module constant is now
+`required_fields(profile)`: `name` stays required unconditionally (9.01 item
+1), `national_registry_id` only once `registry_status` is `"registered"` -
+today's gate had it backwards, compelling an unregistered sponsor to invent
+a registry ID just to publish, which is a worse outcome than the missing
+field it was written to prevent. `AdminSponsorSettings.jsx` gained a plain
+two-option "NASBA registry status" select (not a checkbox - a checkbox
+labelled "registered" invites an idle click) with a hint explaining what
+registered means, placed before the registry ID field, which now shows a
+required marker only while registered. Frontend task 3's judgment call: yes,
+`CourseDetail.jsx` shows the same not-registered notice before enrollment,
+not only after - a participant deciding whether to spend an hour deserves to
+know before, the same "before, not after" reasoning 8.01's disclosure
+already rests on. This needed one new field on the public course payload,
+`sponsor_registry_status` (`CourseWithLessons`/`CourseDetail` schema) - a
+live read from `courses_service.get_with_lessons`, not a snapshot, since a
+course page describes the sponsor's current state rather than a historical
+claim the way a certificate does. Verified end to end against a live dev
+database via a scripted Playwright session plus direct PDF inspection (no
+`poppler` in this environment, so `sips`/QuickLook rendered the PDFs to PNG
+instead): the sponsor settings select toggling the registry-ID required
+marker live; a course published under each `registry_status` rendering the
+correct pre-enrollment notice (or its absence) on `CourseDetail`; and both
+the resulting certificate PDF and its `/verify/:code` page for each state,
+confirming the registered path is pixel-for-pixel unchanged from 024's
+original layout and the unregistered path cleanly omits both NASBA fields
+in favor of the bold notice. Backend suite: 343 tests (329 existing + 14
+new) pass; `npm run lint` and `npm run build` pass.
+
+Two things this feature deliberately did not touch, per current-feature.md's
+own scope. First, whether the program-cancellation policy's stated grace
+period matches what unpublishing actually does to in-progress attempts -
+read, not built, per current-feature.md's instruction: `unpublish_course`
+(`app/services/admin_content.py`) does nothing but flip `is_published` to
+`False`; `start_attempt` (`app/services/attempts.py`) refuses a *new*
+attempt on an unpublished course immediately (no grace window), but nothing
+anywhere - answering a question, completing an attempt, claiming a
+certificate - checks `is_published` at all, so an attempt already
+in progress when a course is unpublished is completely unaffected and can
+run to completion and claim a certificate whenever the participant likes.
+The dev database's `program-cancellation` policy is still unwritten
+placeholder/test content with no stated grace period to compare against, so
+there is nothing to disagree with yet; if an admin later writes a policy
+promising a specific grace window, the code above is the actual behavior to
+check it against. Second, the NASBA escalation paragraph in the complaint
+resolution policy body, which is human-written text in a table row this
+feature has no business generating or rewriting.

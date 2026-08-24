@@ -6,7 +6,25 @@ import styles from './AdminSponsorSettings.module.css'
 
 const FIELDS = [
   { name: 'name', label: 'Sponsor name', type: 'input' },
-  { name: 'national_registry_id', label: 'NASBA sponsor registry ID', type: 'input' },
+  {
+    name: 'registry_status',
+    label: 'NASBA registry status',
+    type: 'select',
+    options: [
+      { value: 'not_registered', label: 'Not registered' },
+      { value: 'registered', label: 'Registered' },
+    ],
+    hint:
+      'Registered means abacadaba currently holds active National Registry status with NASBA. ' +
+      'Certificates are only allowed to carry the NASBA time statement and a registry ID while this is true; ' +
+      'unregistered certificates instead carry a plain notice that completion does not earn CPE credit.',
+  },
+  {
+    name: 'national_registry_id',
+    label: 'NASBA sponsor registry ID',
+    type: 'input',
+    requiredWhen: (values) => values.registry_status === 'registered',
+  },
   {
     name: 'state_registry_ids',
     label: 'State registry ID(s)',
@@ -57,6 +75,7 @@ function AdminSponsorSettings() {
         website: values.website,
         contact_email: values.contact_email,
         address: values.address,
+        registry_status: values.registry_status,
       })
       setState({ status: 'loaded', profile })
       setValues(profile)
@@ -97,6 +116,7 @@ function AdminSponsorSettings() {
               <div key={field.name} className={styles.field}>
                 <label className={styles.label} htmlFor={`sponsor-${field.name}`}>
                   {field.label}
+                  {field.requiredWhen?.(values) && ' *'}
                 </label>
                 {field.type === 'textarea' ? (
                   <textarea
@@ -106,6 +126,19 @@ function AdminSponsorSettings() {
                     value={values[field.name] ?? ''}
                     onChange={(event) => set(field.name, event.target.value)}
                   />
+                ) : field.type === 'select' ? (
+                  <select
+                    id={`sponsor-${field.name}`}
+                    className={styles.input}
+                    value={values[field.name] ?? ''}
+                    onChange={(event) => set(field.name, event.target.value)}
+                  >
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   <input
                     id={`sponsor-${field.name}`}

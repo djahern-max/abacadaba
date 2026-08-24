@@ -12,6 +12,17 @@ from app.models.sponsor_profile import SponsorProfile
 # tests that care about an incomplete profile (app/services/sponsor_profile
 # .py's publish gate, or the sponsor settings endpoints themselves) mutate
 # it further within their own body, after this has already run.
+# registry_status defaults to "registered" here, not the model's own
+# "not_registered" default (app/models/sponsor_profile.py) - every
+# feature-024 certificate test written before this feature shipped asserts
+# the NASBA time statement and a registry ID are present on the PDF/verify
+# payload, and none of them know this field exists. Defaulting the shared
+# fixture to "registered" keeps that whole suite proving 024's original
+# behaviour unchanged, exactly what this feature's acceptance criteria
+# require ("flipping to registered restores 024's certificate exactly").
+# Feature 027's own tests (tests/test_certificates.py,
+# tests/test_sponsor_profile.py) flip individual attempts to
+# "not_registered" within their own body.
 DEFAULT_SPONSOR = {
     "name": "Test Sponsor, Inc.",
     "national_registry_id": "123456",
@@ -19,6 +30,7 @@ DEFAULT_SPONSOR = {
     "website": "https://sponsor.example.com",
     "contact_email": "sponsor@example.com",
     "address": "1 Test Way, Example, ST 00000",
+    "registry_status": "registered",
 }
 
 

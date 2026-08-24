@@ -74,6 +74,13 @@ function CourseDetail() {
       <h1 className={styles.title}>{course.title}</h1>
       <p className={styles.description}>{course.description}</p>
 
+      {course.sponsor_registry_status !== 'registered' && (
+        <p className={styles.notRegisteredNotice}>
+          This program is not offered by a sponsor registered with NASBA, and completing it will not earn CPE
+          credit.
+        </p>
+      )}
+
       {course.learning_objectives.length > 0 && (
         <section className={styles.objectives}>
           <h2 className={styles.sectionHeading}>What you will learn</h2>

@@ -66,6 +66,9 @@ class CourseDetail(BaseModel):
     # 9.02.2 item 3, disclosed alongside credit and last-reviewed date - see
     # current-feature.md, Part 2.
     expires_on: date | None
+    # Feature 027's pre-enrollment disclosure - see current-feature.md's
+    # frontend task 3. Live, not snapshotted; see app/services/courses.py.
+    sponsor_registry_status: str
 
 
 class LessonSegmentDetail(BaseModel):

@@ -50,6 +50,12 @@ class Attempt(Base):
     cert_sponsor_name: Mapped[str | None] = mapped_column(String, nullable=True)
     cert_sponsor_registry_id: Mapped[str | None] = mapped_column(String, nullable=True)
     cert_sponsor_state_registry_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Feature 027: whether the sponsor was registered with NASBA at claim
+    # time, frozen the same way the other cert_* fields are - a sponsor who
+    # registers next year must not retroactively turn last year's
+    # certificate into a credit-bearing document, and one who lapses must
+    # not retroactively void it.
+    cert_registry_status: Mapped[str | None] = mapped_column(String, nullable=True)
     cert_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

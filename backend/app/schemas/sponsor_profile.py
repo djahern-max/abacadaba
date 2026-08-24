@@ -10,6 +10,7 @@ class AdminSponsorProfileUpdate(BaseModel):
     website: str | None = None
     contact_email: str | None = None
     address: str | None = None
+    registry_status: str | None = None
 
 
 class AdminSponsorProfile(BaseModel):
@@ -21,6 +22,7 @@ class AdminSponsorProfile(BaseModel):
     website: str
     contact_email: str
     address: str
+    registry_status: str
     updated_at: datetime
     # So the admin page can tell a participant-visible course is blocked on
     # this record without duplicating validate_for_publish's own rule.

@@ -41,6 +41,7 @@ function Verify() {
   }
 
   const { data } = state
+  const isRegistered = data.registry_status === 'registered'
 
   return (
     <div className={styles.card}>
@@ -52,6 +53,11 @@ function Verify() {
           ? 'The name below is the account holder who took the quiz.'
           : 'The name below was typed in by the person who took the quiz and is not an authenticated identity.'}
       </p>
+      {!isRegistered && (
+        <p className={styles.notRegisteredNotice}>
+          This program is not offered by a sponsor registered with NASBA, and completion does not earn CPE credit.
+        </p>
+      )}
       <dl className={styles.details}>
         <dt>Name</dt>
         <dd>{data.recipient_name}</dd>
@@ -71,13 +77,16 @@ function Verify() {
         <dd>{data.credit_award ?? '—'}</dd>
         <dt>Sponsor</dt>
         <dd>
-          {data.sponsor_name} (NASBA registry ID {data.sponsor_registry_id}
+          {data.sponsor_name}
+          {isRegistered ? ` (NASBA registry ID ${data.sponsor_registry_id}` : ' (not NASBA-registered'}
           {data.sponsor_state_registry_ids ? `, state registry ID(s) ${data.sponsor_state_registry_ids}` : ''})
         </dd>
       </dl>
-      <p className={styles.timeStatement}>
-        CPE credit has been granted based on a 50-minute hour, per NASBA Standards.
-      </p>
+      {isRegistered && (
+        <p className={styles.timeStatement}>
+          CPE credit has been granted based on a 50-minute hour, per NASBA Standards.
+        </p>
+      )}
       <Link to="/">Back home</Link>
     </div>
   )

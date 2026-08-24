@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.constants.registry_status import REGISTRY_STATUS_REGISTERED
 from app.models.sponsor_profile import SponsorProfile
 
 # What a compliant certificate actually needs printed on it (9.01 items 1
@@ -8,8 +9,14 @@ from app.models.sponsor_profile import SponsorProfile
 # is still complete. website/contact_email/address are part of the identity
 # record an admin edits but never appear on a certificate, so they don't
 # block publish either.
-REQUIRED_FIELDS = ["name", "national_registry_id"]
-
+#
+# name is required regardless of registry_status - 9.01 item 1 wants a
+# sponsor name on the certificate no matter who the sponsor is.
+# national_registry_id is required only once the sponsor claims to be
+# registered (feature 027): requiring it unconditionally compelled an
+# unregistered sponsor to invent a registry ID just to publish, which is a
+# worse outcome than the missing field the rule was written to prevent - see
+# current-feature.md.
 FIELD_LABELS = {
     "name": "sponsor name",
     "national_registry_id": "NASBA sponsor registry ID",
@@ -23,8 +30,15 @@ def get_sponsor_profile(db: Session) -> SponsorProfile:
     return db.get(SponsorProfile, 1)
 
 
+def required_fields(profile: SponsorProfile) -> list[str]:
+    fields = ["name"]
+    if profile.registry_status == REGISTRY_STATUS_REGISTERED:
+        fields.append("national_registry_id")
+    return fields
+
+
 def missing_fields(profile: SponsorProfile) -> list[str]:
-    return [FIELD_LABELS[field] for field in REQUIRED_FIELDS if not getattr(profile, field).strip()]
+    return [FIELD_LABELS[field] for field in required_fields(profile) if not getattr(profile, field).strip()]
 
 
 def update_sponsor_profile(db: Session, updates: dict) -> SponsorProfile:

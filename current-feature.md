@@ -1,213 +1,192 @@
 # Current Feature
 
-## Feature 026, Policies, disclosures, and content currency
+## Feature 027, Sponsor registration state
 
 ## Goal
-The policies a sponsor is required to formalise, publish, and make available
-exist as real pages a participant can read before registering. And the review
-obligations that features 021 and 024 recorded but did not enforce become
-something the sponsor is actually told about.
+abacadaba stops asserting things about its relationship with NASBA that are not
+true. A certificate issued by an unregistered sponsor says so, plainly, on its
+face — and the publish gate stops requiring an author to type a registry ID that
+does not exist.
+
+## Numbering note
+`next-features.md` ends at 026. That roadmap is now spent, and COMPLIANCE.md's
+Open Gaps list is the working backlog in its place. This is the first feature
+specified from that list rather than from the original plan — except that the
+problem below is **not in that list**, which is the point of the next section.
+
+Not `026a`: this is new capability (registration state as a modeled concept),
+not corrective work against 026's surface area.
+
+## Where this came from
+Publishing the first real course required filling in the sponsor profile.
+`national_registry_id` is a free-text string, `validate_for_publish` refuses to
+publish while it is empty, and whatever goes in it is frozen onto every
+certificate by `claim_certificate` alongside `NASBA_TIME_STATEMENT`.
+
+abacadaba is not a registered CPE sponsor and has no registry ID. So the publish
+gate, as built, requires the author to invent one. A plausible six-digit number
+in that field produces a PDF that carries a sponsor name, a registry ID, and the
+50-minute-hour NASBA statement — a document that asserts registered-sponsor
+status on every axis a reader would check. Real registry IDs belong to real
+sponsors, so an invented one may also name somebody else.
+
+**Note what COMPLIANCE.md did not catch.** Every row in that file is keyed to a
+paragraph of the Standards, and there is no paragraph that says "do not claim to
+be a registered sponsor when you are not." That obligation lives in the
+registry's own terms and in ordinary honesty, not in the Statement on Standards.
+So the matrix is green here and the application is wrong anyway. Add a short note
+to COMPLIANCE.md saying the matrix covers the Standards document and nothing
+else, so the next person does not read a full green column as full coverage.
 
 ## In scope
-- Refund, cancellation, complaint resolution, and records retention as published
-  policy pages
-- Program expiration dates for self study programs
-- An overdue-review dashboard
-- The published-but-edited state feature 021 deliberately left open
+- Registration state as an explicit field on the sponsor profile
+- Suppressing the NASBA time statement and registry ID on certificates issued by
+  an unregistered sponsor
+- An unmistakable not-CPE-credit notice on those certificates and on the verify
+  page
+- Making the publish gate's registry ID requirement conditional on that state
 
 ## Out of scope
-- A draft-and-version model for courses. It is the real fix for the
-  published-but-edited problem and it is a large feature. This one reports the
-  state; it does not solve it.
-- Emailing anyone about anything overdue.
-- Legal drafting. The application stores and publishes policy text; a human
-  writes it. Do not ship invented refund terms as seed data — see below.
-- A complaint intake workflow. Publishing the resolution policy is the
-  requirement; a ticketing system is not.
+- Retention enforcement (9.02). Real, open in COMPLIANCE.md, and a bigger
+  feature than this one. Not here.
+- Whether the program cancellation policy's stated grace period matches what
+  unpublishing actually does to in-progress attempts. That is a question to
+  answer by reading `courses.py` and `attempts.py`, not a task. Answer it, and
+  if the code and the policy disagree, that is a separate feature.
+- The NASBA escalation paragraph in the complaint resolution policy. Policy
+  bodies are human-written text in a table row; nothing here should generate or
+  conditionally rewrite them.
+- Anything about actually applying to the National Registry.
+- Backfilling certificates already issued. See "The gap this feature does not
+  close."
 
-## Read this before starting
-The disclosure requirements are in 8.01.1, which feature 020 already partly
-satisfied and whose COMPLIANCE.md row already carries a Gap entry saying refund,
-cancellation, and complaint resolution policies are not published anywhere. Read
-that row before starting — this feature closes it, and the row should be updated
-rather than duplicated.
+## Part 1, registration state as a stated fact
 
-Expiration dates for self study and nano learning are at 9.02.2. Records
-retention is in Section 9; feature 024 was told to find the retention period and
-put it in a constant, so read that constant rather than looking it up twice. If
-024 did not record it, find it now and say so.
+Add to `sponsor_profile`:
+- `registry_status`: string, CHECK `'not_registered'` / `'registered'`,
+  `NOT NULL`, server default `'not_registered'`
 
-The currency requirement is 4.01: courses in subjects that undergo frequent
-change must be reviewed by a subject matter expert at least once a year, others
-at least every two years. Feature 021 stored `reviewed_at` and `review_cycle`
-and stated explicitly that it does not check whether a course has actually been
-re-reviewed inside its window — that enforcement is this feature, by design.
+**This one is stored, not derived, and that is deliberate.** 019a set the
+derived-not-stored rule, 022 followed it for credit staleness, and 026 followed
+it for `is_placeholder`. This is an exception and the reasoning should go in the
+model docstring so it does not read as someone forgetting the rule.
 
-## Part 1, policies as data
+Whether a sponsor is on the National Registry is a fact about the world. No
+amount of inspecting the string in `national_registry_id` can determine it — a
+six-digit number is not evidence, and format-sniffing would give a confident
+wrong answer. Deriving it would mean inferring a legal status from a text field,
+which is exactly the failure this feature exists to remove. Make the sponsor
+state it.
 
-New `policies` table:
-- id, `slug` (unique, indexed), `title`, `body` (text, markdown), `updated_at`
+Default `'not_registered'`, so a fresh database and the existing seeded row are
+both honest without anyone doing anything.
 
-Four seeded slugs: `refund-and-cancellation`, `complaint-resolution`,
-`records-retention`, `program-cancellation`. Editable in the admin, rendered at
-`/policies/{slug}`, linked from the site footer and from the course detail page's
-disclosure block.
+## Part 2, what a certificate says
 
-**Rows, not hardcoded JSX.** Three reasons, in order of importance: the text
-changes without a deploy; `updated_at` is itself the evidence that the policy was
-published as of a date, which is what "formalized and published" needs to be
-demonstrable; and a sponsor who is not the person who runs `git push` can
-maintain it.
+`app/services/certificates.py` currently prints `NASBA_TIME_STATEMENT` on every
+certificate and the registry ID whenever the snapshot has one.
 
-**Seed the rows with an explicit placeholder, not with plausible policy text.**
-Something that reads as unmistakably unwritten — `This policy has not been
-written yet.` — and a publish rule that refuses any course while any of the four
-is still placeholder. Seeding invented refund terms would produce an application
-that looks compliant, publishes courses, and has published nothing anyone wrote.
-That failure mode is worse than an empty page, because nobody goes looking for
-it.
+When the sponsor is not registered at claim time:
+- Do not print the NASBA time statement
+- Do not print a registry ID field at all — not "N/A", not blank, absent
+- Print a notice, in the same weight as the participant name rather than as fine
+  print: this program is not offered by a sponsor registered with NASBA, and
+  completion does not earn CPE credit
 
-Markdown, rendered server-side or with an existing small renderer. Do not add a
-rich text editor.
+The last one is the substantive change. Suppressing the boilerplate makes the
+document silent about registration; the notice makes it explicit. Silence is
+what an author skimming a PDF fails to notice.
 
-## Part 2, program expiration
+**Snapshot it.** `registry_status` joins the `cert_*` columns written once at
+claim time, for the same reason `cert_sponsor_registry_id` did in 024: a
+certificate records what was true on the day it was issued. A sponsor who
+registers next year must not retroactively convert last year's certificates into
+credit-bearing documents, and one who lapses must not retroactively void them.
 
-Add to `courses`:
-- `expires_on`: date, nullable
+`Verify.jsx` renders from the same `CertificateData` the PDF does, so it should
+inherit all of this without a second code path. Confirm that rather than assume
+it — that single-source property is worth a test of its own.
 
-9.02.2 requires self study programs to carry an expiration date. Disclose it on
-the course detail page alongside the credit and the last-reviewed date, refuse to
-publish without it, and refuse to start an attempt on an expired course with a
-clear message rather than a 404 — a participant who bookmarked it deserves to
-know why, and "not found" is a lie.
+## Part 3, the publish gate
 
-An expired course should stop listing publicly but should not be force-unpublished
-by a background job. That is the same reasoning feature 021 applied to
-published-but-edited courses: pulling a program out from under someone partway
-through is worse than the alternative. Let it stay reachable, gate new attempts,
-and surface it on the dashboard.
+`sponsor_profile.py::REQUIRED_FIELDS` currently lists `national_registry_id`
+unconditionally.
 
-Decide the default window from 9.02.2 rather than inventing one, and default the
-field from `reviewed_at` plus that window when a review is recorded — an author
-who has to type a date will eventually type a wrong one.
+Make it conditional: a registry ID is required when `registry_status` is
+`'registered'`, and irrelevant when it is not. `name` stays required either way —
+9.01 item 1 wants a sponsor name on the certificate regardless of who the sponsor
+is.
 
-## Part 3, the currency dashboard
+Today's gate has it backwards. It compels a false statement in order to publish,
+which is a worse outcome than the missing field it was written to prevent.
 
-`GET /admin/currency`, one page, four sections. All read-only, all derived from
-columns that already exist:
-
-1. **Overdue review.** `reviewed_at + cycle window < now`, where the window is one
-   year for `annual` and two for `biennial`. Feature 021's `review_cycle` column
-   is what makes this a comparison rather than a judgment.
-2. **Due soon.** The same, within 60 days. An annual review that surfaces the day
-   it lapses has already lapsed.
-3. **Published but edited.** `is_published AND content_updated_at > reviewed_at`.
-   This is the gap 021 recorded in COMPLIANCE.md against 4.02: a published course
-   can serve edited, unreviewed content until someone gets to it, and the stated
-   mitigation was that 026 would report on it. This section is that mitigation.
-   If it does not exist when this feature ships, 021's Gap entry becomes a false
-   statement and should be corrected rather than left standing.
-4. **Expired or expiring.** `expires_on` past or within 60 days.
-
-A course appears in more than one section when it qualifies for more than one.
-Do not collapse them into a single worst-status column; a course that is both
-overdue for review and expiring needs both facts stated.
-
-Sort each section by how overdue, worst first — the same convention feature 012's
-question stats used for worst-performing questions. Reuse that page's table
-treatment rather than designing a second one.
-
-Link it from the admin nav, not from inside a course. It is a cross-course view
-and burying it inside one course is how it stops being looked at.
+Keep `missing_fields`'s existing message shape. `AdminSponsorSettings.jsx` reads
+that list directly and should need no change beyond the new control — which is a
+plain two-option select with a hint explaining what registered means, not a
+toggle. A checkbox labelled "registered" invites an idle click.
 
 ## Backend tasks
-1. `app/models/policy.py` and `expires_on` on `Course`. Migration, with the four
-   policy rows inserted as placeholders in the same migration so a fresh database
-   has them. Verify `downgrade -1`.
-2. `app/services/policies.py`: get by slug, list, update. `is_placeholder` derived
-   by comparing against the seeded constant, not stored as a flag — the same
-   derived-not-stored rule 019a set and 022 followed.
-3. `app/services/currency.py`: the four queries above, aggregate SQL, read-only.
-4. `app/routers/policies.py`: `GET /policies` and `GET /policies/{slug}`,
-   unauthenticated. `PATCH /admin/policies/{slug}` behind `require_admin`.
-5. `GET /admin/currency` behind `require_admin`.
-6. `validate_for_publish` gains two rules: `expires_on` is set, and no policy is
-   still placeholder. The second is a site-wide condition surfacing in a
-   course-level checklist, which is unusual — word the message so the author
-   knows it is not something wrong with their course, and link to the policies
-   admin.
-7. `start_attempt` refuses an expired course with a clear message. Check the order
-   of the guards: feature 019 established authenticate, then gate, then policy.
-   Expiry is a property of the course, not of the participant, so it goes first —
-   telling someone how much video is left on a program they cannot take is worse
-   than useless.
-8. Tests:
-   - publish is refused while any policy is placeholder, and the message says
-     which
-   - editing a policy clears that refusal for every course at once
-   - publish is refused without an expiration date
-   - starting an attempt on an expired course is refused with a readable reason,
-     not a 404
-   - an annual course reviewed 13 months ago appears as overdue; one reviewed 6
-     months ago does not
-   - a biennial course reviewed 13 months ago does not appear as overdue
-   - a published course edited after its review appears in the published-but-edited
-     section
-   - a course appears in two sections when it qualifies for two
-   - the policy pages render for a signed-out visitor
+1. `registry_status` on the model, migration with the CHECK hand-added and the
+   server default. Verify `downgrade -1`. Check whether the dev database has any
+   claimed certificates before running it; if it does, say so in the changelog —
+   they will render under the pre-024 no-snapshot path and keep reading live.
+2. `cert_registry_status` on `attempts`, written by `claim_certificate` inside
+   the same transaction as the rest of the snapshot.
+3. `_to_data` carries it. `render_pdf` and the verify payload branch on it.
+4. `REQUIRED_FIELDS` becomes a function of the profile, not a module constant.
+   Grep for other readers of it first.
+5. `GET`/`PATCH /admin/sponsor` accept and return the new field.
+6. Tests:
+   - an unregistered sponsor's certificate PDF contains neither the time
+     statement nor a registry ID, asserted against extracted text the way 024's
+     tests do
+   - it does contain the not-credit notice
+   - a registered sponsor's certificate is unchanged from what 024 shipped
+   - the verify page and the PDF agree in both states
+   - publish succeeds with an empty registry ID when not registered
+   - publish is refused, naming the field, with an empty registry ID when
+     registered
+   - publish is refused with an empty sponsor name in both states
+   - registering after a certificate is claimed does not change that certificate
+   - `conftest.py`'s `DEFAULT_SPONSOR` needs a `registry_status` — decide which
+     default the shared fixture uses and say why in a comment, because every
+     existing certificate test inherits it
 
 ## Frontend tasks
-1. `/policies/{slug}` pages, and a footer linking all four site-wide.
-2. Links to the refund, cancellation, and complaint policies in `CourseDetail`'s
-   disclosure block, above the player with the rest of the pre-enrolment
-   disclosure — feature 020 established that placement and the reasoning holds.
-3. The expiration date on `CourseDetail`, next to the last-reviewed line from 021.
-4. An admin policies editor: four documents, a textarea each, one save.
-5. An admin currency dashboard with the four sections. Each row links to that
-   course's editor. Plain tables.
-6. `expires_on` on the course details form, defaulted as described.
+1. The select on `AdminSponsorSettings`, with the registry ID field's required
+   marker following it.
+2. Whatever the certificate and verify page need for the notice. No new page.
+3. Consider whether the course detail page should carry the same notice before
+   enrollment. 8.01 item 11 makes the sponsor statement conditional on being an
+   approved sponsor, which is the same conditional in the other direction — a
+   participant deciding whether to spend an hour deserves to know before, not
+   after. Decide it, do it or don't, and record which in the changelog.
 
-## A thing to check rather than assume
-8.01.1 also requires that when CPE programs are offered alongside
-non-educational activities, or several concurrently, participants receive a
-schedule of events indicating which components are recommended for CPE credit.
-Nothing in abacadaba does this and nothing needs to.
+## The gap this feature does not close
+An admin can set `registry_status` to `'registered'` and type any number. Nothing
+here verifies anything against the National Registry, and nothing could, short of
+an integration that does not exist.
 
-Confirm that reading rather than assuming it, and if it holds, record it in
-COMPLIANCE.md's Gap column as not applicable with the reason. A locator marked
-satisfied when it was never tested is worse than one marked not applicable, and
-"we don't do that" is a legitimate and checkable answer.
+What changes is that the false claim becomes a deliberate act rather than a
+side effect of a validation rule that left no honest option. That is the whole
+of what software can do about it, and the Gap column should say exactly that
+rather than implying the claim is now checked.
 
 ## Acceptance criteria
-- `alembic upgrade head` creates the policies table with four placeholder rows
-  and adds `expires_on`; `downgrade -1` reverses
-- a fresh database refuses to publish any course until all four policies are
-  written, and says so plainly
-- all four policies render at their URLs for a signed-out visitor and are linked
-  from the footer
-- refund, cancellation, and complaint links appear in the course disclosure block
-  before enrolment
-- publish is refused without an expiration date
-- an expired course refuses new attempts with a reason, and does not 404
-- the currency dashboard lists overdue, due-soon, published-but-edited, and
-  expiring courses, worst first
-- a course qualifying for two sections appears in both
+- `alembic upgrade head` adds both columns with honest defaults; `downgrade -1`
+  reverses
+- a course publishes with an empty registry ID while unregistered
+- that course's certificate carries the notice and neither NASBA field
+- flipping to registered restores 024's certificate exactly
+- previously claimed certificates are unaffected by the flip in both directions
 - `npm run lint` passes
 - pytest passes
 
 ## When done
-Append an entry to CHANGELOG.md.
+Append to CHANGELOG.md.
 
-Then update COMPLIANCE.md rather than only appending to it:
-- 8.01.1's existing Gap entry from feature 020, which records that refund,
-  cancellation, and complaint resolution policies are not published, is closed by
-  this feature. Update the row; do not add a second one.
-- 4.02's Gap entry from feature 021, which records the published-but-edited
-  problem and names this feature as the mitigation, should be updated to point at
-  the dashboard — and should still say the underlying problem is unsolved,
-  because reporting a state is not the same as preventing it.
-- Add rows for 4.01's review cycle enforcement and for 9.02.2.
-
-With this feature the sequence begun at 019 is complete. Write a short section at
-the end of COMPLIANCE.md listing every locator still carrying an open Gap, so the
-next person reads one list instead of nineteen rows.
+In COMPLIANCE.md: 9.01's row (items 8 and 10) needs updating — those fields are
+now conditional, and the row currently reads as though they are always present.
+Add the scope note described in "Where this came from" above the matrix. Add
+nothing to the Open Gaps list unless Part 3 turns something up; this feature
+closes a problem that list never contained.

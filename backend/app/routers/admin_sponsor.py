@@ -17,6 +17,7 @@ def _to_schema(profile) -> AdminSponsorProfile:
         website=profile.website,
         contact_email=profile.contact_email,
         address=profile.address,
+        registry_status=profile.registry_status,
         updated_at=profile.updated_at,
         missing_fields=sponsor_profile_service.missing_fields(profile),
     )

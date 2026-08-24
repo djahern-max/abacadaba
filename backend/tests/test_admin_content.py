@@ -604,6 +604,55 @@ def test_publish_with_incomplete_sponsor_profile_returns_422_naming_missing_fiel
     assert any("sponsor name" in error and "NASBA sponsor registry ID" in error for error in errors)
 
 
+def test_publish_succeeds_with_an_empty_registry_id_while_unregistered(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("unregistered-empty-id", monkeypatch)
+
+    response = client.patch(
+        "/api/v1/admin/sponsor", json={"registry_status": "not_registered", "national_registry_id": ""}
+    )
+    assert response.status_code == 200, response.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 200, response.text
+
+
+def test_publish_is_refused_naming_the_registry_id_when_registered_and_empty(monkeypatch):
+    login_admin()
+    course, _ = _make_publishable_course("registered-empty-id", monkeypatch)
+
+    response = client.patch(
+        "/api/v1/admin/sponsor", json={"registry_status": "registered", "national_registry_id": ""}
+    )
+    assert response.status_code == 200, response.text
+
+    response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("NASBA sponsor registry ID" in error for error in errors)
+
+
+def test_publish_is_refused_with_an_empty_sponsor_name_in_both_registry_states(monkeypatch):
+    login_admin()
+    for status, slug_suffix in [("not_registered", "blank-name-unregistered"), ("registered", "blank-name-registered")]:
+        course, _ = _make_publishable_course(slug_suffix, monkeypatch)
+
+        national_registry_id = "" if status == "not_registered" else "999999"
+        response = client.patch(
+            "/api/v1/admin/sponsor",
+            json={"registry_status": status, "name": "", "national_registry_id": national_registry_id},
+        )
+        assert response.status_code == 200, response.text
+
+        response = client.post(f"/api/v1/admin/courses/{course['id']}/publish")
+        assert response.status_code == 422
+        errors = response.json()["detail"]
+        assert any("sponsor name" in error for error in errors)
+
+        # Restore for the next iteration's login_admin/publish flow.
+        client.patch("/api/v1/admin/sponsor", json={"name": "Test Sponsor, Inc."})
+
+
 # --- policies and expiration (feature 026) -----------------------------------
 
 

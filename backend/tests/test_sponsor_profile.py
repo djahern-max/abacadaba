@@ -93,6 +93,39 @@ def test_patch_updates_only_the_fields_sent():
     assert body["missing_fields"] == []
 
 
+def test_registry_status_is_returned_and_defaults_to_registered_in_tests():
+    # conftest.py's DEFAULT_SPONSOR sets "registered" so the pre-existing
+    # feature-024 certificate suite keeps proving unchanged behaviour; the
+    # model's own server default (app/models/sponsor_profile.py) is
+    # "not_registered".
+    login_admin()
+    response = client.get("/api/v1/admin/sponsor")
+    assert response.json()["registry_status"] == "registered"
+
+
+def test_national_registry_id_is_not_required_while_not_registered():
+    login_admin()
+    client.patch(
+        "/api/v1/admin/sponsor", json={"registry_status": "not_registered", "national_registry_id": ""}
+    )
+    response = client.get("/api/v1/admin/sponsor")
+    assert "NASBA sponsor registry ID" not in response.json()["missing_fields"]
+
+
+def test_national_registry_id_is_required_while_registered():
+    login_admin()
+    client.patch("/api/v1/admin/sponsor", json={"registry_status": "registered", "national_registry_id": ""})
+    response = client.get("/api/v1/admin/sponsor")
+    assert "NASBA sponsor registry ID" in response.json()["missing_fields"]
+
+
+def test_sponsor_name_is_required_regardless_of_registry_status():
+    login_admin()
+    client.patch("/api/v1/admin/sponsor", json={"registry_status": "not_registered", "name": ""})
+    response = client.get("/api/v1/admin/sponsor")
+    assert "sponsor name" in response.json()["missing_fields"]
+
+
 def test_state_registry_ids_is_optional_and_free_form():
     login_admin()
     client.patch("/api/v1/admin/sponsor", json={"name": "abacadaba", "national_registry_id": "1"})

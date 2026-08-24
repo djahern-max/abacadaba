@@ -358,6 +358,7 @@ def test_claiming_writes_a_snapshot_matching_the_course_at_that_moment():
     assert attempt.cert_sponsor_name == SPONSOR_NAME
     assert attempt.cert_sponsor_registry_id == SPONSOR_REGISTRY_ID
     assert attempt.cert_sponsor_state_registry_ids == SPONSOR_STATE_REGISTRY_IDS
+    assert attempt.cert_registry_status == "registered"
     assert attempt.cert_issued_at is not None
 
 
@@ -418,6 +419,122 @@ def test_pdf_contains_every_required_section_9_field():
     assert "50-minute" in text
 
 
+def set_registry_status(status):
+    db = SessionLocal()
+    db.execute(update(SponsorProfile).where(SponsorProfile.id == 1).values(registry_status=status))
+    db.commit()
+    db.close()
+
+
+def test_a_registered_sponsors_certificate_carries_registry_status_and_id():
+    # conftest.py's DEFAULT_SPONSOR is "registered"; this is the same claim
+    # test_pdf_contains_every_required_section_9_field makes at the PDF
+    # layer, made here at the CertificateData/verify-payload layer instead,
+    # since Verify.jsx and render_pdf must agree - see current-feature.md,
+    # Part 2's "single-source property is worth a test of its own."
+    attempt_id = start_and_pass_attempt()
+    code = claim(attempt_id).json()["certificate_code"]
+
+    verify = client.get(f"/api/v1/certificates/{code}").json()
+    assert verify["registry_status"] == "registered"
+    assert verify["sponsor_registry_id"] == SPONSOR_REGISTRY_ID
+
+
+def test_an_unregistered_sponsors_pdf_omits_the_nasba_fields_and_carries_the_notice():
+    set_registry_status("not_registered")
+    attempt_id = start_and_pass_attempt()
+    claim(attempt_id)
+
+    response = client.get(f"/api/v1/attempts/{attempt_id}/certificate.pdf")
+    text = extract_pdf_text(response.content)
+
+    assert "50-minute" not in text
+    assert SPONSOR_REGISTRY_ID not in text
+    assert "not offered by a sponsor registered with NASBA" in text
+    assert "does not earn CPE credit" in text
+    # Everything else on the certificate is untouched.
+    assert "Certificates Flow User" in text
+    assert "Course For Certificates" in text
+    assert SPONSOR_NAME in text
+
+
+def test_an_unregistered_sponsors_verify_payload_omits_the_registry_id():
+    set_registry_status("not_registered")
+    attempt_id = start_and_pass_attempt()
+    code = claim(attempt_id).json()["certificate_code"]
+
+    verify = client.get(f"/api/v1/certificates/{code}").json()
+    assert verify["registry_status"] == "not_registered"
+    assert verify["sponsor_registry_id"] is None
+
+
+def test_verify_payload_and_pdf_agree_on_registry_state_for_both_states():
+    for status in ("registered", "not_registered"):
+        set_registry_status(status)
+        attempt_id = start_and_pass_attempt()
+        code = claim(attempt_id).json()["certificate_code"]
+
+        verify = client.get(f"/api/v1/certificates/{code}").json()
+        pdf_text = extract_pdf_text(client.get(f"/api/v1/attempts/{attempt_id}/certificate.pdf").content)
+
+        assert verify["registry_status"] == status
+        if status == "registered":
+            assert verify["sponsor_registry_id"] == SPONSOR_REGISTRY_ID
+            assert SPONSOR_REGISTRY_ID in pdf_text
+            assert "50-minute" in pdf_text
+        else:
+            assert verify["sponsor_registry_id"] is None
+            assert SPONSOR_REGISTRY_ID not in pdf_text
+            assert "50-minute" not in pdf_text
+
+
+def test_registering_after_claiming_does_not_change_an_already_claimed_certificate():
+    set_registry_status("not_registered")
+    attempt_id = start_and_pass_attempt()
+    code = claim(attempt_id).json()["certificate_code"]
+
+    set_registry_status("registered")
+
+    verify = client.get(f"/api/v1/certificates/{code}").json()
+    assert verify["registry_status"] == "not_registered"
+    assert verify["sponsor_registry_id"] is None
+
+
+def test_unregistering_after_claiming_does_not_retroactively_void_an_already_registered_certificate():
+    attempt_id = start_and_pass_attempt()  # sponsor is "registered" (DEFAULT_SPONSOR)
+    code = claim(attempt_id).json()["certificate_code"]
+
+    set_registry_status("not_registered")
+
+    verify = client.get(f"/api/v1/certificates/{code}").json()
+    assert verify["registry_status"] == "registered"
+    assert verify["sponsor_registry_id"] == SPONSOR_REGISTRY_ID
+
+
+def test_a_certificate_snapshotted_before_this_feature_shipped_reads_registry_status_live():
+    # Simulates an attempt claimed after feature 024 shipped but before 027
+    # did: every other cert_* column was frozen, cert_registry_status did
+    # not exist yet. _to_data falls back to a live read for this one field
+    # only - see app/services/certificates.py.
+    attempt_id = start_and_pass_attempt()
+    claim(attempt_id)
+
+    db = SessionLocal()
+    db.execute(
+        update(Attempt).where(Attempt.public_id == uuid.UUID(attempt_id)).values(cert_registry_status=None)
+    )
+    db.commit()
+    db.close()
+
+    set_registry_status("not_registered")
+    response = client.get(f"/api/v1/attempts/{attempt_id}/certificate.pdf")
+    text = extract_pdf_text(response.content)
+    assert "not offered by a sponsor registered with NASBA" in text
+    # The rest of the snapshot - frozen before this feature existed - is
+    # still honoured untouched.
+    assert "Course For Certificates" in text
+
+
 def test_legacy_certificate_without_a_snapshot_still_renders_from_the_live_course():
     attempt_id = start_and_pass_legacy_anonymous_attempt()
     code = claim(attempt_id, "Ada Lovelace").json()["certificate_code"]
@@ -437,6 +554,7 @@ def test_legacy_certificate_without_a_snapshot_still_renders_from_the_live_cours
             cert_sponsor_name=None,
             cert_sponsor_registry_id=None,
             cert_sponsor_state_registry_ids=None,
+            cert_registry_status=None,
             cert_issued_at=None,
         )
     )

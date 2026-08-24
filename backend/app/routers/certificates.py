@@ -26,6 +26,7 @@ def _to_info(data: certificates_service.CertificateData) -> CertificateInfo:
         sponsor_name=data.sponsor_name,
         sponsor_registry_id=data.sponsor_registry_id,
         sponsor_state_registry_ids=data.sponsor_state_registry_ids,
+        registry_status=data.registry_status,
         issued_at=data.issued_at,
     )
 
@@ -83,5 +84,6 @@ def verify_certificate(code: str, db: Session = Depends(get_db)):
         sponsor_name=data.sponsor_name,
         sponsor_registry_id=data.sponsor_registry_id,
         sponsor_state_registry_ids=data.sponsor_state_registry_ids,
+        registry_status=data.registry_status,
         issued_at=data.issued_at,
     )

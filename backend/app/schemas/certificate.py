@@ -31,8 +31,9 @@ class CertificateInfo(BaseModel):
     delivery_method: str
     credit_award: Decimal | None
     sponsor_name: str
-    sponsor_registry_id: str
+    sponsor_registry_id: str | None
     sponsor_state_registry_ids: str | None
+    registry_status: str
     issued_at: datetime | None
 
 
@@ -53,4 +54,5 @@ class CertificateVerification(BaseModel):
     sponsor_name: str | None = None
     sponsor_registry_id: str | None = None
     sponsor_state_registry_ids: str | None = None
+    registry_status: str | None = None
     issued_at: datetime | None = None
