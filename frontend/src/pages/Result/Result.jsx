@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { getAttemptResult } from '../../api/attempts'
 import { certificatePdfUrl, claimCertificate } from '../../api/certificates'
 import AnswerBreakdown from '../../components/AnswerBreakdown/AnswerBreakdown'
+import EvaluationForm from '../../components/EvaluationForm/EvaluationForm'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { bigBurst } from '../../lib/confetti'
 import styles from './Result.module.css'
@@ -174,6 +175,7 @@ function Result() {
         </p>
         <Certificate attemptId={result.attempt_id} certificateCode={result.certificate_code} />
         {result.answers && <AnswerBreakdown answers={result.answers} />}
+        <EvaluationForm attemptId={result.attempt_id} />
         <Link to={`/courses/${result.course_slug}`}>Back to course</Link>
       </div>
     )
@@ -194,6 +196,7 @@ function Result() {
         <Link to={`/courses/${result.course_slug}`}>Watch again</Link>
         <Link to={`/courses/${result.course_slug}/quiz`}>Retry assessment</Link>
       </div>
+      <EvaluationForm attemptId={result.attempt_id} />
     </div>
   )
 }

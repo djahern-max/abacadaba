@@ -16,6 +16,10 @@ export function getCourseStats(id) {
   return apiFetch(`/api/v1/admin/courses/${id}/stats`)
 }
 
+export function getCourseEvaluations(id) {
+  return apiFetch(`/api/v1/admin/courses/${id}/evaluations`)
+}
+
 export function createAdminCourse(payload) {
   return apiFetch('/api/v1/admin/courses', { method: 'POST', body: JSON.stringify(payload) })
 }

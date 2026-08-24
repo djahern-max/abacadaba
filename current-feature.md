@@ -1,210 +1,183 @@
 # Current Feature
 
-## Feature 024, Completion documents and participant records
+## Feature 025, Evaluations
 
 ## Goal
-A certificate carries every field a sponsor is required to put on one, states
-facts that were true at the moment of completion and stay true afterward, and is
-backed by a record the sponsor can produce on audit.
+Every participant is asked to evaluate the program on the dimensions the
+Standards name, the results are stored, and an admin can review them.
 
 ## In scope
-- A sponsor identity record: name, National Registry ID, contact details
-- Every required field on the certificate
-- A snapshot of the course's credit-bearing facts, taken at claim time
-- An admin completions view with filtering and CSV export
-- The retention period, recorded
+- An evaluation form covering the required dimensions
+- Solicitation at the right moment, for every participant
+- Storage, one evaluation per attempt
+- An admin view with per-course aggregates and free-text comments
 
 ## Out of scope
-- Emailing certificates. Worth doing, not compliance.
-- Certificate templates, branding, or per-course design.
-- Revocation and expiry.
-- Publishing the retention policy as a participant-facing page. Feature 026.
-- Program expiration dates for self study (9.02.2). Related and real; it belongs
-  with 026's currency work, not here.
+- Instructor evaluation. There is no instructor in a self study program. See
+  "The dimension that does not apply".
+- Emailing a reminder to anyone who skips it.
+- Public display of ratings. This is quality data for the sponsor, not social
+  proof, and publishing it changes what people write.
+- NPS, star ratings, or anything invented. The dimensions are enumerated in the
+  Standards; use those.
 
 ## Read this before starting
-**Feature 022 must have shipped.** A certificate that does not state the number
-of credits is not a certificate, and the credit has to come from somewhere
-defensible.
+4.04 and 4.04.1 govern this, with 4.04.2 covering what the sponsor does with the
+results. Read them in `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`.
 
-Section 9 of `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` governs
-required documentation. **Read it and derive the field list from it.** The list
-in "Certificate fields" below is a working list assembled from
-`next-features.md`; treat it the way feature 020 treated the fields of study —
-verify every item against the document, add anything missing, and drop anything
-that turns out not to be required. Then record what you found in the changelog,
-so the next person knows the list was checked rather than copied.
+This is a small feature and it is mandatory, which is a combination worth
+noticing: it is the cheapest remaining compliance requirement in the sequence and
+it is the one most likely to be skipped because it feels like product polish. It
+is not. 4.04 says sponsors **must** employ an effective means of evaluating
+program quality and **must** provide a mechanism for participants to assess
+whether learning objectives were met.
 
-The same goes for the retention period. Find it in Section 9, put it in a named
-constant, and do not guess it.
+It also produces the first real signal on whether AI-drafted content is any good,
+which is the actual thesis abacadaba exists to test. Read the results.
 
-## The problem this feature actually solves
-`app/services/certificates.py::_to_data` builds certificate data by reading the
-course live at download time. Course title, question count, and — once 022 lands
-— credit, field of study, and program level all come from the current row.
+## The required dimensions
+4.04.1 lists what evaluations determine, among other things:
 
-That means editing a course silently rewrites every certificate ever issued from
-it. Change the credit from 0.4 to 0.6 and a certificate downloaded last year now
-says 0.6. Change the title and a verification page contradicts the PDF the
-participant already has.
+1. whether stated learning objectives were met
+2. whether stated prerequisite requirements were appropriate and sufficient
+3. whether program materials, including the qualified assessment, were relevant
+   and contributed to the achievement of the learning objectives
+4. whether the time allotted to the learning activity was appropriate
+5. whether instructors were effective, where applicable
 
-For a fun micro-learning app that is a curiosity. For a CPE sponsor it is an
-audit defect: the certificate is supposed to record what a participant completed,
-not what the course happens to say today.
+Verify that list against the PDF rather than trusting this file. Note "among
+other things" — the list is a floor, not a ceiling. One free-text field is a
+reasonable addition and nothing more is needed.
 
-**The fix is a snapshot, written once at claim time.** Everything the certificate
-asserts is copied onto the attempt when the certificate is first claimed, and the
-PDF and the verification page read the snapshot, never the course.
+Put the five in `app/constants/evaluation_dimensions.py` as ordered records
+carrying a key, the participant-facing question text, and an
+`applies_to_self_study` flag. Two copies of a list the Standards control will
+drift; the same reasoning produced feature 020's `/meta/fields-of-study`
+endpoint, and the same solution applies — serve the dimensions from the server so
+the frontend never holds its own copy.
+
+## The dimension that does not apply
+Instructor effectiveness is qualified in the Standard itself with "where
+applicable". A traditional self study program has no instructor — the definition
+in Section 1 covers a human or technology-assisted teaching mechanism, and the
+sponsor could argue the video narration qualifies, but asking a participant to
+rate an instructor they never met produces noise, not quality data.
+
+Do not render it for self study programs. Do not delete it from the constant
+either: mark it `applies_to_self_study = False` and filter at serve time. When
+superCPE runs a group program, the dimension is already there and already worded.
+
+Record this in COMPLIANCE.md's Gap column against 4.04.1 as a deliberate
+omission with the reasoning, not as an unmet requirement and not silently.
 
 ## Data model
 
-New `sponsor_profile` table, singleton:
-- id, `name`, `national_registry_id`, `state_registry_ids` (text, nullable, free
-  form — sponsors registered with individual state boards carry more than one),
-  `website`, `contact_email`, `address`, `updated_at`
+New `evaluations` table:
+- id
+- attempt_id: FK attempts, ondelete CASCADE, **unique**, not null
+- one integer column per applicable dimension, 1 to 5, CHECK constrained,
+  nullable
+- `comments`: text, nullable
+- `submitted_at`
 
-One row. Enforce it with a CHECK on `id = 1` rather than by convention; a second
-sponsor row is not a state this application has any meaning for. Editable in the
-admin, not an environment variable — this is audit data that changes rarely and
-must be visible to whoever is responsible for it, and `.env` is not where a
-responsible person looks.
+Keyed to the attempt, not to the course plus a viewer. The attempt is already the
+completion record, it already resolves identity through both `user_id` and
+`viewer_id`, and the unique constraint gives you one-evaluation-per-completion
+for free rather than as application logic.
 
-Add to `attempts`, all nullable, all written at claim time:
-- `cert_course_title`, `cert_field_of_study`, `cert_program_level`
-- `cert_delivery_method`
-- `cert_credit_award` (numeric(4,1))
-- `cert_sponsor_name`, `cert_sponsor_registry_id`
-- `cert_issued_at`
+**Columns per dimension, not a rows-per-answer table.** A fixed list of five that
+changes when NASBA revises the Standards is not an entity; it is a form. Five
+integer columns aggregate with a single query and read plainly in a CSV export.
+An `evaluation_answers` table would need a join and a pivot to answer "what is
+the mean score for objectives met on this course", which is the only question
+anyone will ask of it.
 
-Nullable because attempts predating this feature have no snapshot, and because
-an unclaimed attempt has none either. `certificate_code` already follows exactly
-this pattern from feature 007 — generated on first claim, not at attempt
-creation. Follow it.
+Nullable per dimension: a participant who answers four of five and submits has
+given you four useful data points. Do not refuse the submission to protect the
+shape of the data.
 
-`cert_delivery_method` is a string, not a boolean or an enum with one value. It
-reads `QAS Self Study` today. Nano learning and blended learning are real
-delivery methods in the Standards and superCPE will issue certificates for them;
-a column that can already hold the answer costs nothing now.
+## Solicitation
+The evaluation is offered on the result page, after the attempt completes,
+whether the participant passed or failed. A failed participant's opinion of
+whether the time allotted was appropriate is at least as informative as a passed
+one's, and 4.04 says evaluations must be solicited from participants, not from
+successful participants.
 
-Claiming twice keeps the original code — feature 007 established that. It must
-now also keep the original snapshot. A second claim updates the recipient name
-and nothing else.
+Offer it; do not gate anything on it. Blocking the certificate behind an
+evaluation would make the responses worthless and is not something the Standards
+ask for.
 
-## Certificate fields
-Working list, to be verified against Section 9:
-
-- Sponsor name
-- Sponsor's National Registry of CPE Sponsors ID (and state registry IDs where
-  the sponsor holds them)
-- Participant name
-- Course title
-- Field of study
-- Delivery method
-- Number of CPE credits awarded
-- Date of completion
-- Program knowledge level
-
-The current PDF in `app/services/certificates.py::render_pdf` carries the name,
-the course title, the score, the date, the wordmark, and the verification code.
-Score is not on the required list and should stay anyway — it is what the
-verification page asserts and dropping it would weaken that page for no gain.
-
-`_fit_font_size` already shrinks a long name or title to fit. The new fields turn
-a sparse landscape page into a fairly full one; lay the required fields out as a
-labelled block in the lower third rather than as more centred lines, and check a
-long course title against a long sponsor name before calling it done.
-
-## Publish and claim rules
-- Publishing is refused when the sponsor profile is incomplete. A course that
-  cannot produce a compliant certificate should not be able to enrol anyone.
-  Message names the missing fields and links to the sponsor settings page.
-- Claiming is refused, as today, unless the attempt is complete and passed. That
-  is feature 007's rule and it does not change.
-- The snapshot is written inside the same transaction that generates the code.
-  A certificate with a code and no snapshot is a state nothing can render.
+If an evaluation already exists for the attempt, show what was submitted rather
+than the form again.
 
 ## Backend tasks
-1. `app/models/sponsor_profile.py` and the eight columns on `Attempt`. Hand-add
-   the singleton CHECK. Verify `downgrade -1`.
-2. A seed or migration inserting the single sponsor row with empty strings, so
-   the admin page has something to edit rather than needing a create path for a
-   record that can only ever exist once.
-3. `app/services/certificates.py`:
-   - `claim_certificate` writes the snapshot on first claim only, from the course
-     and the sponsor profile, in the same transaction as the code
-   - `_to_data` reads the snapshot, not the course. **This is the change.** If any
-     field still resolves through `attempt.course`, the feature is not done.
-   - `render_pdf` lays out the full field list
-   - `verify_code` returns the snapshot, so the verification page and the PDF can
-     never disagree
-4. `app/services/completions.py`, read-only: completed attempts with course
-   title, participant name and email where signed in, credit, completion date,
-   pass or fail, and certificate code. Filter by course, by date range, and by
-   passed. Aggregate SQL, one query — feature 012 set that rule for analytics and
-   it holds here.
-5. `GET /admin/completions` and `GET /admin/completions.csv`. The CSV is the
-   audit artifact; give it a stable column order and a header row, and stream it
-   rather than building it in memory.
-6. `GET /admin/sponsor` and `PATCH /admin/sponsor`, behind `require_admin`.
-7. `validate_for_publish` gains the sponsor-profile rule, joining the flat list.
-8. Tests:
-   - claiming writes a snapshot matching the course at that moment
-   - editing the course afterwards does not change the certificate, the PDF, or
-     the verification page
-   - claiming twice updates the name, keeps the code, and keeps the snapshot
-   - the PDF contains every required field, asserted against extracted text
-     rather than by eyeballing bytes
-   - publish is refused with an incomplete sponsor profile, naming the fields
-   - the completions CSV has a stable header and one row per completed attempt
-   - filters narrow the result set correctly
-   - a certificate issued before this feature still renders — decide whether that
-     means backfilling snapshots or rendering from the course with a comment, and
-     say which you chose and why
+1. `app/models/evaluation.py`, plus the migration. Hand-add the five range CHECKs;
+   autogenerate will not write them. Verify `downgrade -1`.
+2. `app/constants/evaluation_dimensions.py` as described.
+3. `app/services/evaluations.py`:
+   - `submit(db, public_id, payload)` — refuses on an incomplete attempt, refuses
+     a second submission for the same attempt with a conflict signal rather than
+     an IntegrityError
+   - `get_for_attempt(db, public_id)`
+   - `course_summary(db, course_id)` — response count, response rate against
+     completed attempts, and a mean per dimension. Aggregate SQL, one query.
+4. `app/routers/evaluations.py`: `POST /attempts/{id}/evaluation`,
+   `GET /attempts/{id}/evaluation`, and `GET /meta/evaluation-dimensions`
+   unauthenticated so the form builds itself from the server.
+5. `GET /admin/courses/{id}/evaluations` behind `require_admin`: the summary plus
+   the comments, newest first.
+6. Tests:
+   - submitting on a completed attempt stores every dimension
+   - submitting on an incomplete attempt is refused
+   - a second submission for the same attempt is refused with a clean status, not
+     a 500
+   - a partial submission with three of five dimensions is accepted
+   - a rating of 0 or 6 is refused
+   - the instructor dimension is absent from the served dimension list
+   - the course summary computes means over submitted values only, ignoring nulls
+   - response rate counts completed attempts as the denominator
 
 ## Frontend tasks
-1. An admin sponsor settings page, reachable from the admin nav rather than
-   buried inside a course.
-2. An admin completions page: filters, a table, a download button. Plain table,
-   no charts — feature 012 settled that argument.
-3. `Verify` renders the snapshot fields, including credit, field of study, and
-   delivery method. The existing self-reported-name wording from feature 007 stays
-   and still applies to anonymous attempts.
-4. `Result` needs no change beyond whatever the new fields surface.
+1. An evaluation form on `Result`, below the certificate section, using the
+   dimensions from `/meta/evaluation-dimensions`. A 1-to-5 scale with labelled
+   ends, a comments textarea, one submit. Do not hand-code the five questions in
+   JSX — that is the second copy of the list the constant exists to prevent.
+2. A submitted state showing the responses back, so a reload does not look like
+   the submission failed.
+3. An admin evaluations view per course: response count and rate, a mean per
+   dimension, and the comments. Flag a mean below 3 the way feature 012's stats
+   page flags a question under 40 percent correct — reuse that treatment rather
+   than inventing a second visual language for "look at this".
+4. Link it from the admin course editor and the course list, next to the existing
+   stats link.
 
 ## A thing to check rather than assume
-Anonymous attempts. Feature 007 built certificates before accounts existed, and
-feature 008 kept the anonymous path working: a signed-out participant types a
-name and gets a certificate whose name is self-reported.
+4.04.2 requires sponsors to periodically review evaluation results and to inform
+developers and instructors of them. This feature builds the view; it does not
+build the periodic review or the notification.
 
-Section 6 requires sponsors to verify individual successful completion, and
-states that self-certification of attendance or completion alone is not
-sufficient. A typed-in name on an anonymous attempt is close to exactly that.
-
-**Do not fix it in this feature by removing the anonymous path** — that is an
-auth and enrolment decision with product consequences. Do determine whether an
-anonymous attempt should be allowed to claim a certificate at all, state the
-conclusion in the changelog, and record the gap in COMPLIANCE.md against 6.01
-either way. If it stays, the verification page's existing wording is the
-mitigation and should be strengthened, not softened.
+Decide whether that is a gap worth a row in COMPLIANCE.md or a process the
+sponsor performs outside the software, and say which. A defensible answer is that
+review is a human obligation and the software's job is to make results available
+— but state it rather than leaving it unaddressed, because "the admin can look at
+it if they remember to" is exactly the kind of thing feature 026's dashboard
+exists to stop relying on.
 
 ## Acceptance criteria
-- `alembic upgrade head` adds the table and columns; `downgrade -1` reverses
-- an admin can fill in the sponsor profile, and publish is refused until they do
-- a claimed certificate PDF carries every field on the verified Section 9 list
-- editing the course title and credit afterwards changes neither the PDF nor the
-  verification page
-- the verification page and the PDF agree on every field, by construction
-- a long name against a long course title against a long sponsor name still fits
-  the page
-- the completions view lists every completed attempt and exports to CSV
+- `alembic upgrade head` creates the table with working range CHECKs;
+  `downgrade -1` reverses
+- completing an attempt, passed or failed, offers the evaluation
+- the form renders four dimensions for a self study course, not five
+- a submitted evaluation shows back on reload
+- a second submission is refused cleanly
+- the admin view shows response count, response rate, and a mean per dimension
+- a course with no responses shows a plain message, not an empty table
+- `npm run lint` passes
 - pytest passes
 
 ## When done
-Append an entry to CHANGELOG.md recording what Section 9 actually required
-against the working list above, what you concluded about anonymous attempts, and
-the retention period you found.
+Append an entry to CHANGELOG.md, including your conclusion on 4.04.2.
 
-Then append to COMPLIANCE.md: rows for the Section 9 documentation locators and
-for 6.01. The 6.01 Gap column carries the anonymous-attempt conclusion. Do not
-mark 6.01 satisfied on the strength of a passed assessment alone if the identity
-behind it is self-asserted.
+Then append to COMPLIANCE.md: rows for 4.04, 4.04.1, and 4.04.2. Quote the
+Requirement column from the PDF. The 4.04.1 Gap column records the deliberate
+omission of the instructor dimension and why.

@@ -76,6 +76,7 @@ function AdminCourseList() {
               <th>Status</th>
               <th>Lessons</th>
               <th>Stats</th>
+              <th>Evaluations</th>
             </tr>
           </thead>
           <tbody>
@@ -94,6 +95,9 @@ function AdminCourseList() {
                 <td>{course.lesson_count}</td>
                 <td>
                   <Link to={`/admin/courses/${course.id}/stats`}>View stats</Link>
+                </td>
+                <td>
+                  <Link to={`/admin/courses/${course.id}/evaluations`}>View evaluations</Link>
                 </td>
               </tr>
             ))}

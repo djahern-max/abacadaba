@@ -17,6 +17,7 @@ import AdminSMEList from './pages/Admin/AdminSMEList/AdminSMEList'
 import AdminSponsorSettings from './pages/Admin/AdminSponsorSettings/AdminSponsorSettings'
 import AdminCompletions from './pages/Admin/AdminCompletions/AdminCompletions'
 import Stats from './pages/Admin/Stats/Stats'
+import Evaluations from './pages/Admin/Evaluations/Evaluations'
 import styles from './App.module.css'
 
 function NotFound() {
@@ -64,6 +65,14 @@ function App() {
             element={
               <AdminGuard>
                 <Stats />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="/admin/courses/:id/evaluations"
+            element={
+              <AdminGuard>
+                <Evaluations />
               </AdminGuard>
             }
           />

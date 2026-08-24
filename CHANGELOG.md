@@ -1461,3 +1461,101 @@ new completion. Test data cleaned up from the dev database afterward.
 Emailing certificates, certificate templates/branding, revocation and
 expiry, and publishing the retention policy as a participant-facing page
 remain out of scope, as specified.
+
+## 2026-08-23, Feature 025, Evaluations
+
+Every participant is now offered a program evaluation on the Result page
+after their attempt completes, passed or failed, and an admin can review
+the aggregated results per course. 4.04 and 4.04.1 govern this
+(`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`); 4.04.2 is
+addressed below.
+
+New `evaluations` table, one row per attempt (`attempt_id` unique FK,
+CASCADE), one nullable integer column per dimension (1-5, hand-added CHECK
+constraints — `alembic revision --autogenerate` picked them up directly
+from the model's `__table_args__` on this brand-new table, so nothing had
+to be hand-edited into the generated migration this time), plus a free-text
+`comments` column and `submitted_at`. Columns, not a rows-per-answer table
+— see the model's own docstring for the reasoning. `downgrade -1` verified
+clean.
+
+The five dimensions 4.04.1 enumerates live once, as ordered records, in
+`app/constants/evaluation_dimensions.py` — key, participant-facing
+question text, and an `applies_to_self_study` flag — served through a new
+unauthenticated `GET /meta/evaluation-dimensions` (`app/routers/
+evaluations.py`) rather than duplicated in the frontend, the same pattern
+feature 020 established for fields of study. **Item 5, instructor
+effectiveness, is filtered out of that response and never rendered or
+collected** — self study has no instructor a participant met, so asking
+would produce noise, not quality data. The dimension stays in the constant
+with `applies_to_self_study = False` rather than being deleted, and its
+`instructor_effective` column stays on the table, both ready for
+superCPE's group programs. This is a deliberate, recorded gap against
+4.04.1, not a silent omission — see the COMPLIANCE.md row.
+
+`app/services/evaluations.py`: `submit()` refuses an incomplete attempt
+(409) and a second submission for the same attempt (409, translated from
+the unique constraint's `IntegrityError` rather than leaking a 500 — the
+same pattern `attempts.py::record_answer` already uses for duplicate
+answers); a partial submission (some dimensions null) is accepted, since a
+participant who answers four of five has still given four useful data
+points. `course_summary()` computes response count, response rate
+(against *completed* attempts, not started ones), and a mean per
+dimension in one query — an outer join from `attempts` to `evaluations` so
+an attempt with no evaluation still counts toward the denominator, and
+`AVG()` already ignores nulls for the per-dimension means. `course_comments
+()` returns non-blank comments newest first. Three new endpoints:
+`POST`/`GET /attempts/{id}/evaluation` (public — an attempt's own
+completion page needs no admin session to see or submit its evaluation)
+and `GET /admin/courses/{id}/evaluations` (added to `admin_analytics.py`,
+next to the existing stats endpoint, both behind `require_admin`).
+
+Frontend: `components/EvaluationForm/EvaluationForm.jsx`, dropped onto
+both branches of `Result.jsx` (passed and failed) below the certificate/
+retry section — it builds its five-or-fewer questions entirely from
+`GET /meta/evaluation-dimensions`, never hand-coding them in JSX. It
+fetches the attempt's existing evaluation on mount and shows a submitted
+summary instead of the form when one exists, so a reload never looks like
+the submission failed. A new admin page, `pages/Admin/Evaluations/
+Evaluations.jsx`, shows response count, response rate, a mean per
+dimension (flagging any mean below 3 with the same `flaggedRow`/`badge`
+treatment feature 012's Stats page uses for a question under 40 percent,
+reused rather than reinvented), and the comments; a course with zero
+responses shows a plain message instead of an empty table. Linked as
+"View evaluations" next to "View stats" on both `AdminCourseList` and
+`AdminCourseEditor`.
+
+**On 4.04.2** ("CPE program sponsors must periodically review evaluation
+results ... and should inform developers and instructors of evaluation
+results"): this feature makes results available to review — the admin
+evaluations page — and stops there. It does not schedule, remind, or track
+that a periodic review happened, and nothing connects a result to the
+course's `developer_id`/`reviewer_id` (feature 021) to notify anyone.
+Treated as a human obligation the software makes possible rather than one
+it performs — recorded as an open gap in COMPLIANCE.md, not silently
+assumed. Read the results: this is also the first feature that produces
+real signal on whether the AI-drafted course content is any good, which is
+the thing abacadaba exists to test.
+
+Tests: 304 backend tests pass (up from 288), 16 new in
+`tests/test_evaluations.py` — every dimension stored on submission, an
+incomplete attempt refused, a duplicate submission refused cleanly (409,
+not a 500), a partial submission accepted, a rating of 0 or 6 refused
+(422), the instructor dimension absent from the served list, an unsubmitted
+evaluation returning `null` rather than 404, a submitted evaluation
+round-tripping on GET, course-summary means computed over submitted values
+only, response rate using completed attempts as the denominator, a
+zero-response course, comments ordered newest first, and the admin
+endpoint requiring admin. `npm run lint` passes. Verified end to end in a
+real browser (Playwright, driven directly — `chromium-cli` wasn't
+available in this environment): registered a participant, completed a
+seeded course's assessment, confirmed the evaluation form rendered exactly
+four dimensions (no instructor) built from the live API response, submitted
+ratings and a comment, confirmed the submitted summary replaced the form,
+reloaded the result page and confirmed it still showed the submission
+instead of the form, then logged in as a promoted admin and confirmed the
+course list and course editor both link to "View evaluations," the admin
+page showed the correct response count/rate/means/comment, and a
+freshly-created empty course showed the plain no-responses message instead
+of an empty table. Seeded course, attempts, and users cleaned up from the
+dev database afterward.

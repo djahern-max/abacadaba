@@ -12,6 +12,7 @@ from app.routers import (
     auth,
     certificates,
     courses,
+    evaluations,
     health,
     meta,
     review,
@@ -44,3 +45,4 @@ app.include_router(admin_completions.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(certificates.router, prefix="/api/v1")
 app.include_router(review.router, prefix="/api/v1")
+app.include_router(evaluations.router, prefix="/api/v1")

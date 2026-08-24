@@ -2,6 +2,7 @@ from app.models.attempt import Attempt
 from app.models.attempt_answer import AttemptAnswer
 from app.models.choice import Choice
 from app.models.course import Course
+from app.models.evaluation import Evaluation
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
 from app.models.question import Question
@@ -21,6 +22,7 @@ __all__ = [
     "Choice",
     "Attempt",
     "AttemptAnswer",
+    "Evaluation",
     "ReviewResponse",
     "User",
     "Session",

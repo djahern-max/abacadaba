@@ -142,6 +142,9 @@ function AdminCourseEditor() {
         <Link to={`/admin/courses/${course.id}/stats`} className={styles.statsLink}>
           View stats
         </Link>
+        <Link to={`/admin/courses/${course.id}/evaluations`} className={styles.statsLink}>
+          View evaluations
+        </Link>
         <Button
           variant="primary"
           className={styles.headerSaveButton}

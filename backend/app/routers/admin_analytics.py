@@ -5,7 +5,9 @@ from app.db import get_db
 from app.dependencies import require_admin
 from app.models.course import Course
 from app.schemas.analytics import CourseAnalytics, QuestionChoiceDistribution
+from app.schemas.evaluation import CourseEvaluationsResponse
 from app.services import analytics
+from app.services import evaluations as evaluations_service
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -27,4 +29,15 @@ def get_course_stats(course_id: int, db: Session = Depends(get_db)):
             for question in questions
         ],
         dropoff=analytics.dropoff(db, course_id),
+    )
+
+
+@router.get("/admin/courses/{course_id}/evaluations", response_model=CourseEvaluationsResponse)
+def get_course_evaluations(course_id: int, db: Session = Depends(get_db)):
+    if db.get(Course, course_id) is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    return CourseEvaluationsResponse(
+        summary=evaluations_service.course_summary(db, course_id),
+        comments=evaluations_service.course_comments(db, course_id),
     )
