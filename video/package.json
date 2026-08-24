@@ -6,9 +6,7 @@
   "scripts": {
     "dev": "remotion studio",
     "render": "remotion render Lesson01 out/lesson-01.mp4",
-    "render:02": "remotion render Lesson02 out/lesson-02.mp4",
-    "generate": "tsx scripts/generate-audio.ts",
-    "generate:02": "tsx scripts/generate-audio.ts -- --lesson 02"
+    "generate": "tsx scripts/generate-audio.ts"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.0",
