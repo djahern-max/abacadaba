@@ -43,8 +43,8 @@ function Progress() {
   if (state.attempts.length === 0) {
     return (
       <div className={styles.message}>
-        <p>You haven&apos;t taken a quiz yet.</p>
-        <Link to="/">Browse lessons</Link>
+        <p>You haven&apos;t completed a course assessment yet.</p>
+        <Link to="/">Browse courses</Link>
       </div>
     )
   }

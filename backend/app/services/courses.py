@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -8,8 +9,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
-from app.models.question import Question
+from app.models.question import QUESTION_KIND_ASSESSMENT, Question
+from app.models.user import User
 from app.services import sponsor_profile as sponsor_profile_service
+from app.services import watch as watch_service
 
 
 @dataclass
@@ -51,6 +54,8 @@ class CourseWithLessons:
     # there is nothing here to freeze. See the pre-enrollment disclosure
     # reasoning in current-feature.md's frontend task 3.
     sponsor_registry_status: str
+    pass_ratio: Decimal
+    assessment_question_count: int
 
 
 @dataclass
@@ -67,6 +72,37 @@ class LessonSegmentData:
     course_title: str
     previous_lesson_slug: str | None
     next_lesson_slug: str | None
+    assessment_unlocked: bool
+    assessment_outstanding_lesson: str | None
+
+
+@dataclass
+class AssessmentGateStatus:
+    unlocked: bool
+    outstanding_lesson_title: str | None
+
+
+def get_assessment_gate_status(
+    db: Session, course: Course, viewer_id: uuid.UUID, user: User | None
+) -> AssessmentGateStatus:
+    """Whether the assessment is reachable for this viewer, and what is
+    outstanding if not.
+
+    One implementation for a question two other places already answer
+    separately: CourseDetail.jsx combines the admin's own `is_admin` with
+    /watch-status's `gate_met`, and attempts_service.start_attempt bypasses
+    the watch gate outright for an admin. This applies the same predicate so
+    a segment page cannot tell an admin something the course page or the
+    real enforcement disagrees with - see current-feature.md, "A thing to
+    check rather than assume."
+    """
+    if user is not None and user.is_admin:
+        return AssessmentGateStatus(unlocked=True, outstanding_lesson_title=None)
+    status = watch_service.course_watch_status(db, course, viewer_id, user.id if user else None)
+    if status.gate_met:
+        return AssessmentGateStatus(unlocked=True, outstanding_lesson_title=None)
+    outstanding = next(s for s in status.lessons if not s.progress.unlocked)
+    return AssessmentGateStatus(unlocked=False, outstanding_lesson_title=outstanding.lesson_title)
 
 
 def list_published(db: Session) -> list[CourseListItem]:
@@ -141,10 +177,14 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         credit_award=course.credit_award,
         expires_on=course.expires_on,
         sponsor_registry_status=sponsor_profile_service.get_sponsor_profile(db).registry_status,
+        pass_ratio=course.pass_ratio,
+        assessment_question_count=published_question_count(db, course.id, kind=QUESTION_KIND_ASSESSMENT),
     )
 
 
-def get_lesson_in_course(db: Session, course_slug: str, lesson_slug: str) -> LessonSegmentData | None:
+def get_lesson_in_course(
+    db: Session, course_slug: str, lesson_slug: str, viewer_id: uuid.UUID, user: User | None
+) -> LessonSegmentData | None:
     stmt = (
         select(Course)
         .where(Course.slug == course_slug, Course.is_published.is_(True))
@@ -162,6 +202,7 @@ def get_lesson_in_course(db: Session, course_slug: str, lesson_slug: str) -> Les
     lesson = published_lessons[index]
     previous_lesson = published_lessons[index - 1] if index > 0 else None
     next_lesson = published_lessons[index + 1] if index + 1 < len(published_lessons) else None
+    gate = get_assessment_gate_status(db, course, viewer_id, user)
 
     return LessonSegmentData(
         id=lesson.id,
@@ -176,6 +217,8 @@ def get_lesson_in_course(db: Session, course_slug: str, lesson_slug: str) -> Les
         course_title=course.title,
         previous_lesson_slug=previous_lesson.slug if previous_lesson else None,
         next_lesson_slug=next_lesson.slug if next_lesson else None,
+        assessment_unlocked=gate.unlocked,
+        assessment_outstanding_lesson=gate.outstanding_lesson_title,
     )
 
 

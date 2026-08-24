@@ -165,11 +165,16 @@ def test_answering_incorrectly_returns_correct_false():
 
 
 def test_answering_a_review_question_writes_no_attempt_row():
+    # A delta check, not a global-emptiness assumption: this repo's dev and
+    # test databases are the same one (see current-feature.md, feature
+    # 028's walkthrough), so other attempts can legitimately already exist.
+    # The claim under test is narrower - answering a review question adds
+    # none of its own.
     question = get_question_data("review")
     before = SessionLocal().execute(select(Attempt.id)).all()
     answer_review(question["id"], question["correct_choice_id"])
     after = SessionLocal().execute(select(Attempt.id)).all()
-    assert before == after == []
+    assert before == after
 
 
 def test_reanswering_a_review_question_overwrites_not_accumulates():

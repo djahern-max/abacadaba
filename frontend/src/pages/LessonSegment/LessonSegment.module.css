@@ -45,9 +45,16 @@
   line-height: 1.6;
 }
 
+.assessmentStatus {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .nav {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: var(--space-md);
 }
 
@@ -63,6 +70,29 @@
 
 .navSpacer {
   flex: 1;
+}
+
+.assessmentButton {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.assessmentButton:hover {
+  opacity: 0.9;
+}
+
+.assessmentOutstanding {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-align: right;
 }
 
 .message {

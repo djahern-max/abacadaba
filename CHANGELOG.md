@@ -1673,3 +1673,61 @@ promising a specific grace window, the code above is the actual behavior to
 check it against. Second, the NASBA escalation paragraph in the complaint
 resolution policy body, which is human-written text in a table row this
 feature has no business generating or rewriting.
+
+## 2026-08-24, Feature 028, The completion path
+A testing walkthrough found BUG-001 (now `BUGS.md`, which this feature also
+created): a participant who watched every segment and answered every review
+question reported the course "just ends." He had actually never reached the
+qualified assessment - `LessonSegment.jsx`'s footer `<nav>` rendered "Next
+segment →" when `next_lesson_slug` was present and rendered nothing at all
+on the last segment, so the only way forward from there was `CourseDetail`'s
+own "Take the assessment" button, which nothing on the segment page pointed
+back to. Fixed at the last segment: the same slot now renders "Take the
+assessment" (linking to `/courses/{slug}/quiz`, the destination
+`CourseDetail.jsx` has used since feature 019) once the assessment is
+reachable, or the name of the still-locked segment otherwise. Every segment
+page, not only the last, also carries a quiet one-line status
+("The assessment is unlocked." / `Watch "{lesson}" to unlock the
+assessment.`), sourced from a single new predicate,
+`app/services/courses.py::get_assessment_gate_status`, built specifically so
+this page cannot disagree with what `CourseDetail.jsx` already shows via
+`/watch-status` or with what `attempts_service.start_attempt` already
+enforces - an admin bypasses the watch gate in all three places for the same
+reason. `GET /courses/{slug}/lessons/{lesson_slug}` gained
+`assessment_unlocked`/`assessment_outstanding_lesson`
+(`LessonSegmentDetail`/`LessonSegmentData`); `LessonSegment.jsx` refetches
+the segment when its own watch gate transitions closed→open, since that is
+exactly the moment the whole-course gate can also change and the terminal
+action would otherwise sit stale until reload. `CourseDetail.jsx` gained a
+"How this course works" section stating the segment count, that segments
+carry practice review questions, that one qualified assessment covers the
+whole course, and the pass threshold - every number read from the course
+(`pass_ratio`, `assessment_question_count` added to `GET /courses/{slug}`)
+rather than hardcoded, so it cannot drift from the course it describes.
+`ReviewPanel.jsx` gained one sentence distinguishing its ungraded practice
+questions from the graded assessment, since the walkthrough's tester had
+mistaken the two. `Result.jsx`'s post-assessment screen gained "My
+progress"/"Browse courses" links alongside "Back to course," and
+`Progress.jsx`'s empty state now says "assessment," not "quiz," to match.
+Backend: 4 new tests plus one correction to an existing one -
+`test_answering_a_review_question_writes_no_attempt_row` asserted the
+attempts table was empty before and after, which only held because dev and
+test point at the same database and happened to be empty at the time; this
+feature's walkthrough used that same database and left rows behind, so the
+assertion is now a delta (`before == after`) rather than a global-emptiness
+claim. 347 tests pass (343 existing + 4 new, none modified in expected
+outcome except the correction above); `npm run lint` and `npm run build`
+pass.
+
+While reviewing evaluations for this walkthrough, found a second unread
+data source alongside them: `review_responses` (feature 023's ungraded
+practice-question answers) has nine rows in the dev database and nothing
+anywhere queries them, the same shape of gap as 4.04.2's evaluation-review
+gap. Recorded against 4.04.2 in COMPLIANCE.md rather than opening a new
+locator, since no clause of the Standards specifically names review-question
+data. Not built here.
+
+No model or schema change, so no Alembic migration. `BUGS.md` created (did
+not exist before this feature) - see its own note on why BUG-001 and BUG-002
+are reconstructed from current-feature.md's account rather than moved from
+prior text.

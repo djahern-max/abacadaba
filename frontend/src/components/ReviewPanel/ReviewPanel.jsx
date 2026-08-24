@@ -97,6 +97,10 @@ function ReviewPanel({ courseSlug, lessonSlug }) {
   return (
     <section className={styles.panel}>
       <h2 className={styles.heading}>Check your understanding</h2>
+      <p className={styles.subheading}>
+        Practice questions, not the assessment. There is no minimum passing score here &mdash; answer as many times
+        as you like.
+      </p>
       {state.questions.map((question) => (
         <ReviewQuestion key={question.id} courseSlug={courseSlug} lessonSlug={lessonSlug} question={question} />
       ))}

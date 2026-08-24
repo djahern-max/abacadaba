@@ -60,8 +60,14 @@ def get_course_thumbnail_url(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/courses/{slug}/lessons/{lesson_slug}", response_model=LessonSegmentDetail)
-def get_lesson_segment(slug: str, lesson_slug: str, db: Session = Depends(get_db)):
-    segment = courses_service.get_lesson_in_course(db, slug, lesson_slug)
+def get_lesson_segment(
+    slug: str,
+    lesson_slug: str,
+    db: Session = Depends(get_db),
+    viewer_id: uuid.UUID = Depends(get_viewer_id),
+    user: User | None = Depends(get_current_user),
+):
+    segment = courses_service.get_lesson_in_course(db, slug, lesson_slug, viewer_id, user)
     if segment is None:
         raise HTTPException(status_code=404, detail="Lesson not found")
     return segment

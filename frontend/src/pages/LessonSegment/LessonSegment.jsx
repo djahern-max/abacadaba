@@ -18,9 +18,24 @@ function LessonSegment() {
   // Reused from VideoPlayer's own watch-progress fetch (Feature 015) rather
   // than fetched again here - the review panel appears once this segment's
   // watch gate closes (5.01.2.1: "placed throughout the program").
-  const handleProgressChange = useCallback((progress) => {
-    setWatchUnlocked(progress.unlocked)
-  }, [])
+  const handleProgressChange = useCallback(
+    (progress) => {
+      setWatchUnlocked((wasUnlocked) => {
+        if (!wasUnlocked && progress.unlocked) {
+          // This segment's own gate just opened, which is exactly the
+          // moment the whole-course assessment gate can change too (if
+          // every other segment was already watched). Refresh it rather
+          // than leaving the terminal action stale until the participant
+          // reloads or navigates away and back.
+          getLessonSegment(slug, lessonSlug).then((fresh) =>
+            setState((prev) => (prev.status === 'loaded' ? { status: 'loaded', segment: fresh } : prev)),
+          )
+        }
+        return progress.unlocked
+      })
+    },
+    [slug, lessonSlug],
+  )
 
   useEffect(() => {
     setState({ status: 'loading', segment: null })
@@ -80,6 +95,12 @@ function LessonSegment() {
       )}
       <p className={styles.description}>{segment.description}</p>
 
+      <p className={styles.assessmentStatus}>
+        {segment.assessment_unlocked
+          ? 'The assessment is unlocked.'
+          : `Watch "${segment.assessment_outstanding_lesson}" to unlock the assessment.`}
+      </p>
+
       {watchUnlocked && <ReviewPanel courseSlug={slug} lessonSlug={segment.slug} />}
 
       <nav className={styles.nav}>
@@ -90,10 +111,18 @@ function LessonSegment() {
         ) : (
           <span className={styles.navSpacer} />
         )}
-        {segment.next_lesson_slug && (
+        {segment.next_lesson_slug ? (
           <Link to={`/courses/${slug}/lessons/${segment.next_lesson_slug}`} className={styles.navLink}>
             Next segment &rarr;
           </Link>
+        ) : segment.assessment_unlocked ? (
+          <Link to={`/courses/${slug}/quiz`} className={styles.assessmentButton}>
+            Take the assessment
+          </Link>
+        ) : (
+          <span className={styles.assessmentOutstanding}>
+            Watch &quot;{segment.assessment_outstanding_lesson}&quot; to unlock the assessment
+          </span>
         )}
       </nav>
     </article>

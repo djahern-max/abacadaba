@@ -69,6 +69,10 @@ class CourseDetail(BaseModel):
     # Feature 027's pre-enrollment disclosure - see current-feature.md's
     # frontend task 3. Live, not snapshotted; see app/services/courses.py.
     sponsor_registry_status: str
+    # Feature 028: "How this course works" derives its numbers from these
+    # rather than hardcoding them - see current-feature.md, frontend task 4.
+    pass_ratio: Decimal
+    assessment_question_count: int
 
 
 class LessonSegmentDetail(BaseModel):
@@ -86,3 +90,8 @@ class LessonSegmentDetail(BaseModel):
     course_title: str
     previous_lesson_slug: str | None
     next_lesson_slug: str | None
+    # Feature 028: sourced from the same gate CourseDetail's /watch-status
+    # call and attempts_service.start_attempt already answer - see
+    # app/services/courses.py::get_assessment_gate_status.
+    assessment_unlocked: bool
+    assessment_outstanding_lesson: str | None

@@ -176,7 +176,11 @@ function Result() {
         <Certificate attemptId={result.attempt_id} certificateCode={result.certificate_code} />
         {result.answers && <AnswerBreakdown answers={result.answers} />}
         <EvaluationForm attemptId={result.attempt_id} />
-        <Link to={`/courses/${result.course_slug}`}>Back to course</Link>
+        <div className={styles.actions}>
+          <Link to={`/courses/${result.course_slug}`}>Back to course</Link>
+          <Link to="/me">My progress</Link>
+          <Link to="/">Browse courses</Link>
+        </div>
       </div>
     )
   }

@@ -148,6 +148,16 @@ function CourseDetail() {
         </section>
       )}
 
+      <section className={styles.howItWorks}>
+        <h2 className={styles.sectionHeading}>How this course works</h2>
+        <p>
+          This course has {course.lessons.length} segment{course.lessons.length === 1 ? '' : 's'}. Each segment has
+          review questions along the way to check your understanding &mdash; practice only, and not graded. After
+          you have watched every segment, a single {course.assessment_question_count}-question assessment covers
+          the whole course. Score at least {Math.round(course.pass_ratio * 100)}% to pass and get your certificate.
+        </p>
+      </section>
+
       {singleLesson ? (
         <>
           <VideoPlayer
