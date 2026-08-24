@@ -1,1 +1,88 @@
-{}
+{
+  "block-04": {
+    "durationSeconds": 43.696,
+    "reveals": [
+      0,
+      12.295,
+      31.927,
+      40.542
+    ],
+    "hash": "92bf4565b969",
+    "generatedAt": "2026-08-24T12:20:37.316Z"
+  },
+  "block-01": {
+    "durationSeconds": 42.396,
+    "reveals": [
+      2.798,
+      26.459,
+      36.014
+    ],
+    "hash": "1cc93e3278ba",
+    "generatedAt": "2026-08-24T12:26:18.546Z"
+  },
+  "block-02": {
+    "durationSeconds": 39.609,
+    "reveals": [
+      11.18,
+      13.607,
+      16.358,
+      21.954
+    ],
+    "hash": "7f772002b561",
+    "generatedAt": "2026-08-24T12:26:25.171Z"
+  },
+  "block-03": {
+    "durationSeconds": 50.662,
+    "reveals": [
+      0,
+      12.759,
+      25.728,
+      36.827
+    ],
+    "hash": "5f2c48dc17da",
+    "generatedAt": "2026-08-24T12:26:33.531Z"
+  },
+  "block-05": {
+    "durationSeconds": 46.066,
+    "reveals": [
+      0,
+      6.861,
+      23.824,
+      39.231
+    ],
+    "hash": "9323f801b805",
+    "generatedAt": "2026-08-24T12:26:41.426Z"
+  },
+  "block-06": {
+    "durationSeconds": 46.529,
+    "reveals": [
+      0,
+      18.843,
+      32.311,
+      36.258
+    ],
+    "hash": "5c42b1ce3aa2",
+    "generatedAt": "2026-08-24T12:26:49.158Z"
+  },
+  "block-07": {
+    "durationSeconds": 50.012,
+    "reveals": [
+      10.217,
+      19.273,
+      33.135,
+      41.355
+    ],
+    "hash": "daef804f5541",
+    "generatedAt": "2026-08-24T12:26:57.371Z"
+  },
+  "block-08": {
+    "durationSeconds": 48.061,
+    "reveals": [
+      1.858,
+      20.212,
+      34.017
+    ],
+    "hash": "7a333eebb796",
+    "generatedAt": "2026-08-24T12:27:05.216Z"
+  }
+}
