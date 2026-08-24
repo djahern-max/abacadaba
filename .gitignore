@@ -17,7 +17,8 @@ dist/
 
 # Local
 .DS_Store
-notes.txtvideo/node_modules/
+notes.txt
+video/node_modules/
 video/out/
 notes.txt
 
