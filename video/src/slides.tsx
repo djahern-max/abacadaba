@@ -8,6 +8,9 @@ export type LessonMeta = {
   courseCode: string;
   courseTitle: string;
   lessonTitle: string;
+  position: string;        // "Lesson 1 of 5" — course-relative, not the package id
+  deliveryMethod: string;  // "Self study", "Group live"
+  fieldOfStudy: string;
   revision: string;
   revisionDate: string;
   status: string;
@@ -109,7 +112,11 @@ export const Title: React.FC<SlideProps> = ({ reveals, meta }) => {
         }}
       >
         <span style={{ width: 60, height: 2, background: theme.color.flag }} />
-        <span>LESSON 2 OF 5 &nbsp;·&nbsp; SELF STUDY &nbsp;·&nbsp; ACCOUNTING</span>
+        <span>
+          {[m.position, m.deliveryMethod, m.fieldOfStudy]
+            .join("\u00A0·\u00A0")
+            .toUpperCase()}
+        </span>
       </div>
     </div>
   );
