@@ -1825,3 +1825,53 @@ than the one that specified this feature, and had already claimed 028
 before this one's own numbering note ("not `027a`, so the next whole
 number") was written. See current-feature.md's own numbering note for the
 full account.
+
+## 2026-08-25, Video pipeline 03, Lesson meta completeness
+`LessonMeta` (`slides.tsx`) has required `position`, `deliveryMethod`,
+`fieldOfStudy`, `revision`, and `revisionDate` since Video pipeline 02, and
+`Title`/`Sheet.tsx` render them - but `Lesson.tsx` reads each lesson's `meta`
+through `as unknown as LessonMeta`, a double cast that suppresses structural
+checking entirely, so `tsc` never verified the individual lesson modules
+actually supplied those fields. Most didn't: only lesson-06 had `revision`/
+`revisionDate` (added when it was written), and none had `position` or
+`deliveryMethod` - exactly the gap lesson-06's trailing comment already
+diagnosed as finding 1, "`Title` is not generic... every lesson since 02 has
+been rendering lesson 02's position and lesson 02's field of study." A new
+`npm run check` (`scripts/check-lessons.ts`) surfaces this class of defect
+going forward by validating each lesson's blocks and reveals independent of
+the `as unknown as` cast; it now reports 0 errors across all six lessons (1
+expected warning: lesson 01 block-02 sitting exactly on the 40s sheet-window
+boundary).
+
+Added the four missing fields to `meta` in `lesson-01.ts` through
+`lesson-05.ts`, and `position`/`deliveryMethod` to `lesson-06.ts` (which
+already had `revision`/`revisionDate`). `deliveryMethod` is "Self study" for
+all six; `position` is course-relative ("Lesson N of 5"), matching each
+lesson's existing `eyebrow` - except lesson-06, whose `eyebrow` and
+`position` both read "Lesson 1 of 5" while `lessonId` stays "06", the
+package-position/course-position split its header comment already documents
+and this feature does not reconcile. `revisionDate` for lessons 01, 02, and
+06 came from existing narration/audio-pipeline dates already in this file;
+CHANGELOG.md had no recorded authorship date for lessons 03-05, so their
+`revisionDate` (2026-08-24) was confirmed with the user against each
+module's git commit date rather than guessed, per the note in lesson-01.ts
+that `revisionDate` is a 4.01 disclosure, not decoration.
+
+No blocks, narration, reveals, `estimatedSeconds`, `slides.tsx`, or
+`Sheet.tsx` changed, and no audio was regenerated - this is metadata only.
+`revision`/`revisionDate` render only in `Sheet.tsx`'s "REV" cell
+(`revisionDate` itself is not yet rendered anywhere); `position`/
+`deliveryMethod`/`fieldOfStudy` render in `Title`'s footer strip. Lessons
+01-05's title sheets and lesson-06's REV cell were rendered before this
+feature with the wrong or blank values described above; picking up the
+fix requires a re-render, not shipped here (see next-steps note to the
+user).
+
+COMPLIANCE.md gains no row. 4.01's "most recent publication, revision, or
+review date" locator is already mapped (features 021/026) against
+`Course.reviewed_at` in the actual application; this `video/` package is
+still the pre-application authoring/rendering tooling Video pipeline 01/02
+established, not wired to that model, and its `revisionDate` field is not
+yet rendered on any surface a participant sees. This feature makes the
+package's own type declarations honest about a shape it already had - it
+does not add new disclosure to a real course.

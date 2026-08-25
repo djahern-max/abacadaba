@@ -46,7 +46,11 @@ export const meta = {
   title: "Not Making It in the First Place",
   subtitle: "The waste hierarchy, green chemistry, and the cheapest pound of all",
   eyebrow: "Lesson 05",
+  position: "Lesson 5 of 5",
+  deliveryMethod: "Self study",
   fieldOfStudy: "ESG/Sustainability",
+  revision: "A",
+  revisionDate: "2026-08-24",
   status: "",
 };
 

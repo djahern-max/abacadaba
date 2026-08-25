@@ -1,13 +1,13 @@
 {
   "block-01": {
-    "durationSeconds": 50.012,
+    "durationSeconds": 49.826,
     "reveals": [
-      15.464,
-      28.386,
-      43.967
+      13.955,
+      26.877,
+      43.247
     ],
     "hash": "9e9e7f964d79",
-    "generatedAt": "2026-08-25T08:31:15.256Z"
+    "generatedAt": "2026-08-25T08:56:24.748Z"
   },
   "block-02": {
     "durationSeconds": 43.138,

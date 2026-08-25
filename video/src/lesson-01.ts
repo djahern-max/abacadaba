@@ -74,7 +74,11 @@ export const meta = {
   title: 'What Makes a Waste "Hazardous"?',
   subtitle: "Four characteristics, four lists",
   eyebrow: "Lesson 01",
+  position: "Lesson 1 of 5",
+  deliveryMethod: "Self study",
   fieldOfStudy: "ESG/Sustainability",
+  revision: "A",
+  revisionDate: "2026-08-20",
   status: "",
 };
 

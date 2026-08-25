@@ -41,7 +41,11 @@ export const meta = {
   title: "Love Canal and the Birth of Superfund",
   subtitle: "How one neighborhood produced a federal cleanup program",
   eyebrow: "Lesson 04",
+  position: "Lesson 4 of 5",
+  deliveryMethod: "Self study",
   fieldOfStudy: "ESG/Sustainability",
+  revision: "A",
+  revisionDate: "2026-08-24",
   status: "",
 };
 

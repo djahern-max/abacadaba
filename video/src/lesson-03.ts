@@ -39,7 +39,11 @@ export const meta = {
   title: "Cradle to Grave",
   subtitle: "The manifest, the chain of custody, and the copy that comes back",
   eyebrow: "Lesson 03",
+  position: "Lesson 3 of 5",
+  deliveryMethod: "Self study",
   fieldOfStudy: "ESG/Sustainability",
+  revision: "A",
+  revisionDate: "2026-08-24",
   status: "DRAFT — NOT REVIEWED",
 };
 

@@ -36,7 +36,11 @@ export const meta = {
   title: "Who Makes It, and How Much",
   subtitle: "Generator categories and the volume that sets them",
   eyebrow: "Lesson 02",
+  position: "Lesson 2 of 5",
+  deliveryMethod: "Self study",
   fieldOfStudy: "ESG/Sustainability",
+  revision: "A",
+  revisionDate: "2026-08-21",
   status: "",
 };
 
