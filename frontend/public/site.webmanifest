@@ -1,7 +1,6 @@
 {
   "name": "abacadaba",
   "short_name": "abacadaba",
-  "description": "Short CPE lessons you can actually finish.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,35 +1,55 @@
+"""Build the site-default Open Graph card, 1200x630.
+
+Requires `pip install pillow fonttools`. Downloads the full-latin Jost
+variable font Google Fonts serves (same source as build_jost_subset.py) so
+the card uses the same face as the header wordmark without depending on any
+font installed on the machine running this script.
+"""
+
+import io
+import urllib.request
+
+from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFont
 
-INK=(12,34,51); PAPER=(242,245,247); BEAD=(200,135,27); ROD=(122,148,166)
-W,H=1200,630
-F="/usr/share/fonts/truetype/google-fonts/Poppins-{}.ttf"
+INK    = (12, 34, 51)      # --ink   #0C2233
+PAPER  = (242, 245, 247)   # --wash  #F2F5F7
+ACCENT = (167, 139, 250)   # --color-accent (dark-mode value #a78bfa - reads
+                            # against the ink background here)
+W, H = 1200, 630
 
-img=Image.new("RGB",(W,H),INK); d=ImageDraw.Draw(img)
+JOST_LATIN_URL = "https://fonts.gstatic.com/s/jost/v20/92zatBhPNqw73oTd4jQmfxI.woff2"
 
-# hairline rod running the full width, behind everything
-d.line([(0,H-96),(W,H-96)],fill=(26,52,74),width=2)
 
-def mark(size):
-    S=size*4; m=Image.new("RGBA",(S,S),(0,0,0,0)); md=ImageDraw.Draw(m); u=S/32.0
-    md.rounded_rectangle([0,0,S,S],radius=7.5*u,fill=PAPER+(255,))
-    md.ellipse([(12.6-7.2)*u,(19-7.2)*u,(12.6+7.2)*u,(19+7.2)*u],fill=BEAD+(255,))
-    md.rounded_rectangle([21.4*u,11.8*u,24.8*u,26.2*u],radius=1.7*u,fill=INK+(255,))
-    return m.resize((size,size),Image.LANCZOS)
+def _load_jost(size: int, weight: int = 500) -> ImageFont.FreeTypeFont:
+    raw = urllib.request.urlopen(JOST_LATIN_URL).read()
+    font = TTFont(io.BytesIO(raw))
+    if "fvar" in font:
+        from fontTools.varLib.instancer import instantiateVariableFont
 
-m=mark(104); img.paste(m,(96,150),m)
+        font = instantiateVariableFont(font, {"wght": weight})
+    font.flavor = None
+    buf = io.BytesIO()
+    font.save(buf)
+    buf.seek(0)
+    return ImageFont.truetype(buf, size)
 
-word="abacadaba"
-f=ImageFont.truetype(F.format("Bold"),126)
-x=96; y=300
+
+img = Image.new("RGB", (W, H), INK)
+d = ImageDraw.Draw(img)
+
+d.line([(0, H - 96), (W, H - 96)], fill=(26, 52, 74), width=2)
+
+word = "abacadaba"
+f = _load_jost(160, weight=600)
+x = 96
+y = (H - 160) / 2 - 20
 for ch in word:
-    d.text((x,y),ch,font=f,fill=PAPER if ch=="a" else BEAD)
-    x+=f.getlength(ch)-3
+    d.text((x, y), ch, font=f, fill=PAPER if ch == "a" else ACCENT)
+    x += f.getlength(ch) - 3
 
-fd=ImageFont.truetype(F.format("Medium"),30)
-d.text((100,470),"SHORT CPE LESSONS YOU CAN ACTUALLY FINISH",font=fd,fill=ROD)
+footer_font = _load_jost(26, weight=500)
+d.text((96, H - 70), "abacadaba.com", font=footer_font, fill=(90, 116, 135))
 
-fu=ImageFont.truetype(F.format("Medium"),26)
-d.text((96,H-70),"abacadaba.com",font=fu,fill=(90,116,135))
-
-img.save("out/og-default.png",optimize=True)
+img.save("out/og-default.png", optimize=True)
 print(img.size)

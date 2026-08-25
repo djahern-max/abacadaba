@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import Mark from '../Mark/Mark'
 import styles from './Wordmark.module.css'
 
 const SESSION_KEY = 'abacadaba:wordmark-animated'
@@ -10,15 +9,15 @@ const SESSION_KEY = 'abacadaba:wordmark-animated'
 // out wordmark is aria-hidden. See current-feature.md, Part 2,
 // "Accessibility, and this is the part that gets missed."
 const LETTERS = [
-  { char: 'a', bead: false },
-  { char: 'b', bead: true },
-  { char: 'a', bead: false },
-  { char: 'c', bead: true },
-  { char: 'a', bead: false },
-  { char: 'd', bead: true },
-  { char: 'a', bead: false },
-  { char: 'b', bead: true },
-  { char: 'a', bead: false },
+  { char: 'a', accent: false },
+  { char: 'b', accent: true },
+  { char: 'a', accent: false },
+  { char: 'c', accent: true },
+  { char: 'a', accent: false },
+  { char: 'd', accent: true },
+  { char: 'a', accent: false },
+  { char: 'b', accent: true },
+  { char: 'a', accent: false },
 ]
 
 function Wordmark() {
@@ -37,22 +36,18 @@ function Wordmark() {
 
   return (
     <Link to="/" className={styles.brand} aria-label="abacadaba, home">
-      <Mark aria-hidden="true" className={styles.mark} />
-      <span className={styles.wordText}>
-        <span className={animate ? `${styles.wordmark} ${styles.animate}` : styles.wordmark} aria-hidden="true">
-          {LETTERS.map((letter, index) =>
-            letter.bead ? (
-              <b key={index} className={styles.bead} style={{ '--i': index }}>
-                {letter.char}
-              </b>
-            ) : (
-              <i key={index} className={styles.rod} style={{ '--i': index }}>
-                {letter.char}
-              </i>
-            ),
-          )}
-        </span>
-        <span className={styles.descriptor}>Short CPE lessons</span>
+      <span className={animate ? `${styles.wordmark} ${styles.animate}` : styles.wordmark} aria-hidden="true">
+        {LETTERS.map((letter, index) =>
+          letter.accent ? (
+            <b key={index} className={styles.accent} style={{ '--i': index }}>
+              {letter.char}
+            </b>
+          ) : (
+            <i key={index} className={styles.constant} style={{ '--i': index }}>
+              {letter.char}
+            </i>
+          ),
+        )}
       </span>
     </Link>
   )

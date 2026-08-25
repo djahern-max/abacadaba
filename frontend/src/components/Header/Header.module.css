@@ -60,9 +60,9 @@
   color: var(--rod);
 }
 
-/* Active state: a short rod with a bead resting on it - the same object as
-   the mark, at nav scale. CSS keys off aria-current so the visual state
-   can't drift from the accessible one. */
+/* Active state: a short rule with an accent-colored dot resting on it. CSS
+   keys off aria-current so the visual state can't drift from the
+   accessible one. */
 .navLink[aria-current='page']::after {
   content: '';
   position: absolute;
@@ -81,7 +81,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--bead);
+  background: var(--color-accent);
   transform: translateX(-50%);
 }
 

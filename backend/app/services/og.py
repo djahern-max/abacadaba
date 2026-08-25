@@ -18,7 +18,6 @@ from app.services import courses as courses_service
 from app.services import storage
 
 DEFAULT_IMAGE_PATH = "/og-default.png"
-DEFAULT_DESCRIPTION = "Short CPE lessons you can actually finish."
 DESCRIPTION_MAX_LENGTH = 200
 THUMBNAIL_URL_EXPIRES_IN = 3600
 
@@ -34,9 +33,9 @@ def _truncate(text: str, limit: int) -> str:
 def _render(
     *,
     title: str,
-    description: str,
     url: str,
     image: str,
+    description: str | None = None,
     image_width: int | None = None,
     image_height: int | None = None,
 ) -> str:
@@ -44,10 +43,11 @@ def _render(
         ("og:type", "website"),
         ("og:site_name", "abacadaba"),
         ("og:title", title),
-        ("og:description", description),
-        ("og:url", url),
-        ("og:image", image),
     ]
+    if description:
+        tags.append(("og:description", description))
+    tags.append(("og:url", url))
+    tags.append(("og:image", image))
     if image_width is not None:
         tags.append(("og:image:width", str(image_width)))
     if image_height is not None:
@@ -75,7 +75,6 @@ def _render(
 def default_preview_html() -> str:
     return _render(
         title="abacadaba",
-        description=DEFAULT_DESCRIPTION,
         url=f"{settings.site_url}/",
         image=f"{settings.site_url}{DEFAULT_IMAGE_PATH}",
         image_width=1200,

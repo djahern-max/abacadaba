@@ -1882,46 +1882,66 @@ full favicon set (`favicon.svg` with a dark variant, `favicon.ico`,
 `apple-touch-icon.png`, `icon-192`/`icon-512`/`icon-maskable-512.png`,
 `site.webmanifest`) is in `frontend/public/`, regenerable from
 `tools/brand/build_icons.py`; `frontend/index.html` links them in the order
-Safari needs and sets `<title>abacadaba — short CPE lessons</title>`.
+Safari needs.
 
 The header now has three zones - brand, product nav, account - matching
 current-feature.md's diagram, not one undifferentiated row. `Wordmark`
-(`components/Wordmark`) renders the mark (a brass circle beside an ink stem
-- the same shape as a constructed lowercase `a`) beside the spelled-out
-wordmark, a's in `--ink` and b/c/d in `--bead`; the letters are `aria-hidden`
-with the accessible name ("abacadaba, home") on the link itself, so screen
-readers don't spell the word out. Set in a self-hosted Jost subset -
-glyphs a/b/c/d only, still variable (so weights 500 and 700 both resolve
-from the one file), ~1.9KB, built by `tools/brand/build_jost_subset.py`; the
-OFL license and copyright name records are kept in the font and
-`frontend/public/fonts/OFL.txt` ships alongside it. `AccountMenu`
-(`components/Header/AccountMenu.jsx`) replaces the bare `Sign out` link and
-inline `Admin` link with a menu-button: `aria-haspopup="menu"`,
-`aria-expanded`, `role="menu"`/`role="menuitem"`, arrow-key navigation,
-Escape-returns-focus, click-outside-closes. `Admin` still only renders for
-`user.is_admin` - this is presentation, the server-side check that actually
-gates `/admin` is unchanged.
+(`components/Wordmark`) renders the spelled-out wordmark itself, a's in
+`--ink` and b/c/d in `--color-accent` (the app's existing purple, also used
+for buttons and links elsewhere - not a second brand color to keep in sync);
+the letters are `aria-hidden` with the accessible name ("abacadaba, home")
+on the link itself, so screen readers don't spell the word out. Set in a
+self-hosted Jost subset - glyphs a/b/c/d only, still variable (so weights
+500 and 700 both resolve from the one file), ~1.9KB, built by
+`tools/brand/build_jost_subset.py`; the OFL license and copyright name
+records are kept in the font and `frontend/public/fonts/OFL.txt` ships
+alongside it. `AccountMenu` (`components/Header/AccountMenu.jsx`) replaces
+the bare `Sign out` link and inline `Admin` link with a menu-button:
+`aria-haspopup="menu"`, `aria-expanded`, `role="menu"`/`role="menuitem"`,
+arrow-key navigation, Escape-returns-focus, click-outside-closes. `Admin`
+still only renders for `user.is_admin` - this is presentation, the
+server-side check that actually gates `/admin` is unchanged.
+
+current-feature.md's original design paired the wordmark with a separate
+mark (a circle beside a stem, doubling as a constructed lowercase `a`) and a
+"Short CPE lessons" descriptor beside it. Both are gone, cut after the
+initial build at the user's direction: the mark read as an unwanted "ball
+and a line" logo, and abacadaba is an experiment on the way to a different
+product (superCPE) rather than actually a short-CPE-lessons product, so that
+copy was inaccurate rather than just unwanted. Removed everywhere the mark
+or that copy appeared, not just the header: the favicon/touch-icon/home-
+screen-icon set is now a single Jost `a` glyph on the `--ink` tile
+(`tools/brand/build_icons.py` draws it straight from the same font file
+rather than system Poppins, which the previous version of that script and
+`build_og_default.py` depended on and which isn't guaranteed to exist on
+whatever machine regenerates these); `og-default.png` lost both the mark and
+the tagline; `<title>`, `og:description`, and `site.webmanifest`'s
+`description` field all lost the CPE-lessons line, with `og:description`
+made optional on the default share card entirely (`app/services/og.py`)
+rather than replaced with different invented copy nobody asked for. A
+course's own share card is unaffected - `og:description` there is the
+course's real, admin-authored description, not site tagline copy.
 
 Active-page state (`My progress`) uses React Router's `NavLink`, which sets
-`aria-current="page"` itself; the bead-on-a-rod indicator is CSS keyed off
-that attribute, not a second piece of state, so the visual and accessible
-states can't drift apart. A skip link is the first focusable element on the
-page; every interactive element gets a 2px `--bead` `:focus-visible` ring
+`aria-current="page"` itself; the indicator dot is CSS keyed off that
+attribute, not a second piece of state, so the visual and accessible states
+can't drift apart. A skip link is the first focusable element on the page;
+every interactive element gets a 2px `--color-accent` `:focus-visible` ring
 site-wide (not header-scoped, since there was no reason to make it
-narrower). The wordmark's bead-settle animation runs once per
+narrower). The wordmark's accent-letter settle animation runs once per
 `sessionStorage`-tracked session and is removed entirely under
-`prefers-reduced-motion: reduce`. Below 640px the descriptor hides, product
-nav and the account zone collapse behind one menu button - no second mobile
-nav pattern, since the app didn't have one yet to reuse.
+`prefers-reduced-motion: reduce`. Below 640px product nav and the account
+zone collapse behind one menu button - no second mobile nav pattern, since
+the app didn't have one yet to reuse.
 
-New brand tokens (`--ink`/`--rod`/`--bead`/`--wash`/`--rule`/`--paper`) in
-`global.css` are a separate system from the existing `--color-*` tokens
-(purple accent, used elsewhere in the app) rather than a rename - the
-palettes serve different things and nothing but the header/wordmark reaches
-for the new ones. `--rod` ships darker than current-feature.md's literal
-`#7A94A6`: that value is 2.9:1 against `--wash`, and the descriptor text
-needs 4.5:1, so it's `#56707F` (4.9:1) instead, per the file's own
-"darken `--rod` if it does not [clear 4.5:1]" instruction.
+Brand tokens `--ink`/`--rod`/`--wash`/`--rule`/`--paper` in `global.css`
+stay their own thing (structural: rules, borders, tile backgrounds) since
+none of them have a `--color-*` equivalent; there's no separate `--bead`
+token now that the accent role is `--color-accent` directly. `--rod` still
+ships darker than current-feature.md's literal `#7A94A6` (`#56707F`) from
+the original build's contrast check, even though its one remaining text use
+(the account-menu caret) doesn't strictly need it - no reason to reintroduce
+a value that failed 4.5:1 once already.
 
 Part 5's link previews: `frontend/index.html` carries the static
 site-default Open Graph tags Apple's non-JS fetcher needs, `og:url` and
