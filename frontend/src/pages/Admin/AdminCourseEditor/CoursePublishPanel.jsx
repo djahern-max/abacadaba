@@ -8,13 +8,18 @@ const FIXED_CHECKS = [
   { label: 'Slug', message: 'Slug is required' },
   { label: 'Description', message: 'Description is required' },
   { label: 'At least one lesson', message: 'Course must have at least one lesson' },
-  { label: 'Developer', message: 'A developer is required' },
-  { label: 'Reviewer', message: 'A reviewer is required' },
-  { label: 'Review date', message: 'A review date is required' },
+  // Feature 029: relaxed for a general course, so these three don't apply
+  // there - filtered out below rather than shown pre-checked, which would
+  // read as "evaluated and met" for a rule that was never evaluated
+  // (020c's Bug 4). See current-feature.md, Part 5.
+  { label: 'Developer', message: 'A developer is required', cpeOnly: true },
+  { label: 'Reviewer', message: 'A reviewer is required', cpeOnly: true },
+  { label: 'Review date', message: 'A review date is required', cpeOnly: true },
   { label: 'Expiration date', message: 'An expiration date is required for self study programs (9.02.2)' },
   {
     label: 'Credit is up to date',
     messages: ['Credit has not been computed yet', 'This course has changed since credit was last computed'],
+    cpeOnly: true,
   },
 ]
 
@@ -51,6 +56,8 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
     await onChange()
   }
 
+  const isGeneral = course.program_kind === 'general'
+  const visibleChecks = FIXED_CHECKS.filter((check) => !(isGeneral && check.cpeOnly))
   const fixedMessages = new Set(FIXED_CHECKS.flatMap((check) => check.messages ?? [check.message]))
   const policiesError = publishErrors.find((message) => message.startsWith(POLICIES_MESSAGE_PREFIX))
   const lessonErrors = publishErrors.filter(
@@ -66,7 +73,7 @@ function CoursePublishPanel({ course, publishErrors, hasUnsavedWork, onPublishEr
     <section className={styles.section}>
       <h2 className={styles.heading}>Publish</h2>
       <ul className={styles.checklist}>
-        {FIXED_CHECKS.map((check) => {
+        {visibleChecks.map((check) => {
           const messages = check.messages ?? [check.message]
           const met = !messages.some((message) => publishErrors.includes(message))
           return (

@@ -183,6 +183,10 @@ class AdminCourseUpdate(BaseModel):
     description: str | None = None
     retake_cooldown_minutes: int | None = Field(default=None, ge=0)
     max_attempts: int | None = Field(default=None, ge=1)
+    # Feature 029: refused by admin_content.update_course while the course
+    # is published - see app/services/admin_content.py::
+    # ProgramKindChangeWhilePublishedError.
+    program_kind: str | None = None
     program_level: str | None = None
     field_of_study: str | None = None
     prerequisites: str | None = None
@@ -230,6 +234,7 @@ class AdminCourse(BaseModel):
     thumbnail_key: str | None
     retake_cooldown_minutes: int
     max_attempts: int | None
+    program_kind: str
     program_level: str
     field_of_study: str
     prerequisites: str | None

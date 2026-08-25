@@ -41,6 +41,7 @@ function Verify() {
   }
 
   const { data } = state
+  const isCpe = data.program_kind === 'cpe'
   const isRegistered = data.registry_status === 'registered'
 
   return (
@@ -53,7 +54,7 @@ function Verify() {
           ? 'The name below is the account holder who took the quiz.'
           : 'The name below was typed in by the person who took the quiz and is not an authenticated identity.'}
       </p>
-      {!isRegistered && (
+      {isCpe && !isRegistered && (
         <p className={styles.notRegisteredNotice}>
           This program is not offered by a sponsor registered with NASBA, and completion does not earn CPE credit.
         </p>
@@ -69,20 +70,29 @@ function Verify() {
         </dd>
         <dt>Date</dt>
         <dd>{formatDate(data.completed_at)}</dd>
-        <dt>Field of study</dt>
-        <dd>{data.field_of_study}</dd>
-        <dt>Delivery method</dt>
-        <dd>{data.delivery_method}</dd>
-        <dt>CPE credit awarded</dt>
-        <dd>{data.credit_award ?? '—'}</dd>
-        <dt>Sponsor</dt>
-        <dd>
-          {data.sponsor_name}
-          {isRegistered ? ` (NASBA registry ID ${data.sponsor_registry_id}` : ' (not NASBA-registered'}
-          {data.sponsor_state_registry_ids ? `, state registry ID(s) ${data.sponsor_state_registry_ids}` : ''})
-        </dd>
+        {isCpe ? (
+          <>
+            <dt>Field of study</dt>
+            <dd>{data.field_of_study}</dd>
+            <dt>Delivery method</dt>
+            <dd>{data.delivery_method}</dd>
+            <dt>CPE credit awarded</dt>
+            <dd>{data.credit_award ?? '—'}</dd>
+            <dt>Sponsor</dt>
+            <dd>
+              {data.sponsor_name}
+              {isRegistered ? ` (NASBA registry ID ${data.sponsor_registry_id}` : ' (not NASBA-registered'}
+              {data.sponsor_state_registry_ids ? `, state registry ID(s) ${data.sponsor_state_registry_ids}` : ''})
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>Issued by</dt>
+            <dd>{data.issued_by}</dd>
+          </>
+        )}
       </dl>
-      {isRegistered && (
+      {isCpe && isRegistered && (
         <p className={styles.timeStatement}>
           CPE credit has been granted based on a 50-minute hour, per NASBA Standards.
         </p>

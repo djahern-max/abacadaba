@@ -4,8 +4,19 @@ import { getCourse, getCourseWatchStatus } from '../../api/courses'
 import LessonCard from '../../components/LessonCard/LessonCard'
 import ReviewPanel from '../../components/ReviewPanel/ReviewPanel'
 import VideoPlayer from '../../components/VideoPlayer/VideoPlayer'
+import { programLabel } from '../../constants/programLabels'
 import { useAuth } from '../../context/AuthContext.jsx'
 import styles from './CourseDetail.module.css'
+
+// Part 4: "Length is derived from runtime, not from credit" - the sum of
+// each published lesson's measured duration, not credit_award multiplied
+// back out (see current-feature.md for why that arithmetic is confidently
+// wrong by up to nine minutes).
+function formatRuntimeMinutes(lessons) {
+  const totalSeconds = lessons.reduce((sum, lesson) => sum + (lesson.duration_seconds || 0), 0)
+  const minutes = Math.round(totalSeconds / 60)
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`
+}
 
 function CourseDetail() {
   const { slug } = useParams()
@@ -53,6 +64,12 @@ function CourseDetail() {
   // A course renders collapsed when it has exactly one lesson - derived on
   // every render, never stored. See current-feature.md, "One rule, derived".
   const singleLesson = course.lessons.length === 1 ? course.lessons[0] : null
+  // Feature 029: decides which CPE furniture renders, not a role check -
+  // see current-feature.md, "Why this is not a role check". A general
+  // course's payload has no sponsor_registry_status/field_of_study/
+  // credit_award/expires_on keys at all (Part 2), so every branch below
+  // that reads them is gated on isCpe first.
+  const isCpe = course.program_kind === 'cpe'
   const watchedBySlug = Object.fromEntries(
     (watchStatus?.lessons ?? []).map((item) => [item.lesson_slug, item.progress.unlocked]),
   )
@@ -74,7 +91,7 @@ function CourseDetail() {
       <h1 className={styles.title}>{course.title}</h1>
       <p className={styles.description}>{course.description}</p>
 
-      {course.sponsor_registry_status !== 'registered' && (
+      {isCpe && course.sponsor_registry_status !== 'registered' && (
         <p className={styles.notRegisteredNotice}>
           This program is not offered by a sponsor registered with NASBA, and completing it will not earn CPE
           credit.
@@ -94,37 +111,49 @@ function CourseDetail() {
 
       <dl className={styles.programDetails}>
         <div className={styles.programDetail}>
-          <dt>Program level</dt>
+          <dt>{programLabel(course.program_kind, 'programLevel')}</dt>
           <dd>{levelLabel}</dd>
         </div>
+        {isCpe && (
+          <div className={styles.programDetail}>
+            <dt>Field of study</dt>
+            <dd>{course.field_of_study}</dd>
+          </div>
+        )}
         <div className={styles.programDetail}>
-          <dt>Field of study</dt>
-          <dd>{course.field_of_study}</dd>
-        </div>
-        <div className={styles.programDetail}>
-          <dt>Prerequisites</dt>
+          <dt>{programLabel(course.program_kind, 'prerequisites')}</dt>
           <dd>{course.prerequisites || 'None'}</dd>
         </div>
         <div className={styles.programDetail}>
-          <dt>Advance preparation</dt>
+          <dt>{programLabel(course.program_kind, 'advancePreparation')}</dt>
           <dd>{course.advance_preparation || 'None'}</dd>
         </div>
         <div className={styles.programDetail}>
-          <dt>CPE credit</dt>
-          <dd>{course.credit_award != null ? `${course.credit_award} credit` : 'Not yet available'}</dd>
-        </div>
-        <div className={styles.programDetail}>
-          <dt>Expires</dt>
+          <dt>{programLabel(course.program_kind, 'length')}</dt>
           <dd>
-            {course.expires_on != null ? new Date(course.expires_on).toLocaleDateString() : 'Not yet available'}
+            {isCpe
+              ? course.credit_award != null
+                ? `${course.credit_award} credit`
+                : 'Not yet available'
+              : formatRuntimeMinutes(course.lessons)}
           </dd>
         </div>
+        {isCpe && (
+          <div className={styles.programDetail}>
+            <dt>Expires</dt>
+            <dd>
+              {course.expires_on != null ? new Date(course.expires_on).toLocaleDateString() : 'Not yet available'}
+            </dd>
+          </div>
+        )}
       </dl>
 
-      <nav className={styles.policyLinks}>
-        <Link to="/policies/refund-and-cancellation">Refund and cancellation policy</Link>
-        <Link to="/policies/complaint-resolution">Complaint resolution policy</Link>
-      </nav>
+      {isCpe && (
+        <nav className={styles.policyLinks}>
+          <Link to="/policies/refund-and-cancellation">Refund and cancellation policy</Link>
+          <Link to="/policies/complaint-resolution">Complaint resolution policy</Link>
+        </nav>
+      )}
 
       {course.reviewed_at && (
         <section className={styles.reviewInfo}>
@@ -153,8 +182,9 @@ function CourseDetail() {
         <p>
           This course has {course.lessons.length} segment{course.lessons.length === 1 ? '' : 's'}. Each segment has
           review questions along the way to check your understanding &mdash; practice only, and not graded. After
-          you have watched every segment, a single {course.assessment_question_count}-question assessment covers
-          the whole course. Score at least {Math.round(course.pass_ratio * 100)}% to pass and get your certificate.
+          you have watched every segment, a single {course.assessment_question_count}-question{' '}
+          {programLabel(course.program_kind, 'assessment')} covers the whole course. Score at least{' '}
+          {Math.round(course.pass_ratio * 100)}% to pass and get your certificate.
         </p>
       </section>
 

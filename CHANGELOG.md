@@ -1731,3 +1731,97 @@ No model or schema change, so no Alembic migration. `BUGS.md` created (did
 not exist before this feature) - see its own note on why BUG-001 and BUG-002
 are reconstructed from current-feature.md's account rather than moved from
 prior text.
+
+## 2026-08-24, Feature 029, General programs
+A course can now be offered as ordinary education instead of as a CPE
+program - abacadaba's first real teacher-and-students use case, and the
+reason every compliance feature built through 028 stays built rather than
+being torn out: `program_kind` (`'cpe'`/`'general'`, `NOT NULL`, CHECK,
+server default `'cpe'`, migration `7a3f9c2e5b1d`) on `Course`, editorial and
+per-course, deliberately not folded into 027's `sponsor_profile
+.registry_status` - two different facts with two different owners, see
+current-feature.md's "Two facts, two fields." `attempts.cert_program_kind`
+snapshots it at claim time alongside 024/027's other `cert_*` columns; a
+null value (a certificate claimed before this feature shipped) reads as
+`'cpe'`, since nothing else was possible before today.
+
+`GET /courses/{slug}` now returns one of two Pydantic shapes -
+`CourseDetail` (general) or `CourseDetailCPE`, which adds `field_of_study`,
+`credit_award`, `expires_on`, and `sponsor_registry_status` back -
+constructed in the router and served with `response_model=None` so a
+general course's JSON has no key for the omitted fields at all, not a null
+one (same reasoning 023a's `QuestionPublic` already established for
+`feedback`). The certificate and verify endpoints follow the same pattern
+(`CertificateInfo`/`CertificateInfoGeneral`,
+`CertificateVerification`/`CertificateVerificationGeneral`): a general
+certificate's `sponsor_name` field doesn't exist either, renamed
+`issued_by`, since the guard test checks for the substring "sponsor"
+anywhere in the payload, key or value. `render_pdf` (`app/services
+/certificates.py`) branches the same way: a general certificate prints only
+the participant name, course title, completion date, score, "Issued by,"
+and the verification code - no Field of Study, CPE Credit Awarded, Type of
+Formal Learning Program, registry ID, NASBA time statement, or 027's
+not-registered notice (there is no CPE claim on it to contradict).
+`CourseDetail.jsx` reads a new label module (`constants/programLabels.js`)
+so a general course's page says Level, What you should know first, Before
+you start, Length (summed from `lessons[].duration_seconds`, not
+`credit_award` multiplied back out - that arithmetic is confidently wrong by
+up to nine minutes past a floored one-fifth credit increment), and Quiz
+instead of Program level, Prerequisites, Advance preparation, CPE credit,
+and Qualified assessment; Field of study and Expires are omitted from the
+page entirely, matching the payload. `Verify.jsx` follows the same branch.
+
+`validate_for_publish` (`app/services/admin_content.py`) gained an
+`is_general` branch, one relaxation at a time with the Standards reason
+attached in a comment rather than a blanket skip: field of study, the whole
+developer/reviewer/review-date/licensed-credential chain, credit computed
+and its 0.2 floor, per-lesson duration, credit-derived review/assessment
+question minimums, 75% objective coverage, review-question feedback, the
+assessment's forced-choice ban, and sponsor-profile completeness (narrowed
+to the name only - the one field a general certificate still prints). Still
+enforced for both kinds: at least one learning objective, `pass_ratio >=
+0.70`, the four real policies, sponsor name, and - newly, since the
+credit-derived floor was the only thing requiring it before - at least one
+qualified assessment question, added as its own unconditional check so a
+general course can't publish with an empty quiz just because nothing else
+was gating it. `program_kind` may not change while a course is published
+(`ProgramKindChangeWhilePublishedError`, 409) - a published general course
+switched to `'cpe'` would claim CPE status without ever having cleared the
+CPE gate. `CourseDetailsForm.jsx` gained the "Offered as" select, first on
+the form and disabled with an explanation while published;
+`CoursePublishPanel.jsx`'s checklist simply omits the relaxed items for a
+general course rather than showing them pre-checked (020c's Bug 4); the
+Credit panel stays visible and computable but its staleness warning no
+longer claims the course can't publish while stale, for a general course.
+
+The site footer's four policy links are now gated on `show_policy_footer`
+(`app/services/courses.py`, exposed at `GET /meta/site-status`) - one
+`EXISTS` against `is_published AND program_kind = 'cpe'`, not a second
+site-wide flag that could disagree with the per-course field. A site of
+general-only courses shows no footer; publishing one CPE-presented course
+again brings it back with no configuration. `COMPLIANCE.md`: no new rows -
+every row in the matrix already describes a `program_kind = 'cpe'` course,
+made explicit in an extension to 027's scope note, and the 8.01.1 row's Gap
+column now explains that the footer's policy links moved onto that derived
+condition while the per-course disclosure block (shown only for a CPE
+course) is the actual surface satisfying "made available to participants."
+
+Verified against a live dev database via a scripted Playwright session: a
+minimal general course (one objective, one assessment question, a video, no
+reviewer, no computed credit) published; its public page rendered with the
+relabelled fields and no Field of study/Expires row, no not-registered
+notice, and no per-course policy links, while the real published CPE course
+in the same database kept every CPE field untouched and the site footer
+kept showing (correctly derived from that course, not the general one); a
+completed attempt's certificate PDF and `/verify/:code` page carried only
+the five general fields plus "Issued by," confirmed by direct PDF
+inspection. Backend suite: 378 tests (347 existing + 31 new in
+`tests/test_program_kind.py`, none of the 347 modified) pass; `npm run
+lint` and `npm run build` pass.
+
+Numbering note: this is Feature 029, not 028 - Feature 028 ("The completion
+path," above) was built in the interim from a different current-feature.md
+than the one that specified this feature, and had already claimed 028
+before this one's own numbering note ("not `027a`, so the next whole
+number") was written. See current-feature.md's own numbering note for the
+full account.

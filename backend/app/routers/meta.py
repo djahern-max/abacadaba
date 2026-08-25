@@ -1,8 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.constants.fields_of_study import NON_CPE, NON_TECHNICAL_FIELDS_OF_STUDY, TECHNICAL_FIELDS_OF_STUDY
 from app.constants.program_levels import PROGRAM_LEVELS
-from app.schemas.meta import FieldsOfStudyResponse, ProgramLevelsResponse
+from app.db import get_db
+from app.schemas.meta import FieldsOfStudyResponse, ProgramLevelsResponse, SiteStatusResponse
+from app.services import courses as courses_service
 
 router = APIRouter()
 
@@ -19,3 +22,8 @@ def get_fields_of_study():
 @router.get("/meta/program-levels", response_model=ProgramLevelsResponse)
 def get_program_levels():
     return ProgramLevelsResponse(levels=PROGRAM_LEVELS)
+
+
+@router.get("/meta/site-status", response_model=SiteStatusResponse)
+def get_site_status(db: Session = Depends(get_db)):
+    return SiteStatusResponse(show_policy_footer=courses_service.show_policy_footer(db))

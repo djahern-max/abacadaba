@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.constants.program_kind import PROGRAM_KIND_GENERAL
 from app.db import get_db
 from app.dependencies import get_current_user, get_viewer_id
 from app.models.course import Course
 from app.models.user import User
 from app.schemas.attempt import AttemptStart
-from app.schemas.course import CourseDetail, CourseSummary, LessonSegmentDetail
+from app.schemas.course import CourseDetail, CourseDetailCPE, CourseSummary, LessonSegmentDetail
 from app.schemas.lesson import ThumbnailUrlResponse, VideoUrlResponse
 from app.schemas.quiz import QuestionPublic, QuizPublic
 from app.schemas.watch import (
@@ -35,12 +36,19 @@ def list_courses(db: Session = Depends(get_db)):
     return courses_service.list_published(db)
 
 
-@router.get("/courses/{slug}", response_model=CourseDetail)
-def get_course(slug: str, db: Session = Depends(get_db)):
+@router.get("/courses/{slug}", response_model=None)
+def get_course(slug: str, db: Session = Depends(get_db)) -> CourseDetail | CourseDetailCPE:
     course = courses_service.get_with_lessons(db, slug)
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
-    return course
+    # response_model=None so the returned instance's own fields are
+    # serialized rather than being coerced down to a fixed schema - a
+    # general course's payload must not contain a CPE field at all, not
+    # just a null one. See current-feature.md, Part 2, and
+    # app/schemas/course.py's CourseDetail/CourseDetailCPE docstring.
+    if course.program_kind == PROGRAM_KIND_GENERAL:
+        return CourseDetail.model_validate(course)
+    return CourseDetailCPE.model_validate(course)
 
 
 @router.get("/courses/{slug}/thumbnail-url", response_model=ThumbnailUrlResponse)

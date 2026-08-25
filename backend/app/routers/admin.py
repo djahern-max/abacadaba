@@ -100,6 +100,8 @@ def update_course(course_id: int, payload: AdminCourseUpdate, db: Session = Depe
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except admin_content.SameExpertError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except admin_content.ProgramKindChangeWhilePublishedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.delete("/admin/courses/{course_id}", status_code=204)

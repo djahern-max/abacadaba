@@ -56,6 +56,14 @@ class Attempt(Base):
     # certificate into a credit-bearing document, and one who lapses must
     # not retroactively void it.
     cert_registry_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Feature 029: whether the course was offered as a CPE program at claim
+    # time, frozen the same way cert_registry_status is - a course switched
+    # to 'general' or 'cpe' later must not retroactively change what an
+    # already-issued certificate claims. Null cert_program_kind reads as
+    # 'cpe' (app/services/certificates.py::_to_data), since every
+    # certificate claimed before this feature shipped was in fact issued
+    # for a CPE-presented course.
+    cert_program_kind: Mapped[str | None] = mapped_column(String, nullable=True)
     cert_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

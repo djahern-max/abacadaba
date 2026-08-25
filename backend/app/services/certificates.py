@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.constants.delivery_methods import DELIVERY_METHOD_SELF_STUDY
+from app.constants.program_kind import PROGRAM_KIND_CPE, PROGRAM_KIND_GENERAL
 from app.constants.registry_status import REGISTRY_STATUS_REGISTERED
 from app.models.attempt import Attempt
 from app.models.question import QUESTION_KIND_ASSESSMENT
@@ -72,6 +73,11 @@ class CertificateData:
     question_count: int
     completed_at: datetime
     is_account_holder: bool
+    # Feature 029: whether this certificate was issued for a CPE-presented
+    # course - see app/constants/program_kind.py. Always populated, on both
+    # variants; render_pdf and the router branch on it to decide which
+    # fields exist at all, not just which are blank.
+    program_kind: str
     field_of_study: str
     delivery_method: str
     credit_award: Decimal | None
@@ -118,6 +124,12 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         sponsor_registry_id = (
             attempt.cert_sponsor_registry_id if registry_status == REGISTRY_STATUS_REGISTERED else None
         )
+        # Feature 029: a null cert_program_kind means this certificate was
+        # claimed after 024 shipped but before 029 did, so it reads as
+        # 'cpe' - every certificate claimed before this feature shipped was
+        # in fact issued for a CPE-presented course. See current-feature.md,
+        # backend task 1.
+        program_kind = attempt.cert_program_kind or PROGRAM_KIND_CPE
         return CertificateData(
             certificate_code=attempt.certificate_code,
             recipient_name=attempt.recipient_name,
@@ -127,6 +139,7 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
             question_count=attempt.cert_question_count,
             completed_at=attempt.completed_at,
             is_account_holder=attempt.user_id is not None,
+            program_kind=program_kind,
             field_of_study=attempt.cert_field_of_study,
             delivery_method=attempt.cert_delivery_method,
             credit_award=attempt.cert_credit_award,
@@ -156,6 +169,7 @@ def _to_data(db: Session, attempt: Attempt) -> CertificateData:
         ),
         completed_at=attempt.completed_at,
         is_account_holder=attempt.user_id is not None,
+        program_kind=attempt.course.program_kind,
         field_of_study=attempt.course.field_of_study,
         delivery_method=DELIVERY_METHOD_SELF_STUDY,
         credit_award=attempt.course.credit_award,
@@ -205,6 +219,7 @@ def claim_certificate(db: Session, public_id: uuid.UUID, recipient_name: str | N
         attempt.cert_sponsor_registry_id = sponsor.national_registry_id
         attempt.cert_sponsor_state_registry_ids = sponsor.state_registry_ids
         attempt.cert_registry_status = sponsor.registry_status
+        attempt.cert_program_kind = attempt.course.program_kind
         attempt.cert_issued_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(attempt)
@@ -282,9 +297,13 @@ def render_pdf(info: CertificateData) -> bytes:
     pdf.drawCentredString(width / 2, height - 345, f"{score_text}  —  {date_text}")
 
     is_registered = info.registry_status == REGISTRY_STATUS_REGISTERED
+    is_cpe = info.program_kind == PROGRAM_KIND_CPE
 
     block_top = height - 385
-    if not is_registered:
+    # Feature 029: the not-registered notice exists to contradict a CPE
+    # claim - there is no such claim on a general certificate, so nothing to
+    # contradict. See current-feature.md, Part 4.
+    if is_cpe and not is_registered:
         # Feature 027: same bold weight as the participant's name above, not
         # fine print - see NOT_REGISTERED_NOTICE_LINES above. Pushes the
         # fields block down to make room.
@@ -305,17 +324,24 @@ def render_pdf(info: CertificateData) -> bytes:
     # fairly full page rather than a sparse one. Two columns of rows.
     # NASBA Sponsor Registry ID is omitted outright when unregistered - not
     # "N/A", not blank, absent - per current-feature.md, Part 2.
-    credit_text = f"{info.credit_award} CPE credit(s)" if info.credit_award is not None else "—"
-    state_registry_text = info.sponsor_state_registry_ids or "None"
-    fields = [
-        ("Field of Study", info.field_of_study),
-        ("Type of Formal Learning Program", info.delivery_method),
-        ("CPE Credit Awarded", credit_text),
-        ("Sponsor", info.sponsor_name),
-    ]
-    if is_registered:
-        fields.append(("NASBA Sponsor Registry ID", info.sponsor_registry_id))
-    fields.append(("State Registry ID(s)", state_registry_text))
+    #
+    # Feature 029: a general certificate prints none of 9.01's fields except
+    # the sponsor's own name, relabelled "Issued by" since "Sponsor" is CPE
+    # vocabulary - see current-feature.md, Part 4.
+    if is_cpe:
+        credit_text = f"{info.credit_award} CPE credit(s)" if info.credit_award is not None else "—"
+        state_registry_text = info.sponsor_state_registry_ids or "None"
+        fields = [
+            ("Field of Study", info.field_of_study),
+            ("Type of Formal Learning Program", info.delivery_method),
+            ("CPE Credit Awarded", credit_text),
+            ("Sponsor", info.sponsor_name),
+        ]
+        if is_registered:
+            fields.append(("NASBA Sponsor Registry ID", info.sponsor_registry_id))
+        fields.append(("State Registry ID(s)", state_registry_text))
+    else:
+        fields = [("Issued by", info.sponsor_name)]
 
     col_gap = 24
     column_width = (max_text_width - col_gap) / 2
@@ -326,9 +352,11 @@ def render_pdf(info: CertificateData) -> bytes:
         y = block_top - row * row_height
         _draw_field(pdf, x, y, column_width, label, value)
 
-    # 9.01 item 10, only true of a registered sponsor - omitted, not printed
-    # and then contradicted by the notice above, when unregistered.
-    if is_registered:
+    # 9.01 item 10, only true of a registered CPE sponsor - omitted, not
+    # printed and then contradicted by the notice above, when unregistered,
+    # and never printed at all on a general certificate (there is no CPE
+    # credit for it to describe).
+    if is_cpe and is_registered:
         row_count = -(-len(fields) // 2)  # ceil
         statement_y = block_top - row_count * row_height - 6
         pdf.setFont("Helvetica-Oblique", 8)

@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.program_kind import PROGRAM_KIND_CPE
 from app.models.course import Course
 from app.models.learning_objective import LearningObjective
 from app.models.lesson import Lesson
@@ -38,6 +39,7 @@ class CourseWithLessons:
     title: str
     description: str
     has_thumbnail: bool
+    program_kind: str
     program_level: str
     field_of_study: str
     prerequisites: str | None
@@ -161,6 +163,7 @@ def get_with_lessons(db: Session, slug: str) -> CourseWithLessons | None:
         title=course.title,
         description=course.description,
         has_thumbnail=course.has_thumbnail,
+        program_kind=course.program_kind,
         program_level=course.program_level,
         field_of_study=course.field_of_study,
         prerequisites=course.prerequisites,
@@ -234,6 +237,21 @@ def get_published_lesson(db: Session, course_slug: str, lesson_slug: str) -> Les
         )
     )
     return db.execute(stmt).scalar_one_or_none()
+
+
+def show_policy_footer(db: Session) -> bool:
+    """Whether the site-wide footer should link the four policy pages.
+
+    Derived, not a second flag - see current-feature.md, Part 6. A general
+    course's own page links no policies (8.01.1 doesn't apply to it), so the
+    footer earns its place only while at least one published course is
+    actually offered as a CPE program. Publishing one CPE-presented course
+    again brings the footer back with no configuration.
+    """
+    stmt = select(
+        select(Course.id).where(Course.is_published.is_(True), Course.program_kind == PROGRAM_KIND_CPE).exists()
+    )
+    return db.execute(stmt).scalar_one()
 
 
 def published_question_count(db: Session, course_id: int, kind: str | None = None) -> int:

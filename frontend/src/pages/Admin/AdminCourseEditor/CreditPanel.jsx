@@ -42,6 +42,11 @@ function CreditPanel({ course, onChange }) {
   // Derived exactly like the review chain's staleness (021), never a
   // stored bool: see current-feature.md, "Do not add a credit_is_stale boolean".
   const stale = course.credit_computed_at == null || course.credit_computed_at < course.content_updated_at
+  // Feature 029: this panel stays visible and computable for a general
+  // course - it's useful information - but staleness must not read as a
+  // publish blocker there, since the credit gate is relaxed. See
+  // current-feature.md, frontend task 3.
+  const isGeneral = course.program_kind === 'general'
 
   return (
     <section className={styles.section}>
@@ -52,7 +57,9 @@ function CreditPanel({ course, onChange }) {
           {course.credit_computed_at == null
             ? 'Credit has not been computed yet.'
             : 'This course has changed since credit was last computed.'}{' '}
-          It stays as last computed until you recompute below, and the course cannot publish while stale.
+          {isGeneral
+            ? 'It stays as last computed until you recompute below.'
+            : 'It stays as last computed until you recompute below, and the course cannot publish while stale.'}
         </p>
       )}
 

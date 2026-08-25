@@ -22,6 +22,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const [cooldownMinutes, setCooldownMinutes] = useState(course.retake_cooldown_minutes)
   const [maxAttempts, setMaxAttempts] = useState(course.max_attempts ?? '')
   const [passPercent, setPassPercent] = useState(Math.round(Number(course.pass_ratio) * 100))
+  const [programKind, setProgramKind] = useState(course.program_kind)
   const [programLevel, setProgramLevel] = useState(course.program_level)
   const [fieldOfStudy, setFieldOfStudy] = useState(course.field_of_study)
   const [prerequisites, setPrerequisites] = useState(course.prerequisites ?? '')
@@ -51,6 +52,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
   const cooldownDirty = Number(cooldownMinutes) !== course.retake_cooldown_minutes
   const maxAttemptsDirty = String(maxAttempts) !== String(course.max_attempts ?? '')
   const passPercentDirty = Number(passPercent) !== Math.round(Number(course.pass_ratio) * 100)
+  const programKindDirty = programKind !== course.program_kind
   const programLevelDirty = programLevel !== course.program_level
   const fieldOfStudyDirty = fieldOfStudy !== course.field_of_study
   const prerequisitesDirty = prerequisites !== (course.prerequisites ?? '')
@@ -63,6 +65,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
     descriptionDirty ||
     cooldownDirty ||
     maxAttemptsDirty ||
+    programKindDirty ||
     programLevelDirty ||
     fieldOfStudyDirty ||
     prerequisitesDirty ||
@@ -88,6 +91,7 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
         advance_preparation: advancePreparation === '' ? null : advancePreparation,
         expires_on: expiresOn === '' ? null : expiresOn,
         pass_ratio: Number(passPercent) / 100,
+        program_kind: programKind,
       }),
   }))
 
@@ -95,6 +99,27 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
     <section className={styles.section}>
       <h2 className={styles.heading}>Details</h2>
       <div className={styles.form}>
+        <label className={styles.label} htmlFor="course-program-kind">
+          Offered as
+        </label>
+        <select
+          id="course-program-kind"
+          className={`${styles.input} ${programKindDirty ? styles.fieldDirty : ''}`}
+          value={programKind}
+          onChange={(event) => setProgramKind(event.target.value)}
+          disabled={course.is_published}
+        >
+          <option value="cpe">A CPE program</option>
+          <option value="general">Ordinary education (not CPE)</option>
+        </select>
+        <p className={styles.hint}>
+          A CPE program discloses field of study, CPE credit, and NASBA registration, and its publish checklist
+          requires a developer, a reviewer, and computed credit. Ordinary education shows none of that CPE
+          furniture and skips those checklist items - see current-feature.md, Feature 029. Placed first because it
+          changes which of the fields below matter.
+          {course.is_published && ' Unpublish this course to change it.'}
+        </p>
+
         <label className={styles.label} htmlFor="course-title">
           Title
         </label>
@@ -151,37 +176,41 @@ const CourseDetailsForm = forwardRef(function CourseDetailsForm({ course, collap
           ))}
         </select>
 
-        <label className={styles.label} htmlFor="course-field-of-study">
-          Field of study
-        </label>
-        <select
-          id="course-field-of-study"
-          className={`${styles.input} ${fieldOfStudyDirty ? styles.fieldDirty : ''}`}
-          value={fieldOfStudy}
-          onChange={(event) => setFieldOfStudy(event.target.value)}
-        >
-          {fieldsOfStudy ? (
-            <>
-              <option value={fieldsOfStudy.non_cpe}>{fieldsOfStudy.non_cpe}</option>
-              <optgroup label="Technical">
-                {fieldsOfStudy.technical.map((field) => (
-                  <option key={field.name} value={field.name}>
-                    {field.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Non-technical">
-                {fieldsOfStudy.non_technical.map((field) => (
-                  <option key={field.name} value={field.name}>
-                    {field.name}
-                  </option>
-                ))}
-              </optgroup>
-            </>
-          ) : (
-            <option value={fieldOfStudy}>{fieldOfStudy}</option>
-          )}
-        </select>
+        {programKind === 'cpe' && (
+          <>
+            <label className={styles.label} htmlFor="course-field-of-study">
+              Field of study
+            </label>
+            <select
+              id="course-field-of-study"
+              className={`${styles.input} ${fieldOfStudyDirty ? styles.fieldDirty : ''}`}
+              value={fieldOfStudy}
+              onChange={(event) => setFieldOfStudy(event.target.value)}
+            >
+              {fieldsOfStudy ? (
+                <>
+                  <option value={fieldsOfStudy.non_cpe}>{fieldsOfStudy.non_cpe}</option>
+                  <optgroup label="Technical">
+                    {fieldsOfStudy.technical.map((field) => (
+                      <option key={field.name} value={field.name}>
+                        {field.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Non-technical">
+                    {fieldsOfStudy.non_technical.map((field) => (
+                      <option key={field.name} value={field.name}>
+                        {field.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </>
+              ) : (
+                <option value={fieldOfStudy}>{fieldOfStudy}</option>
+              )}
+            </select>
+          </>
+        )}
 
         <label className={styles.label} htmlFor="course-prerequisites">
           Prerequisites

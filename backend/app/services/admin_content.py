@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.constants.credit import MIN_AWARDABLE, MINUTES_PER_CREDIT
 from app.constants.fields_of_study import CPA_REQUIRED, TAX_CREDENTIAL_REQUIRED, credential_tag_for
+from app.constants.program_kind import PROGRAM_KIND_GENERAL
 from app.constants.program_levels import LEVELS_REQUIRING_PREREQUISITES, PROGRAM_LEVELS
 from app.constants.question_minimums import (
     MIN_CHOICES_ASSESSMENT,
@@ -104,6 +105,14 @@ class SameExpertError(Exception):
 
 class SlugTakenError(Exception):
     """Raised when a slug collides with an existing one."""
+
+
+class ProgramKindChangeWhilePublishedError(Exception):
+    """Raised when program_kind is changed on a published course.
+
+    A published general course switched to 'cpe' would be presenting itself
+    as a CPE program without ever having passed the CPE publish gate - see
+    current-feature.md, Part 3's "matching hazard on the other side"."""
 
 
 class CourseHasAttemptsError(Exception):
@@ -255,6 +264,16 @@ def create_course(db: Session, title: str, slug: str | None, description: str) -
 def update_course(db: Session, course_id: int, updates: dict) -> Course:
     course = _course_or_404(db, course_id)
 
+    if (
+        "program_kind" in updates
+        and updates["program_kind"] is not None
+        and updates["program_kind"] != course.program_kind
+        and course.is_published
+    ):
+        raise ProgramKindChangeWhilePublishedError(
+            "Unpublish this course before changing whether it's offered as a CPE program"
+        )
+
     if "slug" in updates and updates["slug"] is not None:
         new_slug = updates["slug"].strip().lower()
         if new_slug != course.slug:
@@ -325,13 +344,21 @@ def unpublish_course(db: Session, course_id: int) -> Course:
 
 def validate_for_publish(db: Session, course: Course) -> list[str]:
     errors = []
+    is_general = course.program_kind == PROGRAM_KIND_GENERAL
 
     # Feature 024: a course that cannot produce a compliant certificate
     # should not be able to enrol anyone (9.01 items 1 and 8 - sponsor name
     # and NASBA registry ID). See app/services/sponsor_profile.py for why
     # contact details and the optional state registry ID don't block this.
+    # Feature 029: a general certificate never prints 9.01's certificate
+    # fields at all except the sponsor name ("Issued by") - see
+    # current-feature.md, Part 5's table - so only that one field can block
+    # a general course, regardless of registry_status.
     sponsor = sponsor_profile_service.get_sponsor_profile(db)
-    missing_sponsor_fields = sponsor_profile_service.missing_fields(sponsor)
+    if is_general:
+        missing_sponsor_fields = [] if sponsor.name.strip() else [sponsor_profile_service.FIELD_LABELS["name"]]
+    else:
+        missing_sponsor_fields = sponsor_profile_service.missing_fields(sponsor)
     if missing_sponsor_fields:
         errors.append(
             "The sponsor profile is missing: " + ", ".join(missing_sponsor_fields) + ". "
@@ -359,6 +386,17 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
     if not course.lessons:
         errors.append("Course must have at least one lesson")
 
+    # Still enforced for a general course - see current-feature.md, Part 5:
+    # "a course whose quiz is empty is not publishable regardless of what it
+    # is offered as." A CPE course's credit-derived floor below already
+    # requires more than one once credit is computed; this is the
+    # unconditional backstop general courses now rely on entirely, since
+    # they carry no credit for that floor to apply to.
+    if not any(
+        question.kind == QUESTION_KIND_ASSESSMENT for lesson in course.lessons for question in lesson.questions
+    ):
+        errors.append("Course must have at least one qualified assessment question")
+
     if not course.learning_objectives:
         errors.append("Course must have at least one learning objective")
     else:
@@ -369,7 +407,9 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
     if course.program_level not in PROGRAM_LEVELS:
         errors.append("Program level must be one of: " + ", ".join(PROGRAM_LEVELS))
 
-    if not course.field_of_study.strip():
+    # Feature 029: relaxed for a general course - not applicable. See
+    # current-feature.md, Part 5's table.
+    if not is_general and not course.field_of_study.strip():
         errors.append("Field of study is required")
 
     if course.expires_on is None:
@@ -381,53 +421,66 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
         if not (course.advance_preparation and course.advance_preparation.strip()):
             errors.append("Advance preparation is required for intermediate, advanced, and update courses")
 
-    if course.developer_id is None:
-        errors.append("A developer is required")
-    if course.reviewer_id is None:
-        errors.append("A reviewer is required")
-    if (
-        course.developer_id is not None
-        and course.reviewer_id is not None
-        and course.developer_id == course.reviewer_id
-    ):
-        errors.append("Developer and reviewer must be different people")
-    if course.reviewed_at is None:
-        errors.append("A review date is required")
-    elif course.reviewed_at < course.content_updated_at:
-        errors.append("This course has changed since it was reviewed")
-
-    credential_tag = credential_tag_for(course.field_of_study)
-    if credential_tag is not None:
-        experts = [expert for expert in (course.developer, course.reviewer) if expert is not None]
-        if credential_tag == CPA_REQUIRED and not any(expert.is_licensed_cpa for expert in experts):
-            errors.append("An accounting or auditing course needs a licensed CPA as developer or reviewer")
-        elif credential_tag == TAX_CREDENTIAL_REQUIRED and not any(
-            expert.is_licensed_cpa or expert.is_tax_attorney or expert.is_enrolled_agent for expert in experts
+    # Feature 029: the two-person SME chain, and the licensed-CPA/tax-
+    # credential check downstream of it, are a CPE control - relaxed for a
+    # general course. See current-feature.md, Part 5's table.
+    if not is_general:
+        if course.developer_id is None:
+            errors.append("A developer is required")
+        if course.reviewer_id is None:
+            errors.append("A reviewer is required")
+        if (
+            course.developer_id is not None
+            and course.reviewer_id is not None
+            and course.developer_id == course.reviewer_id
         ):
+            errors.append("Developer and reviewer must be different people")
+        if course.reviewed_at is None:
+            errors.append("A review date is required")
+        elif course.reviewed_at < course.content_updated_at:
+            errors.append("This course has changed since it was reviewed")
+
+        credential_tag = credential_tag_for(course.field_of_study)
+        if credential_tag is not None:
+            experts = [expert for expert in (course.developer, course.reviewer) if expert is not None]
+            if credential_tag == CPA_REQUIRED and not any(expert.is_licensed_cpa for expert in experts):
+                errors.append("An accounting or auditing course needs a licensed CPA as developer or reviewer")
+            elif credential_tag == TAX_CREDENTIAL_REQUIRED and not any(
+                expert.is_licensed_cpa or expert.is_tax_attorney or expert.is_enrolled_agent for expert in experts
+            ):
+                errors.append(
+                    "A taxes course needs a licensed CPA, tax attorney, or enrolled agent as developer or reviewer"
+                )
+
+    # Feature 029: relaxed for a general course - there is no credit. See
+    # current-feature.md, Part 5's table.
+    if not is_general:
+        if course.credit_computed_at is None:
+            errors.append("Credit has not been computed yet")
+        elif course.credit_computed_at < course.content_updated_at:
+            errors.append("This course has changed since credit was last computed")
+
+        if course.credit_award is not None and course.credit_award < MIN_AWARDABLE:
+            # 7.01: a raw credit below 0.2 is not awardable. Name the gap in
+            # seconds, not just "too short" - current-feature.md's own example.
+            remaining_minutes = (MIN_AWARDABLE * MINUTES_PER_CREDIT) - (course.credit_raw_minutes or Decimal(0))
+            remaining_seconds = int((remaining_minutes * 60).to_integral_value(rounding=ROUND_CEILING))
             errors.append(
-                "A taxes course needs a licensed CPA, tax attorney, or enrolled agent as developer or reviewer"
+                f"This course computes to {course.credit_award} credit, below the {MIN_AWARDABLE} minimum "
+                f"award. Add about {remaining_seconds} more seconds of qualifying audio/video, words, or "
+                "questions to reach it."
             )
-
-    if course.credit_computed_at is None:
-        errors.append("Credit has not been computed yet")
-    elif course.credit_computed_at < course.content_updated_at:
-        errors.append("This course has changed since credit was last computed")
-
-    if course.credit_award is not None and course.credit_award < MIN_AWARDABLE:
-        # 7.01: a raw credit below 0.2 is not awardable. Name the gap in
-        # seconds, not just "too short" - current-feature.md's own example.
-        remaining_minutes = (MIN_AWARDABLE * MINUTES_PER_CREDIT) - (course.credit_raw_minutes or Decimal(0))
-        remaining_seconds = int((remaining_minutes * 60).to_integral_value(rounding=ROUND_CEILING))
-        errors.append(
-            f"This course computes to {course.credit_award} credit, below the {MIN_AWARDABLE} minimum "
-            f"award. Add about {remaining_seconds} more seconds of qualifying audio/video, words, or "
-            "questions to reach it."
-        )
 
     for lesson in course.lessons:
         if not lesson.video_key:
             errors.append(f"Lesson '{lesson.title}' must have a video")
-        if lesson.av_is_additional_learning and lesson.duration_seconds is None:
+        # Feature 029: relaxed for a general course - an input to a formula
+        # that is not running.
+        if (
+            not is_general
+            and lesson.av_is_additional_learning
+            and lesson.duration_seconds is None
+        ):
             errors.append(f"Lesson '{lesson.title}' counts its runtime toward credit but has no duration")
         if not lesson.questions:
             errors.append(f"Lesson '{lesson.title}' must have at least one question")
@@ -437,13 +490,25 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
                     f"Lesson '{lesson.title}' question {question.position} needs at least "
                     f"{MIN_CHOICES_PER_QUESTION} choices"
                 )
-            if question.kind == QUESTION_KIND_ASSESSMENT and len(question.choices) < MIN_CHOICES_ASSESSMENT:
+            # Feature 029: relaxed for a general course - true/false is a
+            # legitimate item type for a general quiz.
+            if (
+                not is_general
+                and question.kind == QUESTION_KIND_ASSESSMENT
+                and len(question.choices) < MIN_CHOICES_ASSESSMENT
+            ):
                 errors.append(
                     f"Lesson '{lesson.title}' question {question.position} is on the qualified assessment "
                     f"and needs at least {MIN_CHOICES_ASSESSMENT} choices - forced-choice responses are not "
                     "permissible on the qualified assessment (6.01.2)"
                 )
-            if question.kind == QUESTION_KIND_REVIEW and not (question.feedback and question.feedback.strip()):
+            # Feature 029: relaxed for a general course - good practice, not
+            # a gate here (5.01.2.2 is a CPE rule).
+            if (
+                not is_general
+                and question.kind == QUESTION_KIND_REVIEW
+                and not (question.feedback and question.feedback.strip())
+            ):
                 errors.append(
                     f"Lesson '{lesson.title}' question {question.position} is a review question and needs "
                     "feedback shown after answering (5.01.2.2)"
@@ -459,8 +524,9 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
     # whenever the course has objectives at all (the earlier rule above
     # already requires at least one). Names the uncovered objectives by
     # their own text rather than reporting a percentage, so an author who is
-    # one objective short is told which one.
-    if course.learning_objectives:
+    # one objective short is told which one. Feature 029: relaxed for a
+    # general course - a 6.01.2 assessment rule.
+    if not is_general and course.learning_objectives:
         coverage = objective_coverage.compute(course)
         if coverage.ratio < objective_coverage.COVERAGE_THRESHOLD:
             uncovered_text = "; ".join(f'"{o.text.strip()}"' for o in coverage.uncovered)
@@ -472,8 +538,11 @@ def validate_for_publish(db: Session, course: Course) -> list[str]:
 
     # 5.01.2.1 and 6.01.2's floors are per credit - enforcing them against a
     # credit that hasn't been computed yet would be enforcing them against
-    # zero, so they only run once feature 022's credit exists.
-    if course.credit_award is not None:
+    # zero, so they only run once feature 022's credit exists. Feature 029:
+    # relaxed for a general course regardless of whether credit happens to
+    # be computed - floors expressed per credit, against a credit that does
+    # not exist, are floors against zero.
+    if not is_general and course.credit_award is not None:
         all_questions = [question for lesson in course.lessons for question in lesson.questions]
         review_questions = [q for q in all_questions if q.kind == QUESTION_KIND_REVIEW]
         assessment_questions = [q for q in all_questions if q.kind == QUESTION_KIND_ASSESSMENT]

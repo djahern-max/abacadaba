@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, St
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.constants.fields_of_study import DEFAULT_FIELD_OF_STUDY
+from app.constants.program_kind import PROGRAM_KIND_CPE
 from app.constants.program_levels import PROGRAM_LEVELS
 from app.db import Base
 
@@ -19,6 +20,16 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Feature 029: an editorial decision made per course, not a fact about
+    # the sponsor (that's sponsor_profile.registry_status) - see
+    # current-feature.md, "Two facts, two fields". Defaults to 'cpe' so
+    # existing rows need no backfill, and because that's the fail-safe
+    # direction: a general course that accidentally renders CPE descriptors
+    # is noisy but honest, while a CPE course that accidentally hides them
+    # is an 8.01.1 disclosure failure.
+    program_kind: Mapped[str] = mapped_column(
+        String, nullable=False, default=PROGRAM_KIND_CPE, server_default=PROGRAM_KIND_CPE
+    )
     thumbnail_key: Mapped[str | None] = mapped_column(String, nullable=True)
     retake_cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)
