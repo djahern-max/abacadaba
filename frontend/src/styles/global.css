@@ -40,12 +40,14 @@
 
   /* Header/wordmark chrome. --ink/--rod/--wash/--rule/--paper are structural
      (rules, borders, tile backgrounds) and have no equivalent among the
-     --color-* tokens above, so they stay their own thing. The wordmark's
-     accent letters and the active-nav indicator use --color-accent
-     directly instead of a separate token, so the header's accent color is
-     never a second thing to keep in sync with the rest of the app's. */
+     --color-* tokens above, so they stay their own thing. --bead is the
+     wordmark's own accent (b/c/d letters, the favicon mark) - deliberately
+     not --color-accent, so the brand mark reads as its own thing rather
+     than borrowing the app's button/link purple. The active-nav indicator
+     still uses --color-accent. */
   --ink:   #0C2233;
   --rod:   #56707F;
+  --bead:  #C8871B;
   --wash:  #F2F5F7;
   --rule:  #DDE5EA;
   --paper: #FFFFFF;

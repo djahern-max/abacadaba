@@ -8,7 +8,7 @@
 .wordmark {
   font-family: 'Jost', 'Futura', var(--font-sans);
   font-size: 20px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.05em;
 }
 
 .wordmark i,
@@ -22,8 +22,26 @@
 }
 
 .accent {
-  color: var(--color-accent);
+  color: var(--bead);
   font-weight: 500;
+}
+
+.descriptor {
+  margin-left: var(--space-sm);
+  padding-left: var(--space-sm);
+  border-left: 1px solid var(--rule);
+  color: var(--rod);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  .descriptor {
+    display: none;
+  }
 }
 
 /* One motion moment, session-scoped: the accent letters settle into place

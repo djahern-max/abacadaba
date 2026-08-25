@@ -49,6 +49,9 @@ function Wordmark() {
           ),
         )}
       </span>
+      <span className={styles.descriptor} aria-hidden="true">
+        Get Wicked Smart!
+      </span>
     </Link>
   )
 }
