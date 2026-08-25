@@ -37,6 +37,29 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 6px rgba(0, 0, 0, 0.05);
 
   color-scheme: light dark;
+
+  /* Brand identity (current-feature.md, "Tokens"). A separate system from
+     the --color-* tokens above on purpose: those are generic UI tokens
+     (purple accent, used across buttons, badges, etc.), these are the
+     header/wordmark's own palette and nothing else reaches for them.
+     --rod is darkened from the feature file's literal #7A94A6 - that value
+     is 2.9:1 against --wash and the feature requires 4.5:1 wherever --rod
+     is used as text (the descriptor). */
+  --ink:   #0C2233;
+  --rod:   #56707F;
+  --bead:  #C8871B;
+  --wash:  #F2F5F7;
+  --rule:  #DDE5EA;
+  --paper: #FFFFFF;
+}
+
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/jost-abcd.woff2') format('woff2');
+  unicode-range: U+61, U+62, U+63, U+64; /* a b c d only, see tools/brand/build_jost_subset.py */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -74,4 +97,26 @@ body {
   font-family: var(--font-sans);
   color: var(--color-text);
   background: var(--color-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--bead);
+  outline-offset: 2px;
+}
+
+.skipLink {
+  position: absolute;
+  top: -40px;
+  left: var(--space-sm);
+  z-index: 100;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skipLink:focus-visible {
+  top: var(--space-sm);
 }

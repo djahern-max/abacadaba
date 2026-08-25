@@ -36,8 +36,11 @@ function NotFound() {
 function App() {
   return (
     <div className={styles.app}>
+      <a href="#main" className="skipLink">
+        Skip to content
+      </a>
       <Header />
-      <main className={styles.main}>
+      <main id="main" tabIndex={-1} className={styles.main}>
         <Routes>
           <Route path="/" element={<CourseList />} />
           <Route path="/courses/:slug" element={<CourseDetail />} />

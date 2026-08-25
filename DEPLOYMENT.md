@@ -96,6 +96,28 @@ which is committed to the repo (no secrets in it) and read automatically by
 
 Changing either of these requires a rebuild, not just a restart.
 
+## Link previews for course pages
+
+`abacadaba.conf` (repo root — this is the real, deployed nginx config for
+the Droplet described in `docker-compose.prod.yml`; the App Platform
+description above predates it and is stale for anything the two disagree
+on) already has both pieces this needs, both active as of feature 030:
+
+- `location = /site.webmanifest` sets `application/manifest+json` explicitly,
+  since this nginx build's `mime.types` doesn't know the extension and would
+  otherwise serve it as `application/octet-stream` with no visible error.
+- The "Open Graph crawler branch" routes known crawler User-Agents hitting
+  `/courses/{slug}` to `GET /api/v1/og/courses/{slug}` on `api`
+  (`app/routers/og.py`) instead of the SPA shell, since link-preview
+  fetchers never run the JavaScript that would otherwise set these tags.
+  Everyone else still gets the normal SPA catchall.
+
+Verify with:
+
+    curl -sI https://abacadaba.com/site.webmanifest | grep -i content-type
+    curl -A "facebookexternalhit/1.1 Facebot Twitterbot/1.0" \
+      https://abacadaba.com/courses/some-published-slug | grep 'og:'
+
 ## Health check
 
 The `api` component's health check must be an **HTTP** check pointed at

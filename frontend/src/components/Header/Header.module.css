@@ -1,52 +1,137 @@
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--wash);
+  border-bottom: 1px solid var(--rule);
+  transition: border-color 0.15s ease;
+}
+
+.header.scrolled {
+  border-bottom-color: var(--rod);
+}
+
+.bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-lg);
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--paper);
 }
 
-.wordmark {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  font-size: 14px;
-}
-
-.nav a {
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.nav a:hover {
-  text-decoration: underline;
-}
-
-.displayName {
-  color: var(--color-text-muted);
-}
-
-.signOutButton {
-  padding: 0;
-  border: none;
+.mobileToggle {
+  display: none;
+  margin-left: auto;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
   background: none;
-  color: var(--color-text);
-  font: inherit;
-  font-size: 14px;
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
-  text-decoration: underline;
+}
+
+.zones {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  margin-left: auto;
+}
+
+.productNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding-left: var(--space-lg);
+  border-left: 1px solid var(--rule);
+  font-size: 14px;
+}
+
+.navLink {
+  position: relative;
+  padding: var(--space-xs) 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.navLink:hover {
+  color: var(--rod);
+}
+
+/* Active state: a short rod with a bead resting on it - the same object as
+   the mark, at nav scale. CSS keys off aria-current so the visual state
+   can't drift from the accessible one. */
+.navLink[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  background: var(--rod);
+}
+
+.navLink[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bead);
+  transform: translateX(-50%);
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  padding-left: var(--space-lg);
+  border-left: 1px solid var(--rule);
+}
+
+.signIn {
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+@media (max-width: 639px) {
+  .mobileToggle {
+    display: block;
+  }
+
+  .zones {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--space-sm) var(--space-lg);
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .zonesOpen {
+    display: flex;
+  }
+
+  .productNav,
+  .account {
+    padding: var(--space-sm) 0;
+    border-left: none;
+    border-top: 1px solid var(--rule);
+  }
+
+  .productNav {
+    border-top: none;
+  }
 }

@@ -1,6 +1,6 @@
 # Current Feature
 
-## Feature 030, Favicon and header identity
+## Feature 025, Favicon and header identity
 
 ## Goal
 The product tells a signed-in participant what it is before they read anything

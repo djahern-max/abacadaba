@@ -1875,3 +1875,82 @@ established, not wired to that model, and its `revisionDate` field is not
 yet rendered on any surface a participant sees. This feature makes the
 package's own type declarations honest about a shape it already had - it
 does not add new disclosure to a real course.
+
+## 2026-08-25, Feature 030, Favicon and header identity
+The bare-string `abacadaba` header and Vite's default tab icon are gone. A
+full favicon set (`favicon.svg` with a dark variant, `favicon.ico`,
+`apple-touch-icon.png`, `icon-192`/`icon-512`/`icon-maskable-512.png`,
+`site.webmanifest`) is in `frontend/public/`, regenerable from
+`tools/brand/build_icons.py`; `frontend/index.html` links them in the order
+Safari needs and sets `<title>abacadaba — short CPE lessons</title>`.
+
+The header now has three zones - brand, product nav, account - matching
+current-feature.md's diagram, not one undifferentiated row. `Wordmark`
+(`components/Wordmark`) renders the mark (a brass circle beside an ink stem
+- the same shape as a constructed lowercase `a`) beside the spelled-out
+wordmark, a's in `--ink` and b/c/d in `--bead`; the letters are `aria-hidden`
+with the accessible name ("abacadaba, home") on the link itself, so screen
+readers don't spell the word out. Set in a self-hosted Jost subset -
+glyphs a/b/c/d only, still variable (so weights 500 and 700 both resolve
+from the one file), ~1.9KB, built by `tools/brand/build_jost_subset.py`; the
+OFL license and copyright name records are kept in the font and
+`frontend/public/fonts/OFL.txt` ships alongside it. `AccountMenu`
+(`components/Header/AccountMenu.jsx`) replaces the bare `Sign out` link and
+inline `Admin` link with a menu-button: `aria-haspopup="menu"`,
+`aria-expanded`, `role="menu"`/`role="menuitem"`, arrow-key navigation,
+Escape-returns-focus, click-outside-closes. `Admin` still only renders for
+`user.is_admin` - this is presentation, the server-side check that actually
+gates `/admin` is unchanged.
+
+Active-page state (`My progress`) uses React Router's `NavLink`, which sets
+`aria-current="page"` itself; the bead-on-a-rod indicator is CSS keyed off
+that attribute, not a second piece of state, so the visual and accessible
+states can't drift apart. A skip link is the first focusable element on the
+page; every interactive element gets a 2px `--bead` `:focus-visible` ring
+site-wide (not header-scoped, since there was no reason to make it
+narrower). The wordmark's bead-settle animation runs once per
+`sessionStorage`-tracked session and is removed entirely under
+`prefers-reduced-motion: reduce`. Below 640px the descriptor hides, product
+nav and the account zone collapse behind one menu button - no second mobile
+nav pattern, since the app didn't have one yet to reuse.
+
+New brand tokens (`--ink`/`--rod`/`--bead`/`--wash`/`--rule`/`--paper`) in
+`global.css` are a separate system from the existing `--color-*` tokens
+(purple accent, used elsewhere in the app) rather than a rename - the
+palettes serve different things and nothing but the header/wordmark reaches
+for the new ones. `--rod` ships darker than current-feature.md's literal
+`#7A94A6`: that value is 2.9:1 against `--wash`, and the descriptor text
+needs 4.5:1, so it's `#56707F` (4.9:1) instead, per the file's own
+"darken `--rod` if it does not [clear 4.5:1]" instruction.
+
+Part 5's link previews: `frontend/index.html` carries the static
+site-default Open Graph tags Apple's non-JS fetcher needs, `og:url` and
+`og:image` built from `%VITE_SITE_URL%` (Vite's own HTML env substitution,
+already defined per environment in `frontend/.env*`) so they're correctly
+absolute in every environment without hardcoding a host. Per-course previews
+are `GET /api/v1/og/courses/{slug}` (`app/routers/og.py`,
+`app/services/og.py`), reusing `courses_service.get_by_slug`'s existing
+`is_published` filter rather than a second query, so an unpublished or
+unknown slug can't leak anything - it gets the site-default card, not a 404
+and not the draft's title. Six new tests in `tests/test_og.py` cover the
+published, no-thumbnail, unpublished, and unknown-slug cases plus
+description truncation and absolute-URL image fallback.
+
+This is Option 2 from current-feature.md's Part 5b, not Option 1: `api` and
+`web` are built and deployed completely separately (see DEPLOYMENT.md), so
+`api` has no copy of `web`'s `index.html` to substitute tags into. The
+routing half already existed in the repo, written ahead of the endpoint and
+waiting on it: `abacadaba.conf`'s "Open Graph crawler branch" routes known
+crawler User-Agents on `/courses/{slug}` to this endpoint and leaves
+everyone else on the normal SPA catchall. It was commented out with a note
+not to enable it before the backend endpoint existed - a 502 that a crawler
+caches is worse than no tags at all - so this feature also uncomments it and
+updates that file's header comment. The same file's `location =
+/site.webmanifest` block (already active, unrelated to this feature) covers
+current-feature.md's other nginx warning: this build's `mime.types` doesn't
+know the `.webmanifest` extension and would otherwise serve it as
+`application/octet-stream` with no visible error.
+
+No COMPLIANCE.md row, per current-feature.md's own note: sponsor
+identification and the four policies are 026's footer, not this feature's
+header.

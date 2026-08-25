@@ -16,6 +16,7 @@ from app.routers import (
     evaluations,
     health,
     meta,
+    og,
     policies,
     review,
 )
@@ -41,6 +42,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(courses.router, prefix="/api/v1")
 app.include_router(meta.router, prefix="/api/v1")
 app.include_router(policies.router, prefix="/api/v1")
+app.include_router(og.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(admin_analytics.router, prefix="/api/v1")
 app.include_router(admin_sponsor.router, prefix="/api/v1")

@@ -1,0 +1,77 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.mark {
+  flex: none;
+}
+
+.wordText {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.wordmark {
+  font-family: 'Jost', 'Futura', var(--font-sans);
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.wordmark i,
+.wordmark b {
+  font-style: normal;
+}
+
+.rod {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.bead {
+  color: var(--bead);
+  font-weight: 500;
+}
+
+.descriptor {
+  display: none;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--rod);
+}
+
+@media (min-width: 640px) {
+  .descriptor {
+    display: block;
+  }
+}
+
+/* One motion moment, session-scoped: the beads settle into place along the
+   wordmark on first paint. See current-feature.md, Part 4. */
+.animate .bead {
+  animation: settle 300ms ease-out backwards;
+  animation-delay: calc(var(--i) * 30ms);
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate .bead {
+    animation: none;
+  }
+}

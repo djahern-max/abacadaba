@@ -1,0 +1,61 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import Mark from '../Mark/Mark'
+import styles from './Wordmark.module.css'
+
+const SESSION_KEY = 'abacadaba:wordmark-animated'
+
+// Letters split into spans read the word letter-by-letter to some screen
+// readers, so the accessible name lives on the link instead and the spelled-
+// out wordmark is aria-hidden. See current-feature.md, Part 2,
+// "Accessibility, and this is the part that gets missed."
+const LETTERS = [
+  { char: 'a', bead: false },
+  { char: 'b', bead: true },
+  { char: 'a', bead: false },
+  { char: 'c', bead: true },
+  { char: 'a', bead: false },
+  { char: 'd', bead: true },
+  { char: 'a', bead: false },
+  { char: 'b', bead: true },
+  { char: 'a', bead: false },
+]
+
+function Wordmark() {
+  // Read once, synchronously, so the very first render already knows
+  // whether this is the first paint of the session - animating and then
+  // immediately un-animating would flash.
+  const [animate] = useState(() => {
+    try {
+      if (sessionStorage.getItem(SESSION_KEY)) return false
+      sessionStorage.setItem(SESSION_KEY, '1')
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  return (
+    <Link to="/" className={styles.brand} aria-label="abacadaba, home">
+      <Mark aria-hidden="true" className={styles.mark} />
+      <span className={styles.wordText}>
+        <span className={animate ? `${styles.wordmark} ${styles.animate}` : styles.wordmark} aria-hidden="true">
+          {LETTERS.map((letter, index) =>
+            letter.bead ? (
+              <b key={index} className={styles.bead} style={{ '--i': index }}>
+                {letter.char}
+              </b>
+            ) : (
+              <i key={index} className={styles.rod} style={{ '--i': index }}>
+                {letter.char}
+              </i>
+            ),
+          )}
+        </span>
+        <span className={styles.descriptor}>Short CPE lessons</span>
+      </span>
+    </Link>
+  )
+}
+
+export default Wordmark
