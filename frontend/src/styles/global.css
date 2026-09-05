@@ -40,21 +40,30 @@
 
   /* Header/wordmark chrome. --ink/--rod/--wash/--rule/--paper are structural
      (rules, borders, tile backgrounds) and have no equivalent among the
-     --color-* tokens above, so they stay their own thing. --bead is
-     deliberately not --color-accent, so the brand mark reads as its own
-     thing rather than borrowing the app's button/link purple. The
-     active-nav indicator still uses --color-accent.
+     --color-* tokens above, so they stay their own thing. The brand's accent
+     is deliberately not --color-accent, so the mark reads as its own thing
+     rather than borrowing the app's button/link purple. The active-nav
+     indicator still uses --color-accent.
 
-     --bead is the favicon mark's one colour - it has no letter role.
+     The favicon mark's colour (#C8432E light, #DE6C52 dark) lives only in
+     favicon.svg and tools/brand/build_icons.py's MARK - nothing in this
+     stylesheet renders the favicon, so a custom property for it here would
+     have no consumer. tools/brand/check_palette.py checks those two files
+     against each other instead. --bead-b/-c/-d below are consumed by
+     Wordmark.module.css, which is why they stay real tokens.
+
      --bead-b/-c/-d are the wordmark's per-letter accents (feature 030a):
      the word is a-b-a-c-a-d-a-b-a and colour is keyed to the letter, not
-     position, so both b's share --bead-b. --bead-b is --bead darkened one
-     step (#C8432E only clears 4.46:1 on --wash, under the 4.5:1 floor these
-     are held to; #C0402C clears 4.78:1) rather than reused as-is, so the
-     mark and the wordmark are free to diverge - see Wordmark.module.css. */
+     position, so both b's share --bead-b. --bead-b is the favicon's #C8432E
+     darkened one step (#C8432E only clears 4.46:1 on --wash, under the
+     4.5:1 floor these are held to; #C0402C clears 4.78:1) rather than reused
+     as-is, so the mark and the wordmark are free to diverge - see
+     Wordmark.module.css. The OG share card (tools/brand/build_og_default.py)
+     uses its own dark-surface variants of these same three hues, because its
+     tile is dark and these light-surface values don't clear 4.5:1 there -
+     see that script's ACCENT for the measured numbers. */
   --ink:    #0C2233;
   --rod:    #56707F;
-  --bead:   #C8432E;
   --bead-b: #C0402C;
   --bead-c: #0F766E;
   --bead-d: #B45309;

@@ -2203,3 +2203,131 @@ its wordmark accents with `ACCENT` (`--color-accent`'s dark-mode value,
 inconsistent with the header before this feature and Part 2's task list
 named only `global.css`, `Wordmark.jsx`, and `Wordmark.module.css`, so it
 was left alone rather than pulled into scope on its own.
+
+## 2026-09-05, Feature 030b, The share card, and where brand colour lives
+
+### The mismatch predates 030a
+`build_og_default.py` has coloured the wordmark's accent letters with
+`ACCENT` (`--color-accent`'s dark-mode value, `#a78bfa`, one purple) since
+before 030a shipped - 030a's entry above says as much in its own "Out of
+scope" note. The header stopped matching that value when `--bead` was
+reintroduced in `5cfdfc6`, a commit with no changelog entry, well before
+030a existed. So the share card has been out of step with the header in
+both colour schemes since before 030a, and 030a widened a gap it did not
+open. Worth stating plainly here because "030a broke the OG image" is the
+natural read of the timeline and it is wrong.
+
+### The trap: the header's palette doesn't survive the tile
+`--bead-b/-c/-d` are held to 4.5:1 against `--wash` (`#F2F5F7`), the light
+header background they actually sit on. Against the share card's dark tile
+(`build_og_default.py`'s `INK`, `#0C2233` - read from the script rather than
+assumed, confirming the number `current-feature.md` guessed) those same
+values measure 3.10 / 2.97 / 3.24 - assigning the header tokens to the card
+directly would have traded a colour mismatch for an unreadable card.
+
+`build_og_default.py`'s `ACCENT` is now a dict of dark-surface variants,
+keyed by letter (not array position, so both `b`s in `abacadaba` share one
+value - see `Wordmark.jsx`'s comment for why that rule exists):
+
+| Letter | light (`--bead-*`) | dark-surface (`ACCENT`) | measured on `INK` |
+| --- | --- | --- | --- |
+| `b` | `#C0402C` | `#DE6C52` | 4.93 |
+| `c` | `#0F766E` | `#149A90` | 4.69 |
+| `d` | `#B45309` | `#DB650B` | 4.55 |
+
+All three clear the 4.5:1 floor on the card's own tile. `b`'s dark-surface
+value is deliberately the *same* colour as `favicon.svg`'s existing
+dark-mode stroke (`#DE6C52`) rather than a freshly-raised, nearly-identical
+neighbour (~`#D76452`, which only clears 4.51) - one fewer near-duplicate
+hardcoded colour, and better margin on the tile. `c` and `d` have no
+existing dark-surface value to reuse, so those two are new.
+`tools/brand/check_palette.py` (below) enforces the `b`/favicon pairing so
+it can't drift apart again unnoticed.
+
+### Source of truth: Option 2, verified
+Of the three options `current-feature.md` laid out - generate everything
+from one file, verify the four hand-written copies against each other, or
+document and accept the drift - the project owner chose **Option 2**
+(asked directly rather than defaulted, since the spec called this out as
+not the implementer's decision). `tools/brand/check_palette.py` parses
+`global.css`, `favicon.svg`, `build_icons.py`, and `build_og_default.py`
+and fails loudly if:
+
+- `favicon.svg`'s light-mode stroke != `build_icons.py`'s `MARK`
+- `favicon.svg`'s dark-mode stroke != `build_og_default.py`'s `ACCENT["b"]`
+- any `ACCENT` value drops below 4.5:1 against `build_og_default.py`'s own
+  `INK`
+- any `--bead-b/-c/-d` drops below 4.5:1 against `--wash` (guards 030a's
+  floor against silently regressing)
+
+`tools/brand/test_check_palette.py` (4 tests, run via
+`cd backend && source .venv/bin/activate && python -m pytest ../tools/brand/`,
+not wired into `cd backend && pytest` since it checks `tools/brand/`, not the
+app) proves the checker actually fails, not just that it passes: one test
+mismatches `MARK`, one drops an `ACCENT` value under the floor, one deletes
+an `ACCENT` key - all three are asserted to produce a reported problem. A
+fourth confirms the shipped state currently passes. All four pass.
+
+Went with Option 2 over Option 1 (generate everything from one
+`palette.json`) because a generation step and generated files in git is
+more machinery than a four-file, forty-line comparison script needs for a
+repo this size; over Option 3 (document and accept) because that is what
+was already in place and it is what produced both this feature and the
+`5cfdfc6`/`e7b5988` drift before it - the thing already tried and already
+failed twice.
+
+### `--bead` resolved: deleted, not kept as a decoration
+`--bead` had no CSS consumer - `favicon.svg` and `build_icons.py`'s `MARK`
+each hardcode the mark's colour independently, and nothing in the
+stylesheet renders the favicon. Deleted the custom property from
+`global.css`; its value (`#C8432E`) now lives only in `favicon.svg` and
+`MARK`, checked against each other by `check_palette.py`. `--bead-b/-c/-d`
+are untouched - `Wordmark.module.css` reads them, so they keep a real
+consumer.
+
+### The per-course card check
+`app/services/og.py`'s `course_preview_html` does not render the wordmark
+at all - checked by reading the file, not assumed. It emits `<meta>` tags
+only: a title, a truncated description, and an `og:image` pointing at
+either the course's own thumbnail or `og-default.png`. It never calls
+`build_og_default.py` or draws text itself. So per-course cards need no
+palette change, and this feature's scope stayed the one file plus
+`global.css` as expected - not two.
+
+### The nginx crawler branch: confirmed only against this repo's copy
+This repo's `abacadaba.conf` has the Open Graph crawler branch
+(`location ^~ /courses/` and `location ^~ /__og/`) active, matching what
+030's entry claims. Whether the **deployed** `/etc/nginx/sites-enabled/abacadaba`
+on the production droplet matches this repo's copy could not be confirmed
+in this session - the sandbox's command approval denied the outbound `ssh`
+to the `abacadaba` host, for both the config check and the deploy step
+below. If a later session or the project owner can confirm the deployed
+file's state, that closes a real open question `current-feature.md` raised;
+until then this is unverified rather than fixed.
+
+### Deploy: build done, rsync and live verification not performed
+`npm run lint` (clean, the same four pre-existing warnings from 030a, none
+in touched files) and `npm run build` (succeeds) both ran locally.
+`og-default.png` was regenerated with `tools/brand/build_og_default.py` and
+changed size from its predecessor - 14357 bytes to 14075 - a cheaper check
+than eyeballing it, per the task list, though it was also eyeballed and the
+three accent colours plus both matching `b`s are visibly correct against
+the dark tile. `pytest`: 384 passed, unchanged - this feature touches no
+backend logic (`test_og.py`'s 6 tests, including the unpublished-course
+leak guard, pass unchanged).
+
+The actual `rsync dist/ /var/www/abacadaba/` deploy and the cache-busted
+real-client check (pasting the URL into iMessage/Slack/Twitter) were **not**
+performed - same `ssh` restriction as the nginx check above. `dist/` and
+the regenerated `frontend/public/og-default.png` are ready to deploy; doing
+so and then verifying the card in a real client is the one acceptance
+criterion this entry cannot claim.
+
+### Numbering
+Letter suffix, per `current-feature.md`'s own numbering note: this is
+corrective work inside 030/030a's surface area (the palette those features
+established), not new capability.
+
+No COMPLIANCE.md row: share-card colour maps to no locator in
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`, as `current-feature.md`
+stated going in.

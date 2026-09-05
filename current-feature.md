@@ -1,273 +1,201 @@
 # Current Feature
 
-## Feature 030a, The mark and the wordmark palette
+## Feature 030b, The share card, and where brand colour lives
 
 ## Numbering note
-A letter suffix means corrective work against the base feature's surface area.
-Both changes here are entirely inside what 030 shipped — the favicon set and the
-`Wordmark` component — so this is `030a`, not `032`. If you would rather treat
-the palette as new capability and take a fresh number, say so in the changelog
-entry; do not leave it ambiguous.
+`030a` shipped the mark and the header palette. This is the same surface area —
+the brand's colour values and the assets built from them — so it takes the next
+letter rather than a whole number.
 
-**This waits for 031.** `current-feature.md` holds one feature at a time. Ship
-the catalog ordering, write its CHANGELOG entry, then overwrite this file in.
+Confirm `030a`'s CHANGELOG entry is written before overwriting this file in.
 
-## Before anything else: the CHANGELOG no longer describes the code
-Feature 030's entry (2026-08-25) says three things that are not true of the
-repo as it stands:
+## The premise, corrected
+The share card is not lost. It renders: dark tile, wordmark, domain line, title
+and URL beneath. What is wrong is narrower and more boring than "lost."
 
-- It says the mark was cut and the icon set became "a single Jost `a` glyph on
-  the `--ink` tile." `frontend/public/favicon.svg` is a stroked checkmark with a
-  small plus badge on a transparent ground, and `tools/brand/build_icons.py`'s
-  docstring says so too.
-- It says there is "no separate `--bead` token now that the accent role is
-  `--color-accent` directly." `global.css` defines `--bead: #C8432E` with a
-  comment explaining that it is deliberately *not* `--color-accent`, and
-  `Wordmark.module.css`'s `.accent` reads `--bead`.
-- 030's spec called for `favicon.svg` to carry a `prefers-color-scheme` dark
-  variant. The shipped file has one hardcoded `#C8432E` and no media query.
+`tools/brand/build_og_default.py` colours the wordmark's accent letters with
+`ACCENT` — `#a78bfa`, which is `--color-accent`'s **dark-mode** value. The
+header stopped using `--color-accent` for those letters when `--bead` was
+reintroduced in the undocumented commit `5cfdfc6`, well before 030a. So the
+share card has been out of step since 030 shipped, in both colour schemes, and
+030a widened a gap it did not open.
 
-So something landed after 030 with no entry. **Find out what** — `git log` on
-`frontend/public/favicon.svg`, `tools/brand/build_icons.py`, and `global.css`
-will say — and write a correcting CHANGELOG entry as part of this feature.
+Worth stating plainly in the changelog, because "030a broke the OG image" is the
+natural assumption and it is wrong. Nothing about the share card changed on
+2026-09-05 except that the surface it should match moved further away.
 
-CHANGELOG.md is append-only. Do not edit 030's entry. Write a new one that says
-what 030's entry got wrong and what actually shipped, the way the `video/`
-repo's entry 12 corrected entry 06's locator citation. This feature then
-supersedes that state on top of an accurate record rather than a fictional one.
+## The trap in the obvious fix
+The palette 030a measured — `--bead-b #C0402C`, `--bead-c #0F766E`,
+`--bead-d #B45309` — was held to 4.5:1 against `--wash` (`#F2F5F7`), the light
+header background those letters actually sit on.
 
-## Goal
-The tab icon is one deliberate mark instead of two shapes competing in a 16px
-box, and the wordmark's counting letters carry a palette instead of a single
-colour — so the abacus idea 030 was built on is visible rather than described.
+The share card's tile is dark. Against `#0C2233`:
+
+| Token | on `--wash` (header) | on the OG tile |
+| --- | --- | --- |
+| `--bead-b` `#C0402C` | 4.78 | **3.10** |
+| `--bead-c` `#0F766E` | 5.00 | **2.97** |
+| `--bead-d` `#B45309` | 4.59 | **3.24** |
+
+So assigning the header tokens to the share card trades an inconsistency for an
+unreadable card. It would look like a fix and measure like a regression.
+
+The card needs a **dark-surface variant of the same palette**, which is exactly
+what `favicon.svg` already does — `#C8432E` light, `#DE6C52` dark, the latter
+measuring 4.93 on this tile.
+
+### Candidate dark-surface values
+Each is its light counterpart raised in HLS lightness until it clears 4.5:1 on
+`#0C2233`, keeping the hue so the two palettes read as one family:
+
+| Letter | light | dark-surface | on tile |
+| --- | --- | --- | --- |
+| `b` | `#C0402C` | `#D76452` | 4.51 |
+| `c` | `#0F766E` | `#149A90` | 4.69 |
+| `d` | `#B45309` | `#DB650B` | 4.55 |
+
+`b`'s dark value lands close to the favicon's existing `#DE6C52`. Decide
+whether they should be the same value or stay deliberately separate, and say
+which in the changelog — do not let them be accidentally-nearly-identical.
+
+Verify these numbers against the tile colour the script actually uses rather
+than trusting `#0C2233` from this file. If the tile is not `--ink`, recompute.
+
+## The actual problem underneath
+After 030a, the brand's accent colour is written down in four places, in three
+languages, with nothing checking them against each other:
+
+| File | Holds | Language |
+| --- | --- | --- |
+| `frontend/src/styles/global.css` | `--bead`, `--bead-b/c/d` | CSS |
+| `frontend/public/favicon.svg` | light + dark stroke colours | SVG, hardcoded |
+| `tools/brand/build_icons.py` | `MARK` | Python |
+| `tools/brand/build_og_default.py` | `ACCENT` | Python |
+
+The SVG and `build_icons.py` are kept in step by a docstring promise and human
+diligence, which has held so far. Adding a fourth is where that stops being a
+convention and starts being a liability — and this feature is the fourth.
+
+There is a second, quieter instance of the same thing already in the repo:
+`--bead` is now documented as "the favicon mark's colour only," but nothing
+reads it. `favicon.svg` hardcodes its own value and `build_icons.py` hardcodes
+`MARK`. A CSS custom property that no stylesheet consumes and no build script
+can read is a comment wearing a token's clothes. Changing it will silently do
+nothing, which is worse than not having it.
+
+### Pick one, and say why in the changelog
+
+**Option 1 — one source, generated.** A small `tools/brand/palette.json` (or
+`.py`) holding every brand colour. `build_icons.py` and `build_og_default.py`
+import it. A build step writes `favicon.svg` and the `:root` block from it. One
+edit propagates everywhere; nothing can drift.
+
+Cost: a generation step, generated files in `git`, and the question of what
+happens when someone hand-edits a generated file.
+
+**Option 2 — one source, verified.** Values stay written where they are. A test
+or a `tools/brand/check_palette.py` asserts that `global.css`, `favicon.svg`,
+and both Python scripts agree, and fails loudly when they do not. Drift becomes
+visible instead of impossible.
+
+Cost: a parser per format, and a check nobody runs unless it is wired into
+something.
+
+**Option 3 — accept it, and write it down.** Four files, a comment in each
+naming the other three, and the honest note that this is held together by
+attention. Legitimate for a rehearsal repo with one person in it.
+
+Cost: it has already failed twice — the `5cfdfc6`/`e7b5988` drift, and this
+share card.
+
+**Recommendation: Option 2.** Option 1 is the right end state and the wrong
+amount of machinery for a repo this size; Option 3 is what is already in place
+and it is what produced this feature. A check that reads four files and compares
+hex strings is perhaps forty lines and turns a silent class of bug into a loud
+one. **But this is your call, not the implementer's** — and if the answer is 3,
+say so deliberately rather than by default.
+
+Also resolve `--bead` while you are here: give it a real consumer, or delete it
+and put its value in a comment.
 
 ## In scope
-- One redrawn mark, across every generated icon size
-- A letter-keyed colour palette for `b`, `c`, `d`
-- The token shape that lets the icon and the wordmark disagree on purpose
-- The correcting CHANGELOG entry described above
+- The share card's accent letters, in dark-surface variants of the 030a palette
+- Regenerating `og-default.png` and deploying it
+- Whichever of the three options above you pick
+- Resolving `--bead`'s no-consumer state
 
 ## Out of scope
-- The header's three-zone structure, `AccountMenu`, the active-nav indicator,
-  the skip link, the focus ring. 030 built all of it and none of it is what you
-  reported.
-- The settle animation. It keys off `.accent` and `--i` and keeps working
-  unchanged. Do not add a per-colour stagger; one motion moment per session was
-  a deliberate limit.
-- The Jost subset. See the constraint below — it changes what the mark can be,
-  but the subset itself does not change.
-- The `--ink`/`--rod`/`--wash`/`--rule`/`--paper` tokens.
-- The descriptor copy ("Get Wicked Smart!"). Separate argument, not this one.
-- Anything in superCPE. See "Before this crosses over" at the end.
+- The header, the favicon, the icon set, the maskable inset. 030a shipped all of
+  it and it is verified correct in production.
+- The card's layout, tile colour, type, or the domain line. Colour only.
+- `og:description` and the site tagline. 030 removed that copy deliberately.
+- Per-course share cards' *content*. But see the check below — their rendering
+  path may or may not be this script.
 
-## Part 1 — The mark
+## A thing to check rather than assume
+`app/services/og.py` serves per-course share cards at
+`GET /api/v1/og/courses/{slug}`. **Find out whether those cards render the
+wordmark at all**, and if so, whether they go through `build_og_default.py`'s
+code path or their own. If they have their own, they need the same palette and
+this feature's scope is two files, not one.
 
-### What is wrong with it
-The plus sits at (10, 10) in a 32-unit box. The checkmark's left leg starts at
-(8, 17.5). At 16px in a tab strip those are roughly four pixels apart, so the
-plus does not read as a badge beside the check — it reads as debris on top of
-it, which is exactly what you saw.
+Also: the nginx crawler branch that routes crawlers to that endpoint is still
+commented out at lines 93 and 100 of `sites-enabled/abacadaba`, despite 030's
+entry claiming it was uncommented. So per-course cards may not be reachable in
+production at all right now. That is a third instance of the entry not matching
+the box — worth confirming and noting, though enabling it is not this feature's
+job.
 
-### The constraint that decides this
-`favicon.svg` cannot use `<text>`. An SVG favicon renders in the browser's own
-font context; a glyph referenced by name will silently fall back to whatever is
-installed and the mark will differ per machine. Whatever the mark becomes, it
-ships as **outlined paths** in the SVG and as **drawn geometry** in
-`build_icons.py`.
-
-That rules out the easy version of "A+". The Jost subset is `U+61`–`U+64`,
-lowercase `a b c d` only — no uppercase `A`, no `+`. An `A+` mark means either
-outlining an `A` from the full Jost source at build time (the file
-`build_jost_subset.py` already consumes) and committing the resulting path, or
-constructing the `A` from strokes the way the check already is.
-
-### The two options, and a recommendation
-
-**A. The check alone.** Delete the plus, keep the checkmark, re-centre it in the
-box and let it grow into the freed space. One shape, unmistakable at 16px, and
-the geometry already exists and is already mirrored between the SVG and the
-Python. Roughly a ten-line change.
-
-The cost: a bare checkmark is the single most common mark on the internet, and
-it says "done" rather than "abacadaba."
-
-**B. `A+`.** Better idea, harder execution. The lockup you described — plus to
-the right of the `A`, never over it — is the correct typographic form, and at
-display sizes it will look good.
-
-At 16px it is two shapes sharing a box roughly seven pixels wide each. Make it
-work by refusing to treat them as equals: the `A` takes the full cap height and
-sits left of centre; the plus is about 40% of that height, aligned to the `A`'s
-upper right, with clear ground between the `A`'s right stroke and the plus's
-left arm at every size. **Judge it at actual size in a real tab strip, not
-zoomed** — a mark that reads at 512px and mushes at 16px is the standard way
-this goes wrong. If the plus cannot hold its own pixels at 16, drop it from the
-16 and 32 rasters and keep it in the SVG and the large sizes. A mark that
-simplifies at small sizes is normal; a mark that smears is not.
-
-**Recommendation: B, with A as the fallback you take without regret** if the
-16px version does not hold up. Decide by looking, not by argument.
-
-### One thing to think about before committing to A+
-`A+` is a grade. abacadaba's assessment is pass/fail against a threshold —
-`Course.pass_ratio`, floored at 70% — and awards no letter grades at all. On
-abacadaba, the rehearsal, that is a harmless bit of wit. Carried to superCPE it
-becomes a mark that implies a grading scheme a CPE certificate does not have.
-Not a reason to reject it here. A reason to decide it here rather than inherit
-it there.
-
-### Tasks
-1. Redraw `frontend/public/favicon.svg` as outlined paths. Add the
-   `prefers-color-scheme: dark` variant 030's spec asked for and never shipped.
-2. Update `tools/brand/build_icons.py` to the same geometry. Its docstring
-   already promises it "mirrors favicon.svg's geometry — same viewBox, same
-   strokes"; keep that promise true, and update the docstring, which currently
-   describes the mark you are removing.
-3. Regenerate every size: `favicon.ico` (16/32/48), `apple-touch-icon.png`,
-   `icon-192`, `icon-512`, `icon-maskable-512`. The maskable one insets art to
-   the Android 40% safe zone — verify the new mark still clears it rather than
-   assuming the old inset carries over.
-4. Check whether `tools/brand/build_og_default.py` draws the mark. 030's entry
-   says `og-default.png` lost it, but that entry has already been wrong three
-   times in this file, so look rather than trust it.
-
-## Part 2 — The wordmark palette
-
-### This reverses a decision, and that is fine
-030 chose one accent colour deliberately: "The b, c and d take `--bead` and sit
-one step lighter, so they read as objects on a line rather than as emphasis."
-You are overturning that, and the concept survives — arguably it lands harder.
-030's own framing is an abacus: the `a`s are the constant rod, `b c d` are beads
-counting along it. Beads on an abacus are coloured. One colour was the cautious
-reading of the idea.
-
-### The rule that makes it a system instead of decoration
-The word is `a b a c a d a b a`. **Colour is keyed to the letter, not to the
-position.** Three colours, and the second `b` takes the same colour as the
-first:
-
-```
-a  b  a  c  a  d  a  b  a
-   ①     ②     ③     ①
-```
-
-Four colours across four accent slots would make the two `b`s different, which
-breaks the only pattern the word actually has. The sequence *returning* to `b`
-is the thing worth showing.
-
-### "Cool" is the word to pin down
-030 rejected a cool palette on stated grounds: "the existing course thumbnails
-are heavily blue, and a warm metallic separates the chrome from the content
-instead of competing with it." If you mean cool literally — blues, teals,
-violets — you are putting the wordmark into the same family as the thumbnails it
-sits above, and that reason has not gone away. If you mean it colloquially, a
-mixed palette is open.
-
-Measured contrast for the candidates, against white, against the header's
-`--wash` (#F2F5F7), and against the dark-mode page background (#16151A):
-
-| Colour | on white | on `--wash` | on dark bg |
-| --- | --- | --- | --- |
-| `#C8432E` current `--bead` | 4.89 | **4.46** | 3.72 |
-| `#B45309` brass | 5.02 | 4.59 | 3.62 |
-| `#0F766E` teal | 5.47 | 5.00 | 3.32 |
-| `#0E7490` deep cyan | 5.36 | 4.89 | 3.39 |
-| `#BE123C` rose | 6.29 | 5.74 | 2.89 |
-| `#A21CAF` magenta | 6.32 | 5.77 | 2.87 |
-| `#1D4ED8` blue | 6.70 | 6.12 | 2.71 |
-| `#4338CA` indigo | 7.90 | 7.22 | 2.30 |
-
-Note the current `--bead` is already at 4.46 on the surface it actually sits on.
-That is under 4.5. Fixing it is a small independent reason to be in here.
-
-**Recommended set**, warm-cool-warm, one cool note so it does not read as a
-blue product: `b` `#C8432E` darkened enough to clear 4.5 on `--wash`,
-`c` `#0F766E`, `d` `#B45309`. **If you want it literally cool**: `#0E7490`,
-`#4338CA`, `#A21CAF` — all clear on light, all fail on dark, see below.
-
-Hold every value to **4.5:1 on `--wash`**. The letters are `aria-hidden` with
-the accessible name on the link, so a strict WCAG reading says they are
-decorative and the ratio does not apply. Do not take that exemption. These are
-the only brand words on the page and people read them with their eyes.
-
-### Token shape
-The favicon needs exactly one colour. Keep `--bead` as that colour — the mark's
-own — and add the letters as their own tokens:
-
-```css
---bead:   /* unchanged role: the favicon mark, one colour */
---bead-b:
---bead-c:
---bead-d:
-```
-
-Then `--bead` and `--bead-b` may or may not be the same value, and that is a
-choice someone makes rather than a coupling nobody noticed. Extend the existing
-comment block in `global.css` — it already explains why `--bead` is not
-`--color-accent`, and it should now also explain why there are four of these.
-
-### Tasks
-1. Three tokens in `global.css`, plus the comment.
-2. `Wordmark.jsx`: `LETTERS` already carries `{ char, accent }`. Give each accent
-   entry the token name it takes, keyed by `char` so the two `b`s cannot drift.
-   Do not build a colour-cycling index — that is the position-keyed version this
-   file just rejected.
-3. `Wordmark.module.css`: one class per bead colour, or a CSS custom property set
-   per letter. Whichever is fewer moving parts.
-4. Leave `.constant`, the animation, and the `aria-hidden` structure alone.
-
-## Things to check rather than assume
-- **Dark mode.** The `prefers-color-scheme: dark` block in `global.css`
-  redefines every `--color-*` token and none of the brand ones. `--ink`
-  (#0C2233) against the dark page background measures 1.12:1 — invisible. That
-  is only a live bug if the header background follows `--color-bg`; if it uses
-  `--wash`, the header stays light in dark mode and everything is fine. **Open
-  the header CSS and find out**, in dark mode, before picking values. If it is a
-  live bug it is a real one and predates this feature — report it rather than
-  silently fixing it inside a palette change.
-- **Favicon caching is aggressive.** Browsers cache `.ico` at the profile level
-  and a normal hard refresh often will not clear it. Verify in a fresh profile
-  or a private window, or you will spend an hour debugging a correct build.
-- **The `.ico` link order in `index.html`.** 030 got this right — `.ico` first
-  with an explicit `sizes`, then the SVG — and it is easy to disturb while
-  editing nearby. Leave it.
+## Tasks
+1. Read `build_og_default.py`. Establish the tile colour it actually uses and
+   recompute the table above against it.
+2. Implement the chosen option from "Pick one" — do this **before** changing
+   colours, so the new values land in whatever the new arrangement is rather
+   than being moved twice.
+3. Replace `ACCENT` with the three dark-surface bead values, keyed by letter,
+   both `b`s sharing one value. Same rule 030a established: keyed by character,
+   not by array position.
+4. Regenerate `og-default.png`. Confirm the file size changes — the previous
+   deploy's identical `icon-512`/`icon-maskable-512` byte counts were what
+   revealed the maskable inset had never shipped, and a byte count is a cheaper
+   check than looking.
+5. Deploy. `npm run build` then rsync `dist/` to `/var/www/abacadaba/` — the
+   frontend does not go through Docker, and `og-default.png` lives in `public/`,
+   so it needs both steps.
+6. Verify the card as a card, not as a file: paste the URL into a real client
+   after deploying. Note that iMessage, Slack, and Twitter all cache OG images
+   aggressively and by URL, so use a cache-busting query string to see the new
+   one rather than concluding it failed.
 
 ## Acceptance criteria
-- The new mark is legible at 16px in a real tab strip, on a light and a dark tab
-  bar, in a fresh browser profile
-- Every generated size regenerates from `build_icons.py` and matches
-  `favicon.svg`; the maskable icon still clears the 40% safe zone
-- `b`, `c`, `d` render in three distinct colours; both `b`s match
-- Every accent colour measures at least 4.5:1 against `--wash`; record the
-  measured numbers in the changelog rather than asserting they pass
-- The settle animation still runs once per session and is still absent under
-  `prefers-reduced-motion: reduce`
-- The wordmark's accessible name is still "abacadaba, home" and a screen reader
-  still does not spell the word out
+- Every accent colour on the share card measures at least 4.5:1 against the
+  card's own tile; record the measured numbers in the changelog rather than
+  asserting they pass
+- Both `b`s are the same colour on the card
+- The card's palette reads as the same family as the header's, not as a
+  different brand
+- `og-default.png` changed size from its predecessor
+- Whichever source-of-truth option was chosen is in place and, if it is Option
+  2, actually fails when a value is deliberately mismatched — test that it
+  fails, not just that it passes
+- `--bead` either has a consumer or is gone
 - `npm run lint` and `npm run build` pass
 
 ## COMPLIANCE.md
-No row. Brand colour and tab iconography map to no locator in
-`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`. CLAUDE.md requires that
-conclusion be stated explicitly rather than left implicit, so say it.
+No row. Share-card colour maps to no locator in
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`.
 
-Feature 027's note applies while you are in the file: the matrix covers the
-Standards document and nothing else, and a green column is not full coverage.
-That note is the reason a purely cosmetic feature still gets a sentence here.
-
-## Before this crosses over
-abacadaba's compliance machinery is meant to be identical to superCPE's; only
-the subject matter differs. Its *branding* is meant to be nothing of the kind.
-Whatever mark comes out of this is abacadaba's, and the `A+` question above is
-the specific thing not to carry across without deciding again.
+One thing not to disturb: `app/services/og.py` reuses
+`courses_service.get_by_slug`'s `is_published` filter, so an unpublished course
+cannot leak its title through a share card. That is a real property with tests
+in `tests/test_og.py`. If this feature touches that file at all, confirm those
+tests still pass and say so.
 
 ## When done
-Two CHANGELOG entries, both appended, neither editing history:
-
-1. The correction — what 030's entry claims, what the repo actually contains,
-   and what `git log` says landed in between.
-2. This feature — which mark option was taken and what the 16px test looked
-   like, the three colour values with their measured ratios, what the dark-mode
-   check found, and whether `build_og_default.py` needed touching.
+A CHANGELOG entry that states plainly that the share card's mismatch predates
+030a rather than being caused by it, which source-of-truth option was taken and
+why, the measured contrast numbers on the card's own tile, what `--bead` became,
+what the per-course card check found, and whether the card was verified in a
+real client or only as a file.
 
 Then stop.

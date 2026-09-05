@@ -13,7 +13,11 @@ import pathlib
 
 from PIL import Image, ImageDraw
 
-MARK = (200, 67, 46, 255)  # --bead  #C8432E
+MARK = (200, 67, 46, 255)  # #C8432E - matches favicon.svg's light-mode stroke.
+                            # No CSS custom property holds this: nothing in
+                            # global.css renders the favicon, so a token here
+                            # would have no consumer. tools/brand/check_palette.py
+                            # checks this against favicon.svg instead.
 
 OUT = pathlib.Path(__file__).resolve().parent / "out"
 
