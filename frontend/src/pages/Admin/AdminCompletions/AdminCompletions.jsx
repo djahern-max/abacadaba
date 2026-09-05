@@ -45,7 +45,7 @@ function AdminCompletions() {
 
       <div className={styles.filters}>
         <select
-          className={styles.select}
+          className={styles.courseSelect}
           value={filters.courseId}
           onChange={(event) => setFilter('courseId', event.target.value)}
         >

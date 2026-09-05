@@ -46,6 +46,15 @@
   font: inherit;
 }
 
+.courseSelect {
+  composes: select;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dateLabel {
   display: flex;
   flex-direction: column;

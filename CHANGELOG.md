@@ -1974,3 +1974,42 @@ know the `.webmanifest` extension and would otherwise serve it as
 No COMPLIANCE.md row, per current-feature.md's own note: sponsor
 identification and the four policies are 026's footer, not this feature's
 header.
+
+## 2026-09-05, Feature 023b, The objective select overflows its panel
+`QuestionEditor.module.css` gets its own `.objectiveSelect`, composed from
+`.kindSelect` (`composes: kindSelect`, same pattern `AdminPolicies.module.css`
+already used for `.form`) plus `flex: 1`, `min-width: 0`, `max-width: 100%`,
+and the closed-state ellipsis trio. `min-width: 0` is the load-bearing line:
+a flex item's default `min-width: auto` sizes to its widest child content
+regardless of `max-width`, which is what let the select's widest `<option>`
+(a full learning objective) push it past the panel border in the first
+place. `.metaRow` gets `flex-wrap: wrap` and `.kindLabel` gets
+`flex-shrink: 0` so a long objective can push its row to two lines at a
+narrow width instead of squeezing the label. `QuestionEditor.jsx` swaps
+`styles.kindSelect` for `styles.objectiveSelect` on the objective select
+only - the Type select keeps `.kindSelect` unchanged.
+
+Same pattern, one other place: `AdminCompletions.jsx`'s course filter
+populates its options from `course.title`, author-entered same as an
+objective, and its `.select` had the identical no-width-constraint problem
+inside `.filters`' flex row. Fixed with the same `.courseSelect` composition
+in `AdminCompletions.module.css`. Every other `<select>` in the admin UI
+(`ReviewPanel`, `CourseDetailsForm`, `AdminSponsorSettings`) either draws
+options from a fixed enum or already lives in a column-flex `.form` with
+`.input { width: 100% }`, where a plain block-level width constraint has no
+`min-width: auto` fight to lose - so those were left alone.
+
+Verified against a real question in this repo's data (`Identify the RCRA
+characteristics and generator categories that determine whether and how a
+waste must be managed as hazardous.`, feature 028's hazardous-waste course)
+via a screenshot of the running admin UI at 1280px and 375px: the select
+stays inside the panel and ellipsizes at both widths, and the Type select is
+visually unchanged. The 375px screenshot also showed a pre-existing
+horizontal overflow from `ChoiceRow`'s Up/Down/Delete buttons, unrelated to
+any select and out of this feature's scope - noted here rather than fixed
+silently.
+
+No COMPLIANCE.md row: this changes the width of one control in the admin
+tool. It does not change what is disclosed to a participant, what is
+stored, or what any locator in
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` requires.

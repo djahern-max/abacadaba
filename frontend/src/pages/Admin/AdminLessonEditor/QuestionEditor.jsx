@@ -141,7 +141,7 @@ const QuestionEditor = forwardRef(function QuestionEditor(
           </label>
           <select
             id={`objective-${question.id}`}
-            className={`${styles.kindSelect} ${objectiveDirty ? styles.fieldDirty : ''}`}
+            className={`${styles.objectiveSelect} ${objectiveDirty ? styles.fieldDirty : ''}`}
             value={objectiveId}
             onChange={(event) =>
               setObjectiveId(event.target.value === NO_OBJECTIVE ? NO_OBJECTIVE : Number(event.target.value))

@@ -42,12 +42,14 @@
 
 .metaRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
   margin-top: var(--space-sm);
 }
 
 .kindLabel {
+  flex-shrink: 0;
   font-size: 13px;
   color: var(--color-text-muted);
 }
@@ -60,6 +62,16 @@
   background: var(--color-bg);
   color: var(--color-text);
   font: inherit;
+}
+
+.objectiveSelect {
+  composes: kindSelect;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .feedbackBlock {
