@@ -2013,3 +2013,31 @@ No COMPLIANCE.md row: this changes the width of one control in the admin
 tool. It does not change what is disclosed to a participant, what is
 stored, or what any locator in
 `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` requires.
+
+## 2026-09-05, Feature 031, Catalog ordering
+`list_published` in `backend/app/services/courses.py` sorted the public
+catalog by `Course.id` ascending, so the oldest published course led and a
+newly published course landed at the bottom, off the fold on a catalog of
+any size. One line changes the sort to `Course.id.desc()`, so the most
+recently created course now leads. This shipped directly as commit
+`2368470` without a `current-feature.md` or this entry; this entry closes
+that gap so the record matches the code, as `current-feature-030a-mark-and-palette.md`'s
+gate required before it could start.
+
+`Course.id` is an auto-incrementing surrogate key, not a publish timestamp,
+so "most recently created" and "most recently published" can diverge if an
+older, unpublished course is published later than a newer one. No column
+distinguishes those today; noted here rather than silently assumed correct,
+and left as a follow-up if it turns out to matter rather than expanded into
+scope no one asked for.
+
+The admin course listing (`admin_content.py`'s `order_by(Course.id)`) was
+left ascending on purpose - it is a management view, not the public
+catalog, and this feature's scope was the public-facing order only.
+
+Verified: `pytest -k courses` (41 passed) - no test asserts on catalog
+order, so this only confirms no regression, not the new order itself.
+
+No COMPLIANCE.md row: this changes the sort order of a public list. It does
+not change what is disclosed to a participant, what is stored, or what any
+locator in `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` requires.
