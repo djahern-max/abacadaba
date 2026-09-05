@@ -22,8 +22,21 @@
 }
 
 .accent {
-  color: var(--bead);
   font-weight: 500;
+}
+
+/* Keyed by letter, not position - see Wordmark.jsx. Each clears 4.5:1
+   against --wash; see global.css for the measured ratios. */
+.bead-b {
+  color: var(--bead-b);
+}
+
+.bead-c {
+  color: var(--bead-c);
+}
+
+.bead-d {
+  color: var(--bead-d);
 }
 
 .descriptor {

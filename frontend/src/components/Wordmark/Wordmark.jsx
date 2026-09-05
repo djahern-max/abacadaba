@@ -8,15 +8,19 @@ const SESSION_KEY = 'abacadaba:wordmark-animated'
 // readers, so the accessible name lives on the link instead and the spelled-
 // out wordmark is aria-hidden. See current-feature.md, Part 2,
 // "Accessibility, and this is the part that gets missed."
+//
+// Colour is keyed to the letter (`bead`), not position: both b's take the
+// same bead so the sequence's one repeat stays visible instead of becoming
+// a fourth, different colour. See current-feature.md (030a), Part 2.
 const LETTERS = [
   { char: 'a', accent: false },
-  { char: 'b', accent: true },
+  { char: 'b', accent: true, bead: 'b' },
   { char: 'a', accent: false },
-  { char: 'c', accent: true },
+  { char: 'c', accent: true, bead: 'c' },
   { char: 'a', accent: false },
-  { char: 'd', accent: true },
+  { char: 'd', accent: true, bead: 'd' },
   { char: 'a', accent: false },
-  { char: 'b', accent: true },
+  { char: 'b', accent: true, bead: 'b' },
   { char: 'a', accent: false },
 ]
 
@@ -39,7 +43,11 @@ function Wordmark() {
       <span className={animate ? `${styles.wordmark} ${styles.animate}` : styles.wordmark} aria-hidden="true">
         {LETTERS.map((letter, index) =>
           letter.accent ? (
-            <b key={index} className={styles.accent} style={{ '--i': index }}>
+            <b
+              key={index}
+              className={`${styles.accent} ${styles[`bead-${letter.bead}`]}`}
+              style={{ '--i': index }}
+            >
               {letter.char}
             </b>
           ) : (

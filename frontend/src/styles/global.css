@@ -40,17 +40,27 @@
 
   /* Header/wordmark chrome. --ink/--rod/--wash/--rule/--paper are structural
      (rules, borders, tile backgrounds) and have no equivalent among the
-     --color-* tokens above, so they stay their own thing. --bead is the
-     wordmark's own accent (b/c/d letters, the favicon mark) - deliberately
-     not --color-accent, so the brand mark reads as its own thing rather
-     than borrowing the app's button/link purple. The active-nav indicator
-     still uses --color-accent. */
-  --ink:   #0C2233;
-  --rod:   #56707F;
-  --bead:  #C8432E;
-  --wash:  #F2F5F7;
-  --rule:  #DDE5EA;
-  --paper: #FFFFFF;
+     --color-* tokens above, so they stay their own thing. --bead is
+     deliberately not --color-accent, so the brand mark reads as its own
+     thing rather than borrowing the app's button/link purple. The
+     active-nav indicator still uses --color-accent.
+
+     --bead is the favicon mark's one colour - it has no letter role.
+     --bead-b/-c/-d are the wordmark's per-letter accents (feature 030a):
+     the word is a-b-a-c-a-d-a-b-a and colour is keyed to the letter, not
+     position, so both b's share --bead-b. --bead-b is --bead darkened one
+     step (#C8432E only clears 4.46:1 on --wash, under the 4.5:1 floor these
+     are held to; #C0402C clears 4.78:1) rather than reused as-is, so the
+     mark and the wordmark are free to diverge - see Wordmark.module.css. */
+  --ink:    #0C2233;
+  --rod:    #56707F;
+  --bead:   #C8432E;
+  --bead-b: #C0402C;
+  --bead-c: #0F766E;
+  --bead-d: #B45309;
+  --wash:   #F2F5F7;
+  --rule:   #DDE5EA;
+  --paper:  #FFFFFF;
 }
 
 @font-face {

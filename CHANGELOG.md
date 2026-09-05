@@ -2041,3 +2041,165 @@ order, so this only confirms no regression, not the new order itself.
 No COMPLIANCE.md row: this changes the sort order of a public list. It does
 not change what is disclosed to a participant, what is stored, or what any
 locator in `docs/2026-Statement-on-Standards-for-CPE-Programs.pdf` requires.
+
+## 2026-09-05, Correction to Feature 030's entry
+Feature 030's entry above (2026-08-25) was written by commit `812bf23`
+("changed logo and messaging and weird logo") and describes that commit's
+state: the favicon/touch-icon/home-screen-icon set as "a single Jost `a`
+glyph on the `--ink` tile," and "no separate `--bead` token now that the
+accent role is `--color-accent` directly." Two more commits landed the same
+day, after that entry was written, and neither got a changelog entry:
+
+- `5cfdfc6`, "Altering Icon and slogan and coloring": replaced the Jost `a`
+  glyph with the checkmark-and-plus-badge mark (stroke colour `#C8871B`,
+  amber), dropped the `--ink` tile background entirely, added a `--bead`
+  token (`#C8871B`) to `global.css`, and switched `Wordmark`'s `.accent`/
+  `.bead` colour from `--color-accent` to `--bead`. This commit's
+  `favicon.svg` did carry a `prefers-color-scheme: dark` variant (`#8A5A12`).
+- `e7b5988`, "still altering image of favicon and icon": changed `--bead`
+  from `#C8871B` to the current `#C8432E` and, in the same commit, deleted
+  the dark-mode media query from `favicon.svg` - the point where the dark
+  variant 030's own spec called for stopped existing.
+
+So as of `e7b5988`, the repo has held: `favicon.svg` as a stroked check
+with a small plus badge in `#C8432E`, no tile, no dark variant; `--bead:
+#C8432E` in `global.css`, deliberately not `--color-accent`, with
+`Wordmark`'s `.accent` reading it - not the state 030's entry describes.
+This correction closes that gap; 030's entry itself is left as written, per
+CLAUDE.md's append-only rule. Feature 030a (below) supersedes this state in
+turn, on top of an accurate record rather than 030's original one.
+
+## 2026-09-05, Feature 030a, The mark and the wordmark palette
+
+### Part 1, the mark
+Option B from `current-feature.md`: the mark is now an outlined "A+" -
+an `A` built from three strokes (two legs sharing an apex, a crossbar) plus
+a small plus badge at its upper right, never overlapping. `A+` was chosen
+over the bare-checkmark fallback because it held up at real size: rendered
+through Chromium's own SVG rasterizer at true 16x16 (`favicon.svg` served
+by Vite, screenshotted via Playwright, not just zoomed), the `A` is
+unambiguous and the plus resolves to a small but distinct cross with a
+visible gap from the `A`'s stroke - not the "debris on top of it" the old
+check-plus-badge lockup produced at that size. Verified against both a
+light (#ffffff) and a dark (#202124, a typical Chromium dark-chrome value)
+background, since the acceptance criterion is legibility on a light and a
+dark tab bar, not just on white.
+
+`favicon.svg` now carries the `prefers-color-scheme: dark` variant 030's
+spec asked for and the corrected history above shows never shipped: the
+mark strokes `#C8432E` in light mode, `#DE6C52` in dark (chosen so the
+lightened stroke clears 4.5:1 against a `#202124`-class dark tab background
+- see the ratio table in Part 2's section below for the method). Screenshotted
+in both modes to confirm the media query actually swaps the colour rather
+than only compiling.
+
+`tools/brand/build_icons.py` draws the identical geometry (same point
+coordinates as the SVG paths, same stroke widths) so the raster set can't
+drift from the vector one; its docstring is updated off the old
+checkmark-and-plus description. Raster outputs (`favicon.ico` at 16/32/48,
+`apple-touch-icon.png`, `icon-192`, `icon-512`) always use the light-mode
+colour - `.ico`/`.png` have no media-query equivalent, noted in the
+docstring rather than left implicit.
+
+The maskable icon needed a real fix, not just a check: the task description
+assumed an existing inset "carries over," but reading `build_icons.py`
+showed `icon-maskable-512.png` was rendered by the exact same `mark()` call
+as `icon-512.png` - no inset code exists or ever did. The old check-and-plus
+mark happened to clear the Android/W3C maskable safe zone (a circle of
+radius 40% of the icon, i.e. content must stay within an 80%-diameter
+centred circle) by accident, because its coordinates left generous margin in
+the 32-unit viewBox. The new, wider A+ mark does not: its farthest reach
+(the `A`'s lower-left leg, including the round line-cap's overshoot past the
+nominal endpoint) sits at radius 18.70 of the 12.8 the safe zone allows.
+`build_icons.py` now computes that farthest point from the actual path
+geometry (legs, crossbar, plus, each padded by its own half stroke-width for
+the cap/join overshoot) and derives a scale factor (0.6843) that a
+`maskable_mark()` function uses to draw the mark smaller and centred before
+compositing it onto the full 512x512 canvas. Verified by drawing the W3C
+safe-zone circle over the generated `icon-maskable-512.png` directly - the
+mark sits fully inside it with margin to spare.
+
+`tools/brand/build_og_default.py` does not draw the mark - checked by
+reading the script, not by trusting 030's entry (which has already been
+wrong three times over, per the correction above): it renders only the
+Jost wordmark text and a footer line, no check/plus/A+ shape anywhere. No
+change needed there for Part 1.
+
+### Part 2, the wordmark palette
+`b`, `c`, `d` now carry three distinct colours instead of one, keyed to the
+letter rather than position, per `current-feature.md`'s rule: the word is
+`a b a c a d a b a` and both `b`s share a colour so the sequence's one
+repeat stays visible. New tokens in `global.css` - `--bead-b: #C0402C`,
+`--bead-c: #0F766E`, `--bead-d: #B45309` - sit alongside the unchanged
+`--bead: #C8432E` (now documented as the favicon mark's colour only, with no
+letter role). Measured contrast (WCAG relative-luminance formula, checked
+against `--wash` `#F2F5F7`, the surface these letters actually sit on):
+
+| Token | on `--wash` | on white | on dark bg `#16151A` |
+| --- | --- | --- | --- |
+| `--bead-b` `#C0402C` | 4.78 | 5.24 | 3.47 |
+| `--bead-c` `#0F766E` | 5.00 | 5.47 | 3.32 |
+| `--bead-d` `#B45309` | 4.59 | 5.02 | 3.62 |
+
+All three clear the 4.5:1 floor on `--wash`, which the task held every value
+to regardless of the `aria-hidden` exemption a strict WCAG reading would
+allow. `--bead-b` is not the unmodified `#C8432E` from the spec's
+"recommended set" - that value is only 4.46:1 on `--wash`, under the floor,
+matching the spec's own observation that the current `--bead` was already
+short of 4.5 on the surface it sits on. Darkened one step in HLS lightness
+(-0.02) to `#C0402C` to clear it while staying in the same hue family as the
+favicon mark. Went with the literal recommended set (warm-cool-warm) rather
+than the all-cool alternative - the all-cool candidates all fail the dark-
+background column outright, and per the "cool" section, the thumbnails-are-
+blue reasoning for avoiding a cool wordmark hasn't gone away.
+
+`Wordmark.jsx`'s `LETTERS` array gets a `bead: 'b' | 'c' | 'd'` field on each
+accent entry, keyed by `char` (both `b` entries get `bead: 'b'`) rather than
+by array index, so the two `b`s cannot drift apart if the array is ever
+reordered. `Wordmark.module.css` adds one class per bead (`.bead-b`,
+`.bead-c`, `.bead-d`) rather than a single CSS-custom-property-per-letter
+scheme - fewer moving parts for three fixed colours. `.accent` keeps the
+shared `font-weight: 500` and drops the `color` it used to set directly.
+`.constant`, the `aria-hidden` structure, and the settle animation
+(`.animate .accent`, keyed off `--i`) are untouched.
+
+### Dark mode - checked, not a live bug
+`Header.module.css`'s `.header` and `.bar` use `--wash` and `--paper`, not
+`--color-bg`/`--color-surface` - confirmed by reading the file and then by
+screenshotting the homepage under `prefers-color-scheme: dark` via
+Playwright: the header stays visually identical (light background, same
+wordmark colours) in both modes. So `--ink`'s 1.12:1 contrast against the
+dark-mode page background, flagged as a hypothetical risk in
+`current-feature.md`, is not reachable through the header - it's a
+pre-existing fact about tokens that are structural, not something this
+feature introduced or needs to fix.
+
+### Verification
+- `frontend/public/favicon.svg`, rendered via Chromium (Playwright) at real
+  16x16, on light and dark backgrounds: A+ legible in both, plus badge
+  distinct from the A with a visible gap in both. Screenshots taken, not
+  just described.
+- `icon-maskable-512.png` checked against a drawn 40%-radius safe-zone
+  circle: clears it.
+- Homepage screenshotted under both colour schemes: three distinct bead
+  colours, both `b`s matching, header chrome unchanged in dark mode,
+  descriptor/sign-in/nav all unaffected.
+- `npm run lint`: clean (four pre-existing warnings, none in touched files).
+- `npm run build`: succeeds.
+- `pytest`: 384 passed, unchanged - this feature touches no backend code.
+
+### Numbering
+Took the letter suffix as `current-feature.md` proposed: both changes are
+corrective/expansive work entirely inside 030's surface area (the favicon
+set, the `Wordmark` component), not new capability, so `030a` rather than
+the next whole number.
+
+No COMPLIANCE.md row: brand colour and tab iconography map to no locator in
+`docs/2026-Statement-on-Standards-for-CPE-Programs.pdf`.
+
+Out of scope, noted rather than silently done: `build_og_default.py` colours
+its wordmark accents with `ACCENT` (`--color-accent`'s dark-mode value,
+`#a78bfa`, a single purple), not `--bead`/`--bead-b/c/d` - it was already
+inconsistent with the header before this feature and Part 2's task list
+named only `global.css`, `Wordmark.jsx`, and `Wordmark.module.css`, so it
+was left alone rather than pulled into scope on its own.
