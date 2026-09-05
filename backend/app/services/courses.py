@@ -121,7 +121,7 @@ def list_published(db: Session) -> list[CourseListItem]:
             or_(Course.expires_on.is_(None), Course.expires_on >= today),
         )
         .group_by(Course.id)
-        .order_by(Course.id)
+        .order_by(Course.id.desc())
     )
     rows = db.execute(stmt).all()
     return [
